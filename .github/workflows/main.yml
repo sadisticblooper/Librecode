@@ -1,0 +1,65 @@
+name: Build APK
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Generate Gradle wrapper
+        working-directory: android
+        run: |
+          gradle wrapper --gradle-version 8.4
+          chmod +x gradlew
+
+      - name: Build stripped Python runtime
+        run: |
+          pip install flask requests --target=/tmp/pypackages
+
+          find /tmp/pypackages -name "*.pyc" -delete
+          find /tmp/pypackages -name "*.pyo" -delete
+          find /tmp/pypackages -name "*.so" -delete
+          find /tmp/pypackages -name "test" -type d -exec rm -rf {} + 2>/dev/null || true
+          find /tmp/pypackages -name "tests" -type d -exec rm -rf {} + 2>/dev/null || true
+          find /tmp/pypackages -name "*.dist-info" -type d -exec rm -rf {} + 2>/dev/null || true
+          find /tmp/pypackages -name "*.egg-info" -type d -exec rm -rf {} + 2>/dev/null || true
+
+          cp -r opencode_out /tmp/pypackages/
+        
+          cd /tmp/pypackages && zip -r /tmp/pyapp.zip . -x "*.pyc"
+
+          mkdir -p android/app/src/main/assets
+          cp /tmp/pyapp.zip android/app/src/main/assets/pyapp.zip
+          echo "pyapp.zip size: $(du -sh /tmp/pyapp.zip | cut -f1)"
+
+      - name: Build debug APK
+        working-directory: android
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: opencode-debug-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 1

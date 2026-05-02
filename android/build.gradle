@@ -1,0 +1,15 @@
+plugins {
+    id 'com.android.application' version '8.3.2' apply false
+    id 'com.chaquo.python' version '17.0.0' apply false
+}
+
+// Force single Kotlin stdlib version across all dependencies
+allprojects {
+    configurations.all {
+        resolutionStrategy {
+            force 'org.jetbrains.kotlin:kotlin-stdlib:1.9.22'
+            force 'org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.9.22'
+            force 'org.jetbrains.kotlin:kotlin-stdlib-jdk7:1.9.22'
+        }
+    }
+}

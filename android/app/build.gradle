@@ -1,0 +1,59 @@
+plugins {
+    id 'com.android.application'
+    id 'com.chaquo.python'
+}
+
+android {
+    namespace 'com.opencode.app'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.opencode.app"
+        minSdk 26
+        targetSdk 34
+        versionCode 1
+        versionName "1.0"
+
+        ndk {
+            abiFilters "arm64-v8a"
+        }
+
+        python {
+            version "3.11"
+            pip {
+                install "flask==3.0.3"
+                install "requests==2.32.3"
+            }
+        }
+    }
+
+    buildTypes {
+        debug { debuggable true }
+    }
+
+    packaging {
+        jniLibs {
+            useLegacyPackaging true
+            keepDebugSymbols += ["**/lib*-bin.so", "**/libtoybox.so"]
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    // Tell Chaquopy that our Python source root is opencode_out/
+    // so runner.py and python/ are both on sys.path at runtime
+    sourceSets {
+        main {
+            python.srcDirs = ["../../opencode_out"]
+            jniLibs.srcDirs = ["src/main/jniLibs"]
+        }
+    }
+}
+
+dependencies {
+    implementation 'androidx.appcompat:appcompat:1.7.0'
+    implementation 'androidx.webkit:webkit:1.11.0'
+}
