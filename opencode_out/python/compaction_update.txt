@@ -1,5 +1,0 @@
-Update the anchored summary below using the conversation history above.
-Preserve still-true details, remove stale details, and merge in the new facts.
-<previous-summary>
-{previous_summary}
-</previous-summary>

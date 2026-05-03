@@ -1,1 +1,0 @@
-Create a new anchored summary from the conversation history above.
