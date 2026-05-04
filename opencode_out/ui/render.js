@@ -17,8 +17,18 @@ function buildCodeBlock(lang, code) {
         '<span class="code-lang">' + escHtml(lang || 'code') + '</span>' +
         '<button class="copy-btn" onclick="copyCode(this)">copy</button>' +
         '</div>' +
-        '<pre><code class="lang-' + escHtml(lang) + '">' + escHtml(code.trimEnd()) + '</code></pre>' +
+        '<pre><code class="' + escHtml(lang) + '">' + escHtml(code.trimEnd()) + '</code></pre>' +
         '</div>';
+}
+
+export function highlightCodeBlocks(container) {
+    if (typeof hljs === 'undefined') return;
+    const blocks = container.querySelectorAll('pre code');
+    blocks.forEach(block => {
+        if (block.dataset.highlighted) return;
+        hljs.highlightElement(block);
+        block.dataset.highlighted = 'true';
+    });
 }
 
 export function parseMarkdown(text) {
@@ -67,7 +77,20 @@ window.copyCode = function(btn) {
 
 // ── Scroll ─────────────────────────────────────────────────────────────
 
-export function scrollBottom() { chatEl.scrollTop = chatEl.scrollHeight; }
+function isNearBottom() {
+    const threshold = 180;
+    return chatEl.scrollHeight - chatEl.scrollTop - chatEl.clientHeight < threshold;
+}
+
+export function scrollBottom() {
+    if (isNearBottom()) {
+        chatEl.scrollTop = chatEl.scrollHeight;
+    }
+}
+
+export function forceScrollBottom() {
+    chatEl.scrollTop = chatEl.scrollHeight;
+}
 
 // ── Message DOM builders ───────────────────────────────────────────────
 
@@ -83,29 +106,18 @@ export function addUserMsgStatic(content) {
 
 export function addUserMsg(content) {
     addUserMsgStatic(content);
-    scrollBottom();
+    forceScrollBottom();
 }
 
 export function addAssistantMsgStatic(content, reasoning) {
     const div    = document.createElement('div');
     div.className = 'msg assistant';
-    const prefix = document.createElement('span');
-    prefix.className   = 'msg-prefix';
-    prefix.textContent = 'assistant';
-    div.appendChild(prefix);
     if (reasoning) {
         const wrapper = document.createElement('div');
         wrapper.className = 'thinking-wrapper';
-        const header  = document.createElement('button');
-        header.className = 'thinking-header';
-        header.innerHTML =
-            '<span class="thinking-label">thought process</span>' +
-            '<svg class="thinking-chevron" width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>';
         const body = document.createElement('div');
-        body.className = 'thinking-body open';
+        body.className = 'thinking-body';
         body.textContent = reasoning;
-        header.addEventListener('click', () => body.classList.toggle('open'));
-        wrapper.appendChild(header);
         wrapper.appendChild(body);
         div.appendChild(wrapper);
     }
@@ -115,12 +127,13 @@ export function addAssistantMsgStatic(content, reasoning) {
         div.appendChild(contentDiv);
     }
     chatEl.appendChild(div);
+    highlightCodeBlocks(div);
 }
 
 export function createAssistantShell() {
     const div = document.createElement('div');
     div.className = 'msg assistant streaming';
-    div.innerHTML = '<span class="msg-prefix">assistant</span><span class="cursor"></span>';
+    div.innerHTML = '<span class="cursor"></span>';
     chatEl.appendChild(div);
     scrollBottom();
     return div;
@@ -129,7 +142,8 @@ export function createAssistantShell() {
 export function sealAssistant(div, text) {
     div.classList.remove('streaming');
     div.removeAttribute('data-live');
-    div.innerHTML = '<span class="msg-prefix">assistant</span>' + parseMarkdown(text);
+    div.innerHTML = parseMarkdown(text);
+    highlightCodeBlocks(div);
 }
 
 // ── Thinking block ─────────────────────────────────────────────────────
@@ -137,28 +151,14 @@ export function sealAssistant(div, text) {
 export function createThinkingBlock() {
     const wrapper = document.createElement('div');
     wrapper.className = 'thinking-wrapper';
-    wrapper.innerHTML =
-        '<button class="thinking-header">' +
-            '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><circle cx="12" cy="12" r="10"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>' +
-            '<span class="thinking-label">thinking\u2026</span>' +
-            '<svg class="thinking-chevron" width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>' +
-        '</button>' +
-        '<div class="thinking-body open"></div>';
+    wrapper.innerHTML = '<div class="thinking-body"></div>';
     chatEl.appendChild(wrapper);
     scrollBottom();
-    const header = wrapper.querySelector('.thinking-header');
-    const body   = wrapper.querySelector('.thinking-body');
-    let open = true;
-    header.onclick = () => {
-        open = !open;
-        body.classList.toggle('open', open);
-        wrapper.classList.toggle('collapsed', !open);
-    };
-    return { wrapper, body, header };
+    const body = wrapper.querySelector('.thinking-body');
+    return { wrapper, body };
 }
 
 export function sealThinking(block) {
-    block.header.querySelector('.thinking-label').textContent = 'thought process';
 }
 
 // ── Tool pills ─────────────────────────────────────────────────────────
@@ -240,7 +240,8 @@ export function createToolPill(name, args, group) {
     const div = document.createElement('div');
     div.className  = 'tool-pill';
     div.style.cursor = 'pointer';
-    div.innerHTML  = '<span class="tool-spinner"></span>' + _toolPillIcon(name) + '<span>' + _toolPillLabel(name, args) + '</span>';
+    div.innerHTML  = '<span class="tool-spinner"></span>' + _toolPillIcon(name) + '<span>' + _toolPillLabel(name, args) + '</span>' +
+        '<svg class="tool-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>';
     wrapper.appendChild(div);
 
     let expanded = false;
@@ -273,7 +274,8 @@ export function createSubagentPill(agentId, task, context, group) {
     const div  = document.createElement('div');
     div.className  = 'tool-pill subagent-pill';
     div.style.cursor = 'pointer';
-    div.innerHTML  = '<span class="tool-spinner"></span>' + icon + '<span>\u26a1&nbsp;<em>' + escHtml(agentId) + '</em>&nbsp;subagent</span>';
+    div.innerHTML  = '<span class="tool-spinner"></span>' + icon + '<span>\u26a1&nbsp;<em>' + escHtml(agentId) + '</em>&nbsp;subagent</span>' +
+        '<svg class="tool-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>';
     wrapper.appendChild(div);
 
     let expanded = false;

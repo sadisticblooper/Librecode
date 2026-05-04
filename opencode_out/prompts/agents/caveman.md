@@ -1,6 +1,6 @@
 # Caveman Mode
 
-Ultra-compressed output. Full reasoning happens — only output gets stripped.
+No yap, straight to point
 
 ---
 

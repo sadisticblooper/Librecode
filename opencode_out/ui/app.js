@@ -35,12 +35,12 @@ import {
 } from './api.js';
 
 import {
-    escHtml, parseMarkdown, scrollBottom,
+    escHtml, parseMarkdown, scrollBottom, forceScrollBottom,
     addUserMsgStatic, addUserMsg, addAssistantMsgStatic,
     createAssistantShell, sealAssistant,
     createThinkingBlock, sealThinking,
     createToolGroup, createToolPill, createSubagentPill,
-    showStatusBanner,
+    showStatusBanner, highlightCodeBlocks,
 } from './render.js';
 
 // Auto-save every 500 ms
@@ -178,9 +178,10 @@ async function switchChat(id) {
         const div   = createAssistantShell();
         div.dataset.live = id;
         if (state && state.hasContent) {
-            div.innerHTML = '<span class="msg-prefix">assistant</span>' + parseMarkdown(state.assistantText) + '<span class="cursor"></span>';
+            div.innerHTML = parseMarkdown(state.assistantText) + '<span class="cursor"></span>';
+            highlightCodeBlocks(div);
         }
-        scrollBottom();
+        forceScrollBottom();
     }
 
     updateContextBadge();
@@ -201,7 +202,7 @@ function renderHistory() {
         }
     }
     updateContextBadge();
-    scrollBottom();
+    forceScrollBottom();
 }
 
 // ── Folder picker ──────────────────────────────────────────────────────
@@ -496,7 +497,7 @@ async function send() {
         loadingDiv.className = 'msg-loading';
         loadingDiv.innerHTML = '<span class="loading-ring"></span>';
         chatEl.appendChild(loadingDiv);
-        scrollBottom();
+        forceScrollBottom();
     }
 
     const keepAliveTimer = setInterval(() => pingKeepalive(), 20000);
@@ -528,12 +529,9 @@ async function send() {
                     case 'thinking': {
                         if (!isActive()) break;
                         if (loadingDiv) { loadingDiv.remove(); loadingDiv = null; }
+                        if (toolPill) { toolPill.classList.add('done'); toolPill = null; }
+                        toolGroup = null;
                         if (!thinkingBlock) thinkingBlock = createThinkingBlock();
-                        if (!thinkingBlock._indicator) {
-                            thinkingBlock._indicator = true;
-                            thinkingBlock.header.querySelector('.thinking-label').innerHTML =
-                                'thinking <span class="thinking-dots"><span></span><span></span><span></span></span>';
-                        }
                         thinkingBlock.body.textContent += ev.text;
                         scrollBottom();
                         break;
@@ -556,7 +554,8 @@ async function send() {
                                 assistantDiv.dataset.live = sendingChatId;
                             }
                         }
-                        assistantDiv.innerHTML = '<span class="msg-prefix">assistant</span>' + parseMarkdown(assistantText) + '<span class="cursor"></span>';
+                        assistantDiv.innerHTML = parseMarkdown(assistantText) + '<span class="cursor"></span>';
+                        highlightCodeBlocks(assistantDiv);
                         scrollBottom();
                         break;
                     }
@@ -564,7 +563,7 @@ async function send() {
                         if (!isActive()) break;
                         if (loadingDiv) { loadingDiv.remove(); loadingDiv = null; }
                         if (thinkingBlock) { sealThinking(thinkingBlock); thinkingBlock = null; }
-                        if (assistantDiv) { sealAssistant(assistantDiv, assistantText); assistantDiv = null; assistantText = ''; }
+                        if (assistantDiv) { sealAssistant(assistantDiv, assistantText); }
                         if (!toolGroup) toolGroup = createToolGroup();
                         const pill = createToolPill(ev.name, ev.args, toolGroup);
                         if (ev.tc_id) activePills[ev.tc_id] = pill;
@@ -627,7 +626,7 @@ async function send() {
                         if (thinkingBlock) { sealThinking(thinkingBlock); thinkingBlock = null; }
                         if (!assistantDiv) assistantDiv = createAssistantShell();
                         assistantDiv.classList.remove('streaming');
-                        assistantDiv.innerHTML = '<span class="msg-prefix">assistant</span><span class="error-msg">\u26a0 ' + escHtml(ev.text) + '</span>';
+                        assistantDiv.innerHTML = '<span class="error-msg">\u26a0 ' + escHtml(ev.text) + '</span>';
                         assistantDiv = null;
                         break;
                     }
@@ -654,7 +653,7 @@ async function send() {
         if (isActive()) {
             const d = assistantDiv || createAssistantShell();
             d.classList.remove('streaming');
-            d.innerHTML = '<span class="msg-prefix">assistant</span><span class="error-msg">\u26a0 ' + escHtml(e.message) + '</span>';
+            d.innerHTML = '<span class="error-msg">\u26a0 ' + escHtml(e.message) + '</span>';
         }
     }
 

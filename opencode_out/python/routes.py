@@ -374,6 +374,7 @@ def _register(app) -> None:
             full_content   = ""
             full_reasoning = ""
             last_heartbeat = time.time()
+            state.current_chat_id = chat_id
 
             previous_summary = state.chat_summaries.get(chat_id)
             flat_history     = history_to_api_messages(list(history))
@@ -415,6 +416,8 @@ def _register(app) -> None:
                 tool_calls_acc  = {}
                 round_content   = ""
                 round_reasoning = ""
+                round_blocks    = []   # ordered [{type, content}] for correct re-render
+                _last_block_type = None
 
                 for raw in api_resp.iter_lines():
                     if not raw:
@@ -440,12 +443,22 @@ def _register(app) -> None:
                     if thinking_chunk:
                         round_reasoning += thinking_chunk
                         full_reasoning  += thinking_chunk
+                        if _last_block_type != "thinking":
+                            round_blocks.append({"type": "thinking", "content": thinking_chunk})
+                            _last_block_type = "thinking"
+                        else:
+                            round_blocks[-1]["content"] += thinking_chunk
                         yield f"data: {json.dumps({'type': 'thinking', 'text': thinking_chunk})}\n\n"
 
                     content_chunk = delta.get("content") or ""
                     if content_chunk:
                         round_content += content_chunk
                         full_content  += content_chunk
+                        if _last_block_type != "text":
+                            round_blocks.append({"type": "text", "content": content_chunk})
+                            _last_block_type = "text"
+                        else:
+                            round_blocks[-1]["content"] += content_chunk
                         yield f"data: {json.dumps({'type': 'text', 'text': content_chunk})}\n\n"
 
                     for tc_delta in delta.get("tool_calls", []):
@@ -466,6 +479,7 @@ def _register(app) -> None:
                         "role":             "assistant",
                         "content":          full_content,
                         "reasoning_content": full_reasoning or None,
+                        "content_blocks":   round_blocks,
                         "tool_calls":       [],
                     }
                     new_rich_turns.append(rich_asst)
@@ -486,6 +500,7 @@ def _register(app) -> None:
                     "role":             "assistant",
                     "content":          round_content or "",
                     "reasoning_content": round_reasoning or None,
+                    "content_blocks":   round_blocks,
                     "tool_calls":       tc_list,
                 }
                 new_rich_turns.append(rich_asst)

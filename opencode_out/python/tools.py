@@ -44,132 +44,70 @@ def strip_html(html: str) -> str:
     return html.strip()
 
 
-def _android_webview_fetch(url: str) -> str | None:
-    try:
-        from com.opencode.app import MainActivity
-        activity = MainActivity.instance
-        if activity is None:
-            return None
-        html = activity.fetchUrlSync(url)
-        if html and len(html) > 200:
-            return html
-    except Exception:
-        pass
-    return None
-
-
 def websearch(query: str, num_results: int = 8) -> str:
-    import urllib.parse
-    from html.parser import HTMLParser
+    """Search the web using Exa's free MCP endpoint (no API key needed)."""
+    import json as _json
 
-    class DDGParser(HTMLParser):
-        def __init__(self):
-            super().__init__()
-            self.results = []
-            self._cur = None
-            self._capture = None
-            self._depth = 0
-            self._result_depth = None
-
-        def handle_starttag(self, tag, attrs):
-            attrs = dict(attrs)
-            cls = attrs.get('class', '')
-            if tag == 'div':
-                self._depth += 1
-                if 'result__body' in cls:
-                    self._cur = {'title': '', 'url': '', 'snippet': ''}
-                    self._result_depth = self._depth
-                    return
-            if self._cur is None:
-                return
-            if tag == 'a' and 'result__a' in cls:
-                self._capture = 'title'
-            elif tag == 'span' and 'result__url' in cls:
-                self._capture = 'url'
-            elif tag == 'a' and 'result__snippet' in cls:
-                self._capture = 'snippet'
-
-        def handle_endtag(self, tag):
-            if tag in ('a', 'span'):
-                self._capture = None
-            if tag == 'div':
-                if self._cur and self._result_depth == self._depth:
-                    if self._cur.get('title'):
-                        self.results.append(self._cur)
-                    self._cur = None
-                    self._result_depth = None
-                    self._capture = None
-                self._depth -= 1
-
-        def handle_data(self, data):
-            if self._capture and self._cur is not None:
-                self._cur[self._capture] += data
-
-    def _parse_and_format(html_text: str) -> str | None:
-        parser = DDGParser()
-        parser.feed(html_text)
-        results = parser.results[:num_results]
-        if not results:
-            return None
-        lines = [f"Search results for: **{query}**\n"]
-        for i, r in enumerate(results, 1):
-            lines.append(f"{i}. **{r['title'].strip()}**")
-            url = r['url'].strip()
-            if url:
-                lines.append(f"   {url}")
-            snippet = r['snippet'].strip()
-            if snippet:
-                lines.append(f"   {snippet}")
-            lines.append("")
-        return "\n".join(lines)
-
-    encoded = urllib.parse.quote(query)
-    html = _android_webview_fetch(f"https://html.duckduckgo.com/html/?q={encoded}")
-    if html:
-        result = _parse_and_format(html)
-        if result:
-            return result
+    exa_url = "https://mcp.exa.ai/mcp"
+    payload = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "web_search_exa",
+            "arguments": {
+                "query": query,
+                "type": "auto",
+                "numResults": num_results,
+                "livecrawl": "fallback",
+            },
+        },
+    }
+    headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json, text/event-stream",
+        "User-Agent": "opencode",
+    }
 
     try:
-        resp = requests.get(
-            "https://html.duckduckgo.com/html/",
-            params={"q": query},
-            headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"},
-            timeout=30,
-        )
-        if resp.status_code == 200:
-            result = _parse_and_format(resp.text)
-            if result:
-                return result
-    except Exception:
-        pass
+        resp = requests.post(exa_url, json=payload, headers=headers, timeout=25)
+        resp.raise_for_status()
+        body = resp.text
 
-    return f"No results found for: {query}"
+        # Parse SSE response
+        for line in body.split("\n"):
+            if not line.startswith("data: "):
+                continue
+            data_str = line[6:].strip()
+            try:
+                data = _json.loads(data_str)
+                content = data.get("result", {}).get("content", [])
+                if content and content[0].get("text"):
+                    return content[0]["text"]
+            except _json.JSONDecodeError:
+                continue
+
+        return f"No search results found for: {query}"
+    except Exception as e:
+        return f"Search error: {e}"
 
 
 def webfetch(url: str) -> str:
-    html = _android_webview_fetch(url)
-    if html:
-        return strip_html(html)[:30000]
+    """Fetch webpage content and return as text."""
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
 
     try:
-        resp = requests.get(
-            f"https://r.jina.ai/{url}",
-            headers={"Accept": "text/plain", "User-Agent": "Mozilla/5.0"},
-            timeout=30,
-        )
-        if resp.status_code == 200 and resp.text.strip():
-            return resp.text.strip()[:30000]
-    except Exception:
-        pass
+        resp = requests.get(url, headers=headers, timeout=30)
+        resp.raise_for_status()
 
-    try:
-        resp = requests.get(
-            url,
-            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
-            timeout=30,
-        )
-        return strip_html(resp.text)[:30000]
+        content_type = resp.headers.get("content-type", "")
+        if "text/html" in content_type:
+            return strip_html(resp.text)[:30000]
+        return resp.text[:30000]
     except Exception as e:
         return f"Fetch error: {e}"
 
@@ -339,43 +277,6 @@ def tool_glob(pattern: str, path: str = None) -> str:
         return f"Glob error: {e}"
 
 
-def tool_grep(pattern: str, path: str = None, include: str = None) -> str:
-    if not state.working_dir:
-        return "No working directory set. Use /set_working_dir to set it first."
-    base = resolve_path(path) if path else state.working_dir
-    if not is_within_dir(base, state.working_dir):
-        return f"Error: Path '{path}' is outside working directory"
-    try:
-        regex = re.compile(pattern)
-    except re.error as e:
-        return f"Invalid regex: {e}"
-    results = []
-    try:
-        for root, _dirs, files in os.walk(base):
-            if not is_within_dir(root, state.working_dir):
-                continue
-            for name in files:
-                if include and not fnmatch.fnmatch(name, include):
-                    continue
-                fpath = os.path.join(root, name)
-                try:
-                    with open(fpath, 'r', encoding='utf-8', errors='ignore') as f:
-                        for i, line in enumerate(f, 1):
-                            if regex.search(line):
-                                rel = os.path.relpath(fpath, base)
-                                results.append(f"{rel}:{i}: {line.rstrip()}")
-                                if len(results) >= 100:
-                                    break
-                except Exception:
-                    pass
-            if len(results) >= 100:
-                break
-    except Exception as e:
-        return f"Grep error: {e}"
-    if not results:
-        return f"No matches for '{pattern}'"
-    return "Matches:\n" + "\n".join(results[:100])
-
 
 def tool_read(filePath: str, offset: int = None, limit: int = None) -> str:
     if not state.working_dir:
@@ -423,22 +324,124 @@ def tool_edit(filePath: str, oldString: str, newString: str, replaceAll: bool = 
         return f"Error: Path '{filePath}' is outside working directory"
     if not os.path.isfile(full_path):
         return f"Error: File not found: {filePath}"
+    if oldString == newString:
+        return "Error: oldString and newString are identical"
     try:
         with open(full_path, 'r', encoding='utf-8', errors='ignore') as f:
             content = f.read()
+
+        # Try matching strategies in order of specificity
+        search = _find_match(content, oldString)
+        if search is None:
+            return "Error: Could not find oldString in the file. It must match exactly including whitespace."
+
         if replaceAll:
-            new_content = content.replace(oldString, newString)
-            count = content.count(oldString)
+            new_content = content.replace(search, newString)
+            count = content.count(search)
         else:
-            if oldString not in content:
-                return "Text not found in file"
-            new_content = content.replace(oldString, newString, 1)
+            idx = content.find(search)
+            last = content.rfind(search)
+            if idx != last:
+                return "Error: Found multiple matches. Provide more surrounding context to make the match unique."
+            new_content = content[:idx] + newString + content[idx + len(search):]
             count = 1
+
         with open(full_path, 'w', encoding='utf-8') as f:
             f.write(new_content)
         return f"Replaced {count} occurrence(s) in {filePath}"
     except Exception as e:
         return f"Edit error: {e}"
+
+
+def _find_match(content: str, old: str) -> str | None:
+    """Try multiple matching strategies. Returns the matched string or None."""
+
+    # 1. Exact match
+    if old in content:
+        return old
+
+    # 2. Line-trimmed match
+    result = _line_trimmed_match(content, old)
+    if result:
+        return result
+
+    # 3. Indentation-flexible match
+    result = _indent_flexible_match(content, old)
+    if result:
+        return result
+
+    # 4. Whitespace-normalized match
+    result = _whitespace_normalized_match(content, old)
+    if result:
+        return result
+
+    return None
+
+
+def _line_trimmed_match(content: str, old: str) -> str | None:
+    """Match ignoring leading/trailing whitespace on each line."""
+    content_lines = content.split('\n')
+    old_lines = old.split('\n')
+    if old_lines and old_lines[-1] == '':
+        old_lines.pop()
+
+    for i in range(len(content_lines) - len(old_lines) + 1):
+        match = True
+        for j in range(len(old_lines)):
+            if content_lines[i + j].strip() != old_lines[j].strip():
+                match = False
+                break
+        if match:
+            start = sum(len(content_lines[k]) + 1 for k in range(i))
+            end = start + sum(len(content_lines[i + k]) for k in range(len(old_lines)))
+            end += len(old_lines) - 1  # newlines between lines
+            return content[start:end]
+    return None
+
+
+def _indent_flexible_match(content: str, old: str) -> str | None:
+    """Match ignoring indentation differences."""
+    def remove_indent(text):
+        lines = text.split('\n')
+        non_empty = [l for l in lines if l.strip()]
+        if not non_empty:
+            return text
+        min_indent = min(len(l) - len(l.lstrip()) for l in non_empty)
+        return '\n'.join(l[min_indent:] if l.strip() else l for l in lines)
+
+    content_lines = content.split('\n')
+    old_lines = old.split('\n')
+    if old_lines and old_lines[-1] == '':
+        old_lines.pop()
+
+    normalized_old = remove_indent(old)
+
+    for i in range(len(content_lines) - len(old_lines) + 1):
+        block = '\n'.join(content_lines[i:i + len(old_lines)])
+        if remove_indent(block) == normalized_old:
+            return block
+    return None
+
+
+def _whitespace_normalized_match(content: str, old: str) -> str | None:
+    """Match with normalized whitespace (collapse multiple spaces)."""
+    import re as _re
+    def norm(text):
+        return _re.sub(r'\s+', ' ', text).strip()
+
+    if norm(old) == norm(content):
+        return content
+
+    content_lines = content.split('\n')
+    old_lines = old.split('\n')
+    if old_lines and old_lines[-1] == '':
+        old_lines.pop()
+
+    for i in range(len(content_lines) - len(old_lines) + 1):
+        block = '\n'.join(content_lines[i:i + len(old_lines)])
+        if norm(block) == norm(old):
+            return block
+    return None
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -668,11 +671,92 @@ def tool_shell(command: str, cwd: str = None) -> str:
 
 
 # ══════════════════════════════════════════════════════════════════════
+# Todo tools
+# ══════════════════════════════════════════════════════════════════════
+
+def tool_todo_write(todos: list) -> str:
+    """Replace the current todo list with the provided items."""
+    chat_id = state.current_chat_id or "default"
+    if not isinstance(todos, list):
+        return "Error: todos must be a list of {id, content, status} objects"
+    validated = []
+    for item in todos:
+        if not isinstance(item, dict):
+            continue
+        validated.append({
+            "id":      str(item.get("id", len(validated) + 1)),
+            "content": str(item.get("content", "")),
+            "status":  item.get("status", "pending") if item.get("status") in ("pending", "in_progress", "completed") else "pending",
+        })
+    state.todo_lists[chat_id] = validated
+    lines = []
+    for t in validated:
+        icon = {"pending": "○", "in_progress": "◑", "completed": "✓"}.get(t["status"], "○")
+        lines.append(f"{icon} [{t['id']}] {t['content']}")
+    return "Todo list updated:\n" + "\n".join(lines) if lines else "Todo list cleared."
+
+
+def tool_todo_read() -> str:
+    """Return the current todo list."""
+    chat_id = state.current_chat_id or "default"
+    todos = state.todo_lists.get(chat_id, [])
+    if not todos:
+        return "No todos."
+    lines = []
+    for t in todos:
+        icon = {"pending": "○", "in_progress": "◑", "completed": "✓"}.get(t["status"], "○")
+        lines.append(f"{icon} [{t['id']}] {t['content']}")
+    return "\n".join(lines)
+
+
+# ══════════════════════════════════════════════════════════════════════
 # TOOLS list  (OpenAI-compatible tool specs)
 # ══════════════════════════════════════════════════════════════════════
 
 TOOLS: list = [
     agents_mod.SPAWN_AGENT_TOOL,
+    {
+        "type": "function",
+        "function": {
+            "name": "todo_write",
+            "description": (
+                "Write or update the task todo list. Use this to plan tasks, track progress, and maintain "
+                "visibility into what you're doing. Call this BEFORE starting any multi-step task to create "
+                "the plan, then update statuses as you work (pending → in_progress → completed). "
+                "Mark items completed immediately when done — do not batch updates."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "todos": {
+                        "type": "array",
+                        "description": "Full todo list. Replaces the current list entirely.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "id":      {"type": "string",  "description": "Unique short ID, e.g. '1', '2'"},
+                                "content": {"type": "string",  "description": "Task description"},
+                                "status":  {"type": "string",  "description": "One of: pending, in_progress, completed"},
+                            },
+                            "required": ["id", "content", "status"],
+                        },
+                    },
+                },
+                "required": ["todos"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "todo_read",
+            "description": "Read the current todo list. Use this to check what's pending before starting work or after completing a step.",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+            },
+        },
+    },
     {
         "type": "function",
         "function": {
@@ -712,22 +796,6 @@ TOOLS: list = [
                 "properties": {
                     "pattern": {"type": "string", "description": "Glob pattern (e.g., **/*.js)"},
                     "path":    {"type": "string", "description": "Base directory (defaults to working directory)"},
-                },
-                "required": ["pattern"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "grep",
-            "description": "Search file contents for a pattern.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "pattern": {"type": "string", "description": "Regex pattern to search for"},
-                    "path":    {"type": "string", "description": "Directory or file to search (defaults to working directory)"},
-                    "include": {"type": "string", "description": "File pattern to include (*.js, *.py, etc.)"},
                 },
                 "required": ["pattern"],
             },
@@ -902,14 +970,16 @@ def reload_agents() -> None:
 def run_tool(name: str, args: dict) -> str:
     """Dispatch a tool call by name and return its string result."""
     try:
-        if name == "web_search":
+        if name == "todo_write":
+            result = tool_todo_write(args.get("todos", []))
+        elif name == "todo_read":
+            result = tool_todo_read()
+        elif name == "web_search":
             result = websearch(args.get("query", ""), args.get("num_results", 8))
         elif name == "web_fetch":
             result = webfetch(args.get("url", ""))
         elif name == "glob":
             result = tool_glob(args.get("pattern", "*"), args.get("path"))
-        elif name == "grep":
-            result = tool_grep(args.get("pattern", ""), args.get("path"), args.get("include"))
         elif name == "rg":
             result = tool_rg(
                 args.get("pattern", ""),
