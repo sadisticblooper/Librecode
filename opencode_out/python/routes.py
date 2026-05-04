@@ -15,7 +15,7 @@ from datetime import datetime
 import requests
 from flask import request, jsonify, send_file, send_from_directory, Response, stream_with_context
 
-from python.config import API_URL, MODEL, MAX_TOKENS, COMPACTION_THRESHOLD
+from python.config import COMPACTION_API_URL, COMPACTION_MODEL, COMPACTION_MAX_TOKENS, MAX_TOKENS, COMPACTION_THRESHOLD
 import python.state as state
 import python.agents as agents_mod
 from python.storage import get_opencode_dir, chats_index_file, chat_file, resolve_path, is_within_dir
@@ -27,6 +27,7 @@ from python.compaction import (
     split_head_tail,
     generate_summary,
 )
+from python.providers import get_provider, all_models
 
 # Lazily resolved by init_app()
 _flask_app = None
@@ -263,7 +264,7 @@ def _register(app) -> None:
     def manual_compact():
         data    = request.json or {}
         chat_id = data.get("chat_id", "default")
-        model   = data.get("model", MODEL)
+        model   = data.get("model", COMPACTION_MODEL)
 
         if chat_id not in state.chat_histories or not state.chat_histories[chat_id]:
             return jsonify({"status": "ok", "compacted": False, "history": []})
@@ -276,7 +277,7 @@ def _register(app) -> None:
         if not head:
             return jsonify({"status": "ok", "compacted": False, "history": history})
 
-        summary = generate_summary(API_URL, model, head, previous_summary)
+        summary = generate_summary(COMPACTION_API_URL, COMPACTION_MODEL, head, previous_summary)
         if not summary:
             return jsonify({"status": "error", "message": "Summary generation failed", "history": history})
 
@@ -319,13 +320,19 @@ def _register(app) -> None:
         _reload_agents()
         return jsonify({"status": "ok", "agents": list(agents_mod.AGENT_PROFILES.keys())})
 
+    # ── Models / providers ───────────────────────────────────────────────────
+
+    @app.route("/models", methods=["GET"])
+    def list_models():
+        return jsonify(all_models())
+
     # ── Main chat endpoint ───────────────────────────────────────────────
 
     @app.route("/chat", methods=["POST"])
     def chat():
         data       = request.json
         user_msg   = data.get("message", "")
-        model      = data.get("model", MODEL)
+        model      = data.get("model", "minimax-m2.5-free")
         agent_name = data.get("agent", "build")
         chat_id    = data.get("chat_id", "default")
 
@@ -376,17 +383,22 @@ def _register(app) -> None:
             last_heartbeat = time.time()
             state.current_chat_id = chat_id
 
+            provider = get_provider(model)
+            if not provider:
+                yield f"data: {json.dumps({'type': 'error', 'text': f'Unknown model: {model}'})}\n\n"
+                return
+
             previous_summary = state.chat_summaries.get(chat_id)
             flat_history     = history_to_api_messages(list(history))
 
             compacted, new_summary, did_compact = compact_messages(
                 messages         = flat_history,
                 system_messages  = [system_msg],
-                api_url          = API_URL,
-                model            = model,
+                api_url          = COMPACTION_API_URL,
+                model            = COMPACTION_MODEL,
                 previous_summary = previous_summary,
                 context_limit    = COMPACTION_THRESHOLD,
-                max_output_tokens = MAX_TOKENS,
+                max_output_tokens = COMPACTION_MAX_TOKENS,
             )
             if did_compact:
                 state.chat_summaries[chat_id] = new_summary
@@ -396,93 +408,59 @@ def _register(app) -> None:
             new_rich_turns = []
 
             for _round in range(1000):
-                payload = {
-                    "model":      model,
-                    "messages":   messages,
-                    "stream":     True,
-                    "max_tokens": MAX_TOKENS,
-                }
-                if active_tools:
-                    payload["tools"]       = active_tools
-                    payload["tool_choice"] = "auto"
-
-                try:
-                    api_resp = requests.post(API_URL, json=payload, stream=True, timeout=600)
-                    api_resp.raise_for_status()
-                except Exception as e:
-                    yield f"data: {json.dumps({'type': 'error', 'text': str(e)})}\n\n"
-                    return
-
                 tool_calls_acc  = {}
                 round_content   = ""
                 round_reasoning = ""
-                round_blocks    = []   # ordered [{type, content}] for correct re-render
+                round_blocks    = []
                 _last_block_type = None
 
-                for raw in api_resp.iter_lines():
-                    if not raw:
-                        continue
+                for event in provider.stream_chat(model, messages, active_tools, MAX_TOKENS):
                     if time.time() - last_heartbeat > 8:
                         yield f"data: {json.dumps({'type': 'heartbeat'})}\n\n"
                         last_heartbeat = time.time()
-                    line = raw.decode("utf-8", errors="replace")
-                    if not line.startswith("data: "):
-                        continue
-                    data_str = line[6:].strip()
-                    if data_str == "[DONE]":
-                        break
-                    try:
-                        chunk = json.loads(data_str)
-                    except json.JSONDecodeError:
-                        continue
 
-                    choice = (chunk.get("choices") or [{}])[0]
-                    delta  = choice.get("delta", {})
-
-                    thinking_chunk = delta.get("reasoning_content") or delta.get("reasoning") or delta.get("thinking") or ""
-                    if thinking_chunk:
-                        round_reasoning += thinking_chunk
-                        full_reasoning  += thinking_chunk
+                    if event["type"] == "error":
+                        yield f"data: {json.dumps({'type': 'error', 'text': event['text']})}\n\n"
+                        return
+                    elif event["type"] == "thinking":
+                        round_reasoning += event["text"]
+                        full_reasoning  += event["text"]
                         if _last_block_type != "thinking":
-                            round_blocks.append({"type": "thinking", "content": thinking_chunk})
+                            round_blocks.append({"type": "thinking", "content": event["text"]})
                             _last_block_type = "thinking"
                         else:
-                            round_blocks[-1]["content"] += thinking_chunk
-                        yield f"data: {json.dumps({'type': 'thinking', 'text': thinking_chunk})}\n\n"
-
-                    content_chunk = delta.get("content") or ""
-                    if content_chunk:
-                        round_content += content_chunk
-                        full_content  += content_chunk
+                            round_blocks[-1]["content"] += event["text"]
+                        yield f"data: {json.dumps({'type': 'thinking', 'text': event['text']})}\n\n"
+                    elif event["type"] == "text":
+                        round_content += event["text"]
+                        full_content  += event["text"]
                         if _last_block_type != "text":
-                            round_blocks.append({"type": "text", "content": content_chunk})
+                            round_blocks.append({"type": "text", "content": event["text"]})
                             _last_block_type = "text"
                         else:
-                            round_blocks[-1]["content"] += content_chunk
-                        yield f"data: {json.dumps({'type': 'text', 'text': content_chunk})}\n\n"
-
-                    for tc_delta in delta.get("tool_calls", []):
-                        idx = tc_delta.get("index", 0)
-                        if idx not in tool_calls_acc:
-                            tool_calls_acc[idx] = {"id": "", "name": "", "arguments": ""}
-                        if tc_delta.get("id"):
-                            tool_calls_acc[idx]["id"] = tc_delta["id"]
-                        fn = tc_delta.get("function", {})
-                        if fn.get("name"):
-                            tool_calls_acc[idx]["name"] += fn["name"]
-                        if fn.get("arguments"):
-                            tool_calls_acc[idx]["arguments"] += fn["arguments"]
+                            round_blocks[-1]["content"] += event["text"]
+                        yield f"data: {json.dumps({'type': 'text', 'text': event['text']})}\n\n"
+                    elif event["type"] == "tool_delta":
+                        idx = event.get("index", 0)
+                        tool_calls_acc[idx] = {
+                            "id": event.get("id", ""),
+                            "name": event.get("name", ""),
+                            "arguments": event.get("arguments", ""),
+                        }
+                    elif event["type"] == "done":
+                        if not tool_calls_acc:
+                            rich_asst = {
+                                "id":               _next_id(chat_id, "a"),
+                                "role":             "assistant",
+                                "content":          full_content,
+                                "reasoning_content": full_reasoning or None,
+                                "content_blocks":   round_blocks,
+                                "tool_calls":       [],
+                            }
+                            new_rich_turns.append(rich_asst)
+                        break
 
                 if not tool_calls_acc:
-                    rich_asst = {
-                        "id":               _next_id(chat_id, "a"),
-                        "role":             "assistant",
-                        "content":          full_content,
-                        "reasoning_content": full_reasoning or None,
-                        "content_blocks":   round_blocks,
-                        "tool_calls":       [],
-                    }
-                    new_rich_turns.append(rich_asst)
                     break
 
                 tc_list = []

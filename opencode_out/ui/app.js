@@ -359,19 +359,56 @@ modelBtn.onclick = (e) => {
     modelBtn.classList.toggle('open', !isHidden);
 };
 
-modelDropdown.querySelectorAll('.model-option').forEach(btn => {
-    btn.onclick = (e) => {
-        e.stopPropagation();
-        setSelectedModel(btn.dataset.model);
-        setSelectedModelCtx(parseInt(btn.dataset.ctx || '128000', 10));
-        modelLabel.textContent = btn.dataset.label;
-        modelDropdown.querySelectorAll('.model-option').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        modelDropdown.classList.add('hidden');
-        modelBtn.classList.remove('open');
-        updateContextBadge();
-    };
-});
+function renderModelDropdown(providersData) {
+    modelDropdown.innerHTML = '';
+    const providerNames = Object.keys(providersData);
+    for (const pname of providerNames) {
+        const section = document.createElement('div');
+        section.className = 'model-section';
+        const header = document.createElement('button');
+        header.className = 'model-section-header';
+        header.innerHTML = '<span>' + pname + '</span><svg class="section-chevron" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>';
+        const content = document.createElement('div');
+        content.className = 'model-section-content';
+        content.style.display = pname === 'Free' ? 'block' : 'none';
+        header.onclick = (e) => {
+            e.stopPropagation();
+            const isOpen = content.style.display === 'block';
+            content.style.display = isOpen ? 'none' : 'block';
+            header.querySelector('.section-chevron').style.transform = isOpen ? 'rotate(0deg)' : 'rotate(180deg)';
+        };
+        const models = providersData[pname] || [];
+        for (const m of models) {
+            const btn = document.createElement('button');
+            btn.className = 'model-option' + (m.id === selectedModel ? ' active' : '');
+            btn.dataset.model = m.id;
+            btn.dataset.label = m.label;
+            btn.dataset.ctx = m.ctx || 128000;
+            btn.textContent = m.label;
+            btn.onclick = (e) => {
+                e.stopPropagation();
+                setSelectedModel(btn.dataset.model);
+                setSelectedModelCtx(parseInt(btn.dataset.ctx || '128000', 10));
+                modelLabel.textContent = btn.dataset.label;
+                modelDropdown.querySelectorAll('.model-option').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                updateContextBadge();
+            };
+            content.appendChild(btn);
+        }
+        section.appendChild(header);
+        section.appendChild(content);
+        modelDropdown.appendChild(section);
+    }
+}
+
+async function loadModels() {
+    try {
+        const resp = await fetch('/models');
+        const data = await resp.json();
+        renderModelDropdown(data);
+    } catch {}
+}
 
 // ── Agent selector ─────────────────────────────────────────────────────
 
@@ -683,6 +720,7 @@ input.oninput = () => {
 async function init() {
     await getStorageDir();
     await loadChats();
+    await loadModels();
     await loadAgents();
 
     if (chats.length && activeChatId) {
