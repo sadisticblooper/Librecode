@@ -459,22 +459,6 @@ body { display: flex; }
 }
 .model-dropdown.hidden { display: none; }
 
-.model-section { margin-bottom: 2px; }
-
-.model-section-header {
-    display: flex; align-items: center; justify-content: space-between;
-    width: 100%; padding: 8px 10px;
-    background: none; border: none;
-    color: var(--text-dim); font-size: 10px; font-family: var(--font);
-    font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
-    cursor: pointer; transition: all .08s;
-    border-radius: var(--radius-xs);
-}
-.model-section-header:hover { background: var(--surface3); color: var(--text-muted); }
-.model-section-header svg { transition: transform .2s; }
-
-.model-section-content { padding: 2px 0; }
-
 .model-dropdown-label {
     font-size: 10px; font-weight: 700; color: var(--text-dim);
     letter-spacing: .1em; text-transform: uppercase;
