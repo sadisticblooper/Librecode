@@ -478,6 +478,35 @@ body { display: flex; }
 .model-option:hover { background: var(--surface3); color: var(--text); }
 .model-option.active { color: var(--accent); background: var(--accent-dim); }
 
+/* ─── Model accordion sections ─────────────────────────── */
+.model-section { border-bottom: 1px solid var(--border); }
+.model-section:last-child { border-bottom: none; }
+
+.model-section-header {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 10px; cursor: pointer;
+    color: var(--text-dim); font-size: 11px; font-weight: 600;
+    transition: background .1s, color .1s;
+    user-select: none;
+}
+.model-section-header:hover { background: var(--surface3); color: var(--text-muted); }
+.model-section-header svg:first-child { flex-shrink: 0; }
+.model-section-header span { flex: 1; }
+
+.section-chevron { flex-shrink: 0; transition: transform .2s; opacity: .5; }
+.section-chevron.closed { transform: rotate(-90deg); }
+.model-section-header:hover .section-chevron { opacity: .8; }
+
+.model-section-body {
+    max-height: 0; overflow: hidden;
+    transition: max-height .2s ease;
+}
+.model-section-body.open { max-height: 400px; }
+
+.model-section-empty {
+    padding: 8px 10px; font-size: 12px; color: var(--text-dim);
+}
+
 /* ─── Agent selector ───────────────────────────────────── */
 .agent-selector-wrap { position: relative; }
 

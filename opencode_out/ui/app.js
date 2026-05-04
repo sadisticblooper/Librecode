@@ -31,7 +31,7 @@ import {
 import {
     getStorageDir, saveChats, loadChats,
     switchChatApi, syncWorkingDirs as _syncWorkingDirs,
-    deleteChatApi, compactChatApi, loadAgentsApi, pingKeepalive, chatStream,
+    deleteChatApi, compactChatApi, loadAgentsApi, loadModelsApi, pingKeepalive, chatStream,
 } from './api.js';
 
 import {
@@ -353,25 +353,83 @@ menuBtn.onclick = () => sidebar.classList.toggle('collapsed');
 
 // ── Model selector ─────────────────────────────────────────────────────
 
+function bindModelSectionToggle() {
+    document.querySelectorAll('.model-section-header').forEach(header => {
+        header.onclick = () => {
+            const section = header.parentElement;
+            const body = section.querySelector('.model-section-body');
+            const chevron = header.querySelector('.section-chevron');
+            const isOpen = body.classList.toggle('open');
+            chevron.classList.toggle('closed', !isOpen);
+        };
+    });
+}
+
+function bindModelOptions() {
+    modelDropdown.querySelectorAll('.model-option').forEach(btn => {
+        btn.onclick = (e) => {
+            e.stopPropagation();
+            setSelectedModel(btn.dataset.model);
+            setSelectedModelCtx(parseInt(btn.dataset.ctx || '128000', 10));
+            modelLabel.textContent = btn.dataset.label;
+            modelDropdown.querySelectorAll('.model-option').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            modelDropdown.classList.add('hidden');
+            modelBtn.classList.remove('open');
+            updateContextBadge();
+        };
+    });
+}
+
+async function loadModels() {
+    try {
+        const data = await loadModelsApi();
+        const providers = ['free', 'ollama', 'gemini'];
+
+        providers.forEach(provider => {
+            const section = modelDropdown.querySelector(`.model-section[data-provider="${provider}"]`);
+            if (!section) return;
+            const body = section.querySelector('.model-section-body');
+            body.innerHTML = '';
+
+            const models = data[provider] || [];
+            if (!models.length) {
+                body.innerHTML = '<div class="model-section-empty">No models</div>';
+                return;
+            }
+
+            models.forEach(model => {
+                const btn = document.createElement('button');
+                btn.className = 'model-option' + (model.id === selectedModel ? ' active' : '');
+                btn.dataset.model = model.id;
+                btn.dataset.label = model.label;
+                btn.dataset.ctx = model.ctx;
+                btn.textContent = model.label;
+                body.appendChild(btn);
+            });
+        });
+
+        // Set default if none selected
+        const firstFree = (data.free && data.free[0]) || null;
+        if (firstFree && !selectedModel) {
+            setSelectedModel(firstFree.id);
+            setSelectedModelCtx(firstFree.ctx);
+            modelLabel.textContent = firstFree.label;
+        }
+
+        bindModelSectionToggle();
+        bindModelOptions();
+    } catch {
+        bindModelSectionToggle();
+        bindModelOptions();
+    }
+}
+
 modelBtn.onclick = (e) => {
     e.stopPropagation();
     const isHidden = modelDropdown.classList.toggle('hidden');
     modelBtn.classList.toggle('open', !isHidden);
 };
-
-modelDropdown.querySelectorAll('.model-option').forEach(btn => {
-    btn.onclick = (e) => {
-        e.stopPropagation();
-        setSelectedModel(btn.dataset.model);
-        setSelectedModelCtx(parseInt(btn.dataset.ctx || '128000', 10));
-        modelLabel.textContent = btn.dataset.label;
-        modelDropdown.querySelectorAll('.model-option').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        modelDropdown.classList.add('hidden');
-        modelBtn.classList.remove('open');
-        updateContextBadge();
-    };
-});
 
 // ── Agent selector ─────────────────────────────────────────────────────
 
@@ -684,6 +742,7 @@ async function init() {
     await getStorageDir();
     await loadChats();
     await loadAgents();
+    await loadModels();
 
     if (chats.length && activeChatId) {
         const chat = activeChat();
