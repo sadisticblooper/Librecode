@@ -8,17 +8,18 @@ from typing import Generator
 
 PROVIDER_NAME = "free"
 MODELS = [
-    {"id": "minimax-m2.5-free", "label": "MiniMax M2.5 Free", "ctx": 128000},
+    {"id": "minimax-m2.5-free",  "label": "MiniMax M2.5 Free",  "ctx": 128000},
+    {"id": "nvidia-nemotron-24b","label": "NVIDIA Nemotron 24B", "ctx": 128000},
+    {"id": "gpt-4o-nano",        "label": "GPT-4o Nano",         "ctx": 128000},
 ]
 
 def stream_chat(model_id: str, messages: list[dict], tools: list | None = None,
                 max_tokens: int | None = None) -> Generator[dict, None, None]:
     """Stream chat completions from opencode.ai SSE endpoint."""
-    # model_id is ignored — we always use minimax-m2.5-free
     url = "https://opencode.ai/zen/v1/chat/completions"
 
     payload = {
-        "model": "minimax-m2.5-free",
+        "model": model_id,
         "messages": messages,
         "stream": True,
         "max_tokens": max_tokens or 4096,

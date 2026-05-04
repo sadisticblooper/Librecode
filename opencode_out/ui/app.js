@@ -381,48 +381,63 @@ function bindModelOptions() {
     });
 }
 
+// Default free models (fallback if API doesn't return them)
+const DEFAULT_FREE_MODELS = [
+    { id: 'minimax-m2.5-free',  label: 'MiniMax M2.5 Free',  ctx: 128000 },
+    { id: 'nvidia-nemotron-24b', label: 'NVIDIA Nemotron 24B', ctx: 128000 },
+    { id: 'gpt-4o-nano',         label: 'GPT-4o Nano',         ctx: 128000 },
+];
+
 async function loadModels() {
+    let data = {};
     try {
-        const data = await loadModelsApi();
-        const providers = ['free', 'ollama', 'gemini'];
+        data = await loadModelsApi();
+    } catch {
+        // Use empty data, fallbacks will be applied below
+    }
+    
+    const providers = ['free', 'ollama', 'gemini'];
 
-        providers.forEach(provider => {
-            const section = modelDropdown.querySelector(`.model-section[data-provider="${provider}"]`);
-            if (!section) return;
-            const body = section.querySelector('.model-section-body');
-            body.innerHTML = '';
+    providers.forEach(provider => {
+        const section = modelDropdown.querySelector(`.model-section[data-provider="${provider}"]`);
+        if (!section) return;
+        const body = section.querySelector('.model-section-body');
+        body.innerHTML = '';
 
-            const models = data[provider] || [];
-            if (!models.length) {
-                body.innerHTML = '<div class="model-section-empty">No models</div>';
-                return;
-            }
-
-            models.forEach(model => {
-                const btn = document.createElement('button');
-                btn.className = 'model-option' + (model.id === selectedModel ? ' active' : '');
-                btn.dataset.model = model.id;
-                btn.dataset.label = model.label;
-                btn.dataset.ctx = model.ctx;
-                btn.textContent = model.label;
-                body.appendChild(btn);
-            });
-        });
-
-        // Set default if none selected
-        const firstFree = (data.free && data.free[0]) || null;
-        if (firstFree && !selectedModel) {
-            setSelectedModel(firstFree.id);
-            setSelectedModelCtx(firstFree.ctx);
-            modelLabel.textContent = firstFree.label;
+        let models = data[provider] || [];
+        
+        // Apply hardcoded defaults for free provider if empty or missing
+        if (provider === 'free' && (!models || models.length === 0)) {
+            models = DEFAULT_FREE_MODELS;
+        }
+        
+        if (!models.length) {
+            body.innerHTML = '<div class="model-section-empty">No models</div>';
+            return;
         }
 
-        bindModelSectionToggle();
-        bindModelOptions();
-    } catch {
-        bindModelSectionToggle();
-        bindModelOptions();
+        models.forEach(model => {
+            const btn = document.createElement('button');
+            btn.className = 'model-option' + (model.id === selectedModel ? ' active' : '');
+            btn.dataset.model = model.id;
+            btn.dataset.label = model.label;
+            btn.dataset.ctx = model.ctx;
+            btn.textContent = model.label;
+            body.appendChild(btn);
+        });
+    });
+
+    // Set default if none selected - prefer first free model
+    const freeModels = data.free && data.free.length > 0 ? data.free : DEFAULT_FREE_MODELS;
+    const firstFree = freeModels[0] || null;
+    if (firstFree && !selectedModel) {
+        setSelectedModel(firstFree.id);
+        setSelectedModelCtx(firstFree.ctx);
+        modelLabel.textContent = firstFree.label;
     }
+
+    bindModelSectionToggle();
+    bindModelOptions();
 }
 
 modelBtn.onclick = (e) => {

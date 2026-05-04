@@ -48,6 +48,7 @@ _DEFAULT_INDEX_JSON = [
 # ── Helpers ────────────────────────────────────────────────────────────
 
 def _copy_missing_prompts(src: str, dst: str) -> None:
+    """Copy missing files from src to dst directory."""
     if not os.path.isdir(src):
         return
     os.makedirs(dst, exist_ok=True)
@@ -58,7 +59,11 @@ def _copy_missing_prompts(src: str, dst: str) -> None:
         for name in files:
             target = os.path.join(target_root, name)
             if not os.path.exists(target):
-                shutil.copy2(os.path.join(root, name), target)
+                try:
+                    shutil.copy2(os.path.join(root, name), target)
+                except Exception as e:
+                    # Log but don't fail - the bundled version will be used as fallback
+                    pass
 
 
 def get_prompts_dir() -> str:
