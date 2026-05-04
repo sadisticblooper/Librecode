@@ -431,6 +431,18 @@ modelBtn.onclick = (e) => {
     modelBtn.classList.toggle('open', !isHidden);
 };
 
+// Clicking inside dropdown should not close it
+modelDropdown.onclick = (e) => e.stopPropagation();
+
+document.addEventListener('click', (e) => {
+    // Don't close if click is inside model dropdown or agent dropdown
+    if (modelDropdown.contains(e.target) || (agentDropdown && agentDropdown.contains(e.target))) return;
+    chatMenu.classList.add('hidden');
+    modelDropdown.classList.add('hidden');
+    modelBtn.classList.remove('open');
+    if (agentDropdown) { agentDropdown.classList.add('hidden'); agentBtn.classList.remove('open'); }
+});
+
 // ── Agent selector ─────────────────────────────────────────────────────
 
 function bindAgentOptions() {
