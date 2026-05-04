@@ -10,7 +10,7 @@ import requests
 
 import python.agents as agents_mod
 import python.state as state
-from python.config import COMPACTION_API_URL, COMPACTION_MODEL, MAX_TOKENS
+from python.config import API_URL, MODEL, MAX_TOKENS
 from python.tools import run_tool, get_tools_for_agent
 
 
@@ -71,7 +71,7 @@ def run_subagent(
 
     for _round in range(20):
         payload = {
-            "model":      model or COMPACTION_MODEL,
+            "model":      model or MODEL,
             "messages":   messages,
             "max_tokens": MAX_TOKENS,
         }
@@ -80,7 +80,7 @@ def run_subagent(
             payload["tool_choice"] = "auto"
 
         try:
-            resp = requests.post(COMPACTION_API_URL, json=payload, timeout=300)
+            resp = requests.post(API_URL, json=payload, timeout=300)
             resp.raise_for_status()
             data = resp.json()
         except Exception as e:
@@ -164,7 +164,7 @@ def run_subagent_streaming(
 
     for _round in range(20):
         payload = {
-            "model":      model or COMPACTION_MODEL,
+            "model":      model or MODEL,
             "messages":   messages,
             "max_tokens": MAX_TOKENS,
             "stream":     True,
@@ -174,7 +174,7 @@ def run_subagent_streaming(
             payload["tool_choice"] = "auto"
 
         try:
-            resp = requests.post(COMPACTION_API_URL, json=payload, stream=True, timeout=300)
+            resp = requests.post(API_URL, json=payload, stream=True, timeout=300)
             resp.raise_for_status()
         except Exception as e:
             return f"Error: subagent API call failed: {e}"

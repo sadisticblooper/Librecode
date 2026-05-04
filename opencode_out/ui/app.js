@@ -31,7 +31,7 @@ import {
 import {
     getStorageDir, saveChats, loadChats,
     switchChatApi, syncWorkingDirs as _syncWorkingDirs,
-    deleteChatApi, compactChatApi, loadAgentsApi, loadModelsApi, pingKeepalive, chatStream,
+    deleteChatApi, compactChatApi, loadAgentsApi, pingKeepalive, chatStream,
 } from './api.js';
 
 import {
@@ -353,109 +353,24 @@ menuBtn.onclick = () => sidebar.classList.toggle('collapsed');
 
 // ── Model selector ─────────────────────────────────────────────────────
 
-function bindModelSectionToggle() {
-    document.querySelectorAll('.model-section-header').forEach(header => {
-        header.onclick = () => {
-            const section = header.parentElement;
-            const body = section.querySelector('.model-section-body');
-            const chevron = header.querySelector('.section-chevron');
-            const isOpen = body.classList.toggle('open');
-            chevron.classList.toggle('closed', !isOpen);
-        };
-    });
-}
-
-function bindModelOptions() {
-    modelDropdown.querySelectorAll('.model-option').forEach(btn => {
-        btn.onclick = (e) => {
-            e.stopPropagation();
-            setSelectedModel(btn.dataset.model);
-            setSelectedModelCtx(parseInt(btn.dataset.ctx || '128000', 10));
-            modelLabel.textContent = btn.dataset.label;
-            modelDropdown.querySelectorAll('.model-option').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            modelDropdown.classList.add('hidden');
-            modelBtn.classList.remove('open');
-            updateContextBadge();
-        };
-    });
-}
-
-// Default free models (fallback if API doesn't return them)
-const DEFAULT_FREE_MODELS = [
-    { id: 'minimax-m2.5-free',  label: 'MiniMax M2.5 Free',  ctx: 128000 },
-    { id: 'nvidia-nemotron-24b', label: 'NVIDIA Nemotron 24B', ctx: 128000 },
-    { id: 'gpt-4o-nano',         label: 'GPT-4o Nano',         ctx: 128000 },
-];
-
-async function loadModels() {
-    let data = {};
-    try {
-        data = await loadModelsApi();
-    } catch {
-        // Use empty data, fallbacks will be applied below
-    }
-    
-    const providers = ['free', 'ollama', 'gemini'];
-
-    providers.forEach(provider => {
-        const section = modelDropdown.querySelector(`.model-section[data-provider="${provider}"]`);
-        if (!section) return;
-        const body = section.querySelector('.model-section-body');
-        body.innerHTML = '';
-
-        let models = data[provider] || [];
-        
-        // Apply hardcoded defaults for free provider if empty or missing
-        if (provider === 'free' && (!models || models.length === 0)) {
-            models = DEFAULT_FREE_MODELS;
-        }
-        
-        if (!models.length) {
-            body.innerHTML = '<div class="model-section-empty">No models</div>';
-            return;
-        }
-
-        models.forEach(model => {
-            const btn = document.createElement('button');
-            btn.className = 'model-option' + (model.id === selectedModel ? ' active' : '');
-            btn.dataset.model = model.id;
-            btn.dataset.label = model.label;
-            btn.dataset.ctx = model.ctx;
-            btn.textContent = model.label;
-            body.appendChild(btn);
-        });
-    });
-
-    // Set default if none selected - prefer first free model
-    const freeModels = data.free && data.free.length > 0 ? data.free : DEFAULT_FREE_MODELS;
-    const firstFree = freeModels[0] || null;
-    if (firstFree && !selectedModel) {
-        setSelectedModel(firstFree.id);
-        setSelectedModelCtx(firstFree.ctx);
-        modelLabel.textContent = firstFree.label;
-    }
-
-    bindModelSectionToggle();
-    bindModelOptions();
-}
-
 modelBtn.onclick = (e) => {
     e.stopPropagation();
     const isHidden = modelDropdown.classList.toggle('hidden');
     modelBtn.classList.toggle('open', !isHidden);
 };
 
-// Clicking inside dropdown should not close it
-modelDropdown.onclick = (e) => e.stopPropagation();
-
-document.addEventListener('click', (e) => {
-    // Don't close if click is inside model dropdown or agent dropdown
-    if (modelDropdown.contains(e.target) || (agentDropdown && agentDropdown.contains(e.target))) return;
-    chatMenu.classList.add('hidden');
-    modelDropdown.classList.add('hidden');
-    modelBtn.classList.remove('open');
-    if (agentDropdown) { agentDropdown.classList.add('hidden'); agentBtn.classList.remove('open'); }
+modelDropdown.querySelectorAll('.model-option').forEach(btn => {
+    btn.onclick = (e) => {
+        e.stopPropagation();
+        setSelectedModel(btn.dataset.model);
+        setSelectedModelCtx(parseInt(btn.dataset.ctx || '128000', 10));
+        modelLabel.textContent = btn.dataset.label;
+        modelDropdown.querySelectorAll('.model-option').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        modelDropdown.classList.add('hidden');
+        modelBtn.classList.remove('open');
+        updateContextBadge();
+    };
 });
 
 // ── Agent selector ─────────────────────────────────────────────────────
@@ -769,7 +684,6 @@ async function init() {
     await getStorageDir();
     await loadChats();
     await loadAgents();
-    await loadModels();
 
     if (chats.length && activeChatId) {
         const chat = activeChat();

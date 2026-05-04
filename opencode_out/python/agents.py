@@ -19,12 +19,6 @@ _BUNDLED_PROMPTS = os.path.join(
     "prompts",
 )
 
-# Bundled providers live inside opencode_out/python/providers/ (sibling of this file)
-_BUNDLED_PROVIDERS = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)),
-    "providers",
-)
-
 # ── Fallback constants ─────────────────────────────────────────────────
 _DEFAULT_SYSTEM_MD = (
     "You are a coding assistant running on a mobile Android app called OpenCode.\n\n"
@@ -48,7 +42,6 @@ _DEFAULT_INDEX_JSON = [
 # ── Helpers ────────────────────────────────────────────────────────────
 
 def _copy_missing_prompts(src: str, dst: str) -> None:
-    """Copy missing files from src to dst directory."""
     if not os.path.isdir(src):
         return
     os.makedirs(dst, exist_ok=True)
@@ -59,11 +52,7 @@ def _copy_missing_prompts(src: str, dst: str) -> None:
         for name in files:
             target = os.path.join(target_root, name)
             if not os.path.exists(target):
-                try:
-                    shutil.copy2(os.path.join(root, name), target)
-                except Exception as e:
-                    # Log but don't fail - the bundled version will be used as fallback
-                    pass
+                shutil.copy2(os.path.join(root, name), target)
 
 
 def get_prompts_dir() -> str:
@@ -79,18 +68,6 @@ def get_prompts_dir() -> str:
     ):
         return local_prompts
     return _BUNDLED_PROMPTS
-
-
-def get_providers_dir() -> str:
-    from python.storage import get_opencode_dir
-    local_providers = os.path.join(get_opencode_dir(), "python", "providers")
-    try:
-        _copy_missing_prompts(_BUNDLED_PROVIDERS, local_providers)
-    except Exception:
-        pass
-    if os.path.isdir(local_providers):
-        return local_providers
-    return _BUNDLED_PROVIDERS
 
 
 def _load_system_prompt() -> str:

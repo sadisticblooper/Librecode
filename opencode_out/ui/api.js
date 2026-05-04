@@ -85,12 +85,6 @@ export async function loadAgentsApi() {
     return d.agents || [];
 }
 
-export async function loadModelsApi() {
-    const r = await fetch('/models');
-    const d = await r.json();
-    return d;
-}
-
 export function pingKeepalive() {
     return fetch('/ping', { method: 'GET' }).catch(() => {});
 }
