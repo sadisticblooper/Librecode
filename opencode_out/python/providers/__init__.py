@@ -3,6 +3,7 @@ Providers package — auto-discovers and loads all provider modules.
 Each provider must expose: PROVIDER_NAME, MODELS, stream_chat().
 """
 import importlib
+import importlib.util
 import pkgutil
 import sys
 import os
@@ -10,22 +11,34 @@ from pathlib import Path
 
 _providers = {}
 
-def _load_providers():
-    """Discover and load all provider modules dynamically."""
-    # Always also scan the user-facing opencode_out/python/providers directory
-    import python.storage as storage_mod
-    user_providers_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "providers")
-    extra_paths = [str(user_providers_dir)] if os.path.isdir(user_providers_dir) else []
+def _load_from_file(module_name: str, file_path: str):
+    spec = importlib.util.spec_from_file_location(module_name, file_path)
+    if spec is None:
+        return None
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
 
-    for provider_dir in [Path(__file__).parent, *extra_paths]:
+def _load_providers():
+    from python.agents import get_providers_dir
+
+    bundled_dir = Path(__file__).parent
+    user_dir = Path(get_providers_dir())
+
+    for provider_dir in [bundled_dir, user_dir]:
         for _, module_name, _ in pkgutil.iter_modules([str(provider_dir)]):
             if module_name == "__init__":
                 continue
             if module_name in _providers:
                 continue
+            file_path = os.path.join(str(provider_dir), f"{module_name}.py")
             try:
-                mod = importlib.import_module(f"python.providers.{module_name}")
-                _providers[mod.PROVIDER_NAME] = mod
+                if provider_dir == bundled_dir:
+                    mod = importlib.import_module(f"python.providers.{module_name}")
+                else:
+                    mod = _load_from_file(f"user_provider_{module_name}", file_path)
+                if mod and hasattr(mod, "PROVIDER_NAME") and hasattr(mod, "MODELS"):
+                    _providers[mod.PROVIDER_NAME] = mod
             except Exception:
                 pass
 

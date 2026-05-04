@@ -6,7 +6,7 @@ import re
 import requests
 from typing import Generator
 
-PROVIDER_NAME = "opencode"
+PROVIDER_NAME = "free"
 MODELS = [
     {"id": "minimax-m2.5-free", "label": "MiniMax M2.5 Free", "ctx": 128000},
 ]
