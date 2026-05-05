@@ -6,11 +6,11 @@ Subagent execution: run_subagent (blocking) and run_subagent_streaming
 import os
 import json
 import threading
-import requests
 
 import python.agents as agents_mod
 import python.state as state
-from python.config import COMPACTION_API_URL, COMPACTION_MODEL, MAX_TOKENS
+from python.config import COMPACTION_MODEL, MAX_TOKENS
+from python.providers import get_provider
 from python.tools import run_tool, get_tools_for_agent
 
 
@@ -69,34 +69,60 @@ def run_subagent(
         {"role": "user",   "content": user_content},
     ]
 
+    # Use provider for API call (handles auth/models correctly)
+    provider = get_provider(model or COMPACTION_MODEL)
+    effective_model = model or COMPACTION_MODEL
+
     for _round in range(20):
-        payload = {
-            "model":      model or COMPACTION_MODEL,
-            "messages":   messages,
-            "max_tokens": MAX_TOKENS,
-        }
-        if active_tools:
-            payload["tools"]       = active_tools
-            payload["tool_choice"] = "auto"
+        tool_calls_acc  = {}
+        round_content   = ""
 
         try:
-            resp = requests.post(COMPACTION_API_URL, json=payload, timeout=300)
-            resp.raise_for_status()
-            data = resp.json()
+            events = provider.stream_chat(effective_model, messages, active_tools, MAX_TOKENS)
         except Exception as e:
             return f"Error: subagent API call failed: {e}"
 
-        choice     = (data.get("choices") or [{}])[0]
-        message    = choice.get("message", {})
-        content    = message.get("content") or ""
-        tool_calls = message.get("tool_calls") or []
+        for event in events:
+            evtype = event.get("type")
+            if evtype == "text":
+                round_content += event["text"]
+            elif evtype == "thinking":
+                pass  # accumulate if needed
+            elif evtype == "tool_delta":
+                idx = event.get("index", 0)
+                if idx not in tool_calls_acc:
+                    tool_calls_acc[idx] = {"id": "", "name": "", "arguments": ""}
+                tc = tool_calls_acc[idx]
+                if event.get("id"):
+                    tc["id"] = event["id"]
+                if event.get("name"):
+                    tc["name"] += event["name"]
+                if event.get("arguments"):
+                    tc["arguments"] += event["arguments"]
+            elif evtype == "error":
+                return f"Error: subagent API call failed: {event['text']}"
+            elif evtype == "done":
+                pass
 
-        if not tool_calls:
-            return content.strip() or "(subagent returned no output)"
+        if not tool_calls_acc:
+            return round_content.strip() or "(subagent returned no output)"
 
-        messages.append({"role": "assistant", "content": content, "tool_calls": tool_calls})
+        tc_list = [
+            {
+                "id":   tool_calls_acc[idx]["id"] or f"sub-tc-{_round}-{idx}",
+                "type": "function",
+                "function": {
+                    "name":      tool_calls_acc[idx]["name"],
+                    "arguments": tool_calls_acc[idx]["arguments"],
+                },
+            }
+            for idx in sorted(tool_calls_acc.keys())
+        ]
 
-        for tc in tool_calls:
+        content = round_content
+        messages.append({"role": "assistant", "content": content, "tool_calls": tc_list})
+
+        for tc in tc_list:
             fn_name = tc["function"]["name"]
             try:
                 args = json.loads(tc["function"]["arguments"])
@@ -162,68 +188,41 @@ def run_subagent_streaming(
             except Exception:
                 pass
 
+    # Use provider for API call (handles auth/models correctly)
+    provider = get_provider(model or COMPACTION_MODEL)
+    effective_model = model or COMPACTION_MODEL
+
     for _round in range(20):
-        payload = {
-            "model":      model or COMPACTION_MODEL,
-            "messages":   messages,
-            "max_tokens": MAX_TOKENS,
-            "stream":     True,
-        }
-        if active_tools:
-            payload["tools"]       = active_tools
-            payload["tool_choice"] = "auto"
+        tool_calls_acc  = {}
+        round_content   = ""
 
         try:
-            resp = requests.post(COMPACTION_API_URL, json=payload, stream=True, timeout=300)
-            resp.raise_for_status()
+            events = provider.stream_chat(effective_model, messages, active_tools, MAX_TOKENS)
         except Exception as e:
             return f"Error: subagent API call failed: {e}"
 
-        tool_calls_acc: dict = {}
-        round_content        = ""
-
-        for raw in resp.iter_lines():
-            if not raw:
-                continue
-            line = raw.decode("utf-8", errors="replace")
-            if not line.startswith("data: "):
-                continue
-            data_str = line[6:].strip()
-            if data_str == "[DONE]":
-                break
-            try:
-                chunk = json.loads(data_str)
-            except json.JSONDecodeError:
-                continue
-
-            choice = (chunk.get("choices") or [{}])[0]
-            delta  = choice.get("delta", {})
-
-            thinking_chunk = (
-                delta.get("reasoning_content")
-                or delta.get("reasoning")
-                or delta.get("thinking")
-                or ""
-            )
-            if thinking_chunk:
-                _emit({"subtype": "thinking", "data": thinking_chunk})
-
-            content_chunk = delta.get("content") or ""
-            if content_chunk:
-                round_content += content_chunk
-                _emit({"subtype": "text", "data": content_chunk})
-
-            for tc_delta in delta.get("tool_calls", []):
-                idx = tc_delta.get("index", 0)
+        for event in events:
+            evtype = event.get("type")
+            if evtype == "text":
+                round_content += event["text"]
+                _emit({"subtype": "text", "data": event["text"]})
+            elif evtype == "thinking":
+                _emit({"subtype": "thinking", "data": event["text"]})
+            elif evtype == "tool_delta":
+                idx = event.get("index", 0)
                 if idx not in tool_calls_acc:
                     tool_calls_acc[idx] = {"id": "", "name": "", "arguments": ""}
-                if tc_delta.get("id"):
-                    tool_calls_acc[idx]["id"] = tc_delta["id"]
-                fn = tc_delta.get("function", {})
-                if fn.get("name"):
-                    tool_calls_acc[idx]["name"] += fn["name"]
-                if fn.get("arguments"):
-                    tool_calls_acc[idx]["arguments"] += fn["arguments"]
+                tc = tool_calls_acc[idx]
+                if event.get("id"):
+                    tc["id"] = event["id"]
+                if event.get("name"):
+                    tc["name"] += event["name"]
+                if event.get("arguments"):
+                    tc["arguments"] += event["arguments"]
+            elif evtype == "error":
+                return f"Error: subagent API call failed: {event['text']}"
+            elif evtype == "done":
+                pass
 
         if not tool_calls_acc:
             return round_content.strip() or "(subagent returned no output)"
