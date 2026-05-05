@@ -112,6 +112,10 @@ export function addUserMsg(content) {
 export function addAssistantMsgStatic(content, reasoning) {
     const div    = document.createElement('div');
     div.className = 'msg assistant';
+    const label = document.createElement('div');
+    label.className = 'agent-label';
+    label.textContent = 'Agent';
+    div.appendChild(label);
     if (reasoning) {
         const wrapper = document.createElement('div');
         wrapper.className = 'thinking-wrapper';
@@ -133,7 +137,7 @@ export function addAssistantMsgStatic(content, reasoning) {
 export function createAssistantShell() {
     const div = document.createElement('div');
     div.className = 'msg assistant streaming';
-    div.innerHTML = '<span class="cursor"></span>';
+    div.innerHTML = '<div class="agent-label">Agent</div><span class="cursor"></span>';
     chatEl.appendChild(div);
     scrollBottom();
     return div;

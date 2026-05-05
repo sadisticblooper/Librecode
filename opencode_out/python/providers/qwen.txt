@@ -1,0 +1,236 @@
+"""
+Free provider — qwen2api (chat.qwen.ai) via smanx's public proxy.
+Proxy: https://github.com/smanx/qwen2api
+Endpoint: https://qwen2api-n.smanx.xx.kg/v1/chat/completions
+
+Tool calling is not natively supported by the proxy, so we use a
+text-based scheme: the model is instructed to append a <tool_calls>
+JSON block at the very end of any response that needs tools.
+The stream is monitored for this marker; everything before it is
+forwarded as normal text, everything from it onwards is buffered and
+parsed into tool_delta events after [DONE].
+"""
+
+import json
+import os
+import requests
+from typing import Generator
+
+PROVIDER_NAME = "qwen"
+MODELS = [
+    {"id": "qwen3.5-plus",               "label": "Qwen 3.5 Plus",      "ctx": 128000},
+    {"id": "qwen3.5-flash",              "label": "Qwen 3.5 Flash",     "ctx": 128000},
+    {"id": "qwen3.5-turbo",             "label": "Qwen 3.5 Turbo",     "ctx": 128000},
+    {"id": "qwen2.5-coder-32b-instruct", "label": "Qwen 2.5 Coder 32B", "ctx": 128000},
+]
+
+BASE_URL = os.environ.get("QWEN_PROXY_URL", "https://qwen2api-n.smanx.xx.kg")
+
+_TOOL_CALL_OPEN  = "<tool_calls>"
+_TOOL_CALL_CLOSE = "</tool_calls>"
+_MARKER_LEN      = len(_TOOL_CALL_OPEN)
+
+
+def _build_tool_system(tools: list) -> str:
+    tool_specs = []
+    for t in tools:
+        fn   = t.get("function", t)
+        name = fn.get("name", "")
+        desc = fn.get("description", "")
+        params = fn.get("parameters", {})
+        props  = params.get("properties", {})
+        required = params.get("required", [])
+        args_doc = []
+        for k, v in props.items():
+            req  = " (required)" if k in required else ""
+            typ  = v.get("type", "any")
+            pdesc = v.get("description", "")
+            args_doc.append(f"  - {k} ({typ}){req}: {pdesc}")
+        tool_specs.append(
+            f"### {name}\n{desc}\nArguments:\n" + ("\n".join(args_doc) if args_doc else "  (none)")
+        )
+
+    return (
+        "\n\n---\n"
+        "## Tool Calling\n\n"
+        "You have access to tools. If you need to call one or more tools, "
+        "output your full response text first, then append a tool call block "
+        "as the VERY LAST thing in your message — no text after it.\n\n"
+        "Format (strict — no markdown fences, no extra whitespace before the tag):\n"
+        "<tool_calls>\n"
+        '[{"name": "tool_name", "args": {"arg1": "val1"}}, ...]\n'
+        "</tool_calls>\n\n"
+        "Rules:\n"
+        "- Only include the block if you are actually calling a tool.\n"
+        "- All tool calls for a single turn go in one block as a JSON array.\n"
+        "- args values must match the expected types exactly.\n"
+        "- After you receive tool results they will appear as user messages; "
+        "continue your response naturally.\n\n"
+        "Available tools:\n\n"
+        + "\n\n".join(tool_specs)
+    )
+
+
+def _inject_tool_system(messages: list, tools: list) -> list:
+    tool_instructions = _build_tool_system(tools)
+    msgs = list(messages)
+    if msgs and msgs[0].get("role") == "system":
+        msgs[0] = dict(msgs[0])
+        msgs[0]["content"] = msgs[0]["content"] + tool_instructions
+    else:
+        msgs.insert(0, {"role": "system", "content": tool_instructions.strip()})
+    return msgs
+
+
+def stream_chat(
+    model_id: str,
+    messages: list[dict],
+    tools: list | None = None,
+    max_tokens: int | None = None,
+) -> Generator[dict, None, None]:
+    url = f"{BASE_URL}/v1/chat/completions"
+
+    if tools:
+        messages = _inject_tool_system(messages, tools)
+
+    payload = {
+        "model":      model_id,
+        "messages":   messages,
+        "stream":     True,
+        "max_tokens": max_tokens or 4096,
+    }
+
+    try:
+        api_resp = requests.post(url, json=payload, stream=True, timeout=600)
+        api_resp.raise_for_status()
+    except Exception as e:
+        yield {"type": "error", "text": str(e)}
+        return
+
+    pending     = ""
+    tool_buffer = None
+
+    for raw in api_resp.iter_lines():
+        if not raw:
+            continue
+        line = raw.decode("utf-8", errors="replace")
+        if not line.startswith("data: "):
+            continue
+        data_str = line[6:].strip()
+        if data_str == "[DONE]":
+            break
+        try:
+            chunk = json.loads(data_str)
+        except json.JSONDecodeError:
+            continue
+
+        choice = (chunk.get("choices") or [{}])[0]
+        delta  = choice.get("delta", {})
+
+        thinking = (
+            delta.get("reasoning_content")
+            or delta.get("reasoning")
+            or delta.get("thinking")
+            or ""
+        )
+        if thinking:
+            yield {"type": "thinking", "text": thinking}
+
+        content = delta.get("content") or ""
+        if not content:
+            continue
+
+        if tool_buffer is not None:
+            tool_buffer += content
+            continue
+
+        pending += content
+
+        if _TOOL_CALL_OPEN in pending:
+            before, _, after = pending.partition(_TOOL_CALL_OPEN)
+            if before:
+                yield {"type": "text", "text": before}
+            tool_buffer = after
+            pending     = ""
+        else:
+            safe_len = max(0, len(pending) - (_MARKER_LEN - 1))
+            if safe_len > 0:
+                yield {"type": "text", "text": pending[:safe_len]}
+                pending = pending[safe_len:]
+
+    if tool_buffer is None:
+        if pending:
+            yield {"type": "text", "text": pending}
+        yield {"type": "done"}
+        return
+
+    raw_block = (tool_buffer + pending).split(_TOOL_CALL_CLOSE)[0].strip()
+    try:
+        tool_calls = json.loads(raw_block)
+        if not isinstance(tool_calls, list):
+            raise ValueError("expected JSON array")
+    except Exception as e:
+        yield {"type": "error", "text": f"Failed to parse tool_calls block: {e}\nRaw: {raw_block}"}
+        yield {"type": "done"}
+        return
+
+    for i, tc in enumerate(tool_calls):
+        name = tc.get("name", "")
+        args = tc.get("args", tc.get("arguments", {}))
+        yield {
+            "type":      "tool_delta",
+            "index":     i,
+            "id":        "",
+            "name":      name,
+            "arguments": json.dumps(args) if not isinstance(args, str) else args,
+        }
+
+    yield {"type": "done"}
+
+
+def chat(
+    model_id: str,
+    messages: list[dict],
+    tools: list | None = None,
+    max_tokens: int | None = None,
+) -> dict:
+    url = f"{BASE_URL}/v1/chat/completions"
+
+    if tools:
+        messages = _inject_tool_system(messages, tools)
+
+    payload = {
+        "model":      model_id,
+        "messages":   messages,
+        "stream":     False,
+        "max_tokens": max_tokens or 4096,
+    }
+
+    try:
+        resp = requests.post(url, json=payload, timeout=600)
+        resp.raise_for_status()
+        data    = resp.json()
+        choice  = (data.get("choices") or [{}])[0]
+        msg     = choice.get("message", {})
+        content = msg.get("content", "")
+
+        tool_calls = []
+        if tools and _TOOL_CALL_OPEN in content:
+            before, _, after  = content.partition(_TOOL_CALL_OPEN)
+            raw_block = after.split(_TOOL_CALL_CLOSE)[0].strip()
+            content   = before.strip()
+            try:
+                parsed = json.loads(raw_block)
+                if isinstance(parsed, list):
+                    tool_calls = parsed
+            except Exception:
+                pass
+
+        return {
+            "type":       "text",
+            "text":       content,
+            "thinking":   msg.get("reasoning_content", ""),
+            "tool_calls": tool_calls,
+        }
+    except Exception as e:
+        return {"type": "error", "text": str(e)}

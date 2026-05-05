@@ -229,6 +229,12 @@ body { display: flex; }
 }
 .msg.assistant.streaming { border-bottom-color: transparent; }
 
+.agent-label {
+    font-size: 10px; font-weight: 700; letter-spacing: .1em;
+    text-transform: uppercase; color: var(--accent);
+    opacity: .5; padding: 6px 0 2px; user-select: none;
+}
+
 /* loading indicator */
 .msg-loading { padding: 12px; display: flex; align-items: center; }
 .loading-ring {
@@ -497,8 +503,10 @@ body { display: flex; }
     color: var(--text-dim); font-size: 11px; font-weight: 600;
     transition: background .1s, color .1s;
     user-select: none;
+    background: var(--surface3);
+    border-bottom: 1px solid var(--border-mid);
 }
-.model-section-header:hover { background: var(--surface3); color: var(--text-muted); }
+.model-section-header:hover { background: var(--border-light); color: var(--text-muted); }
 .model-section-header svg:first-child { flex-shrink: 0; }
 .model-section-header span { flex: 1; }
 
