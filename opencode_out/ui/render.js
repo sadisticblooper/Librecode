@@ -189,8 +189,6 @@ function _toolPillIcon(name) {
         return `<svg ${s} stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>`;
     if (name === 'web_fetch')
         return `<svg ${s} stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>`;
-    if (name === 'diff')
-        return `<svg ${s} stroke-width="2"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>`;
     return `<svg ${s} stroke-width="2"><circle cx="12" cy="12" r="10"/></svg>`;
 }
 
@@ -205,11 +203,6 @@ function _toolPillLabel(name, args) {
     if (name === 'web_fetch')   return 'fetching&nbsp;<em>'  + escHtml(args.url      || '') + '</em>';
     if (name === 'github_walk') return 'github&nbsp;<em>'    + escHtml(args.repo     || '') + '</em>';
     if (name === 'spawn_agent') return 'spawning&nbsp;<em>'  + escHtml(args.agent_id || 'agent') + '</em>';
-    if (name === 'diff') {
-        const f1 = escHtml(args.filePath || '');
-        const f2 = args.filePath2 ? escHtml(args.filePath2) : 'proposed';
-        return 'diffing&nbsp;<em>' + f1 + '</em>&nbsp;vs&nbsp;<em>' + f2 + '</em>';
-    }
     return 'running&nbsp;<em>' + escHtml(name) + '</em>';
 }
 
@@ -223,12 +216,6 @@ function _toolInputSummary(name, args) {
     if (name === 'shell')       return (args.command  || '') + (args.cwd    ? '\ncwd: '     + args.cwd     : '');
     if (name === 'web_fetch')   return args.url || '';
     if (name === 'github_walk') return (args.action || 'tree') + '  ' + (args.repo || '') + (args.file_path ? '\n' + args.file_path : '');
-    if (name === 'diff') {
-        let s = 'file: ' + (args.filePath || '');
-        if (args.filePath2) s += '\nvs file: ' + args.filePath2;
-        else if (args.newContent) s += '\nvs proposed content:\n' + args.newContent;
-        return s;
-    }
     return JSON.stringify(args, null, 2);
 }
 

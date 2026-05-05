@@ -353,63 +353,6 @@ def tool_edit(filePath: str, oldString: str, newString: str, replaceAll: bool = 
         return f"Edit error: {e}"
 
 
-def tool_diff(filePath: str, newContent: str = None, filePath2: str = None) -> str:
-    """Generate a unified diff. Either compare filePath vs newContent (inline),
-    or compare two files (filePath vs filePath2)."""
-    import difflib
-
-    if not state.working_dir:
-        return "No working directory set."
-
-    full_path = resolve_path(filePath)
-    if not full_path or not is_within_dir(full_path, state.working_dir):
-        return f"Error: Path '{filePath}' is outside working directory"
-    if not os.path.isfile(full_path):
-        return f"Error: File not found: {filePath}"
-
-    try:
-        with open(full_path, 'r', encoding='utf-8', errors='ignore') as f:
-            original_lines = f.readlines()
-    except Exception as e:
-        return f"Error reading {filePath}: {e}"
-
-    # Mode 1: compare two files
-    if filePath2:
-        full_path2 = resolve_path(filePath2)
-        if not full_path2 or not is_within_dir(full_path2, state.working_dir):
-            return f"Error: Path '{filePath2}' is outside working directory"
-        if not os.path.isfile(full_path2):
-            return f"Error: File not found: {filePath2}"
-        try:
-            with open(full_path2, 'r', encoding='utf-8', errors='ignore') as f:
-                new_lines = f.readlines()
-        except Exception as e:
-            return f"Error reading {filePath2}: {e}"
-        label_a, label_b = filePath, filePath2
-
-    # Mode 2: compare file vs inline content
-    elif newContent is not None:
-        new_lines = newContent.splitlines(keepends=True)
-        if new_lines and not new_lines[-1].endswith('\n'):
-            new_lines[-1] += '\n'
-        label_a, label_b = f"a/{filePath}", f"b/{filePath}"
-
-    else:
-        return "Error: provide either 'newContent' or 'filePath2'"
-
-    diff_lines = difflib.unified_diff(
-        original_lines, new_lines,
-        fromfile=label_a, tofile=label_b,
-        lineterm=''
-    )
-    result = ''.join(diff_lines)
-    if not result.strip():
-        return "(files are identical)"
-    if len(result) > 30000:
-        result = result[:30000] + "\n... (diff truncated)"
-    return result
-
-
 def _find_match(content: str, old: str) -> str | None:
     """Try multiple matching strategies. Returns the matched string or None."""
 
@@ -995,26 +938,6 @@ TOOLS: list = [
             },
         },
     },
-    {
-        "type": "function",
-        "function": {
-            "name": "diff",
-            "description": (
-                "Generate a unified diff. Compare a file against proposed new content "
-                "(use 'newContent'), or compare two files (use 'filePath2'). "
-                "Returns standard unified diff format."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "filePath":   {"type": "string", "description": "Path to the original file (relative to working directory)"},
-                    "newContent": {"type": "string", "description": "Proposed new content to compare against the file"},
-                    "filePath2":  {"type": "string", "description": "Path to a second file to compare against (alternative to newContent)"},
-                },
-                "required": ["filePath"],
-            },
-        },
-    },
 ]
 
 
@@ -1092,12 +1015,6 @@ def run_tool(name: str, args: dict) -> str:
                 args.get("oldString", ""),
                 args.get("newString", ""),
                 args.get("replaceAll", False),
-            )
-        elif name == "diff":
-            result = tool_diff(
-                args.get("filePath", ""),
-                args.get("newContent"),
-                args.get("filePath2"),
             )
         elif name == "shell":
             result = tool_shell(args.get("command", ""), args.get("cwd"))
