@@ -18,10 +18,13 @@ from typing import Generator
 
 PROVIDER_NAME = "qwen"
 MODELS = [
-    {"id": "qwen3.5-plus",               "label": "Qwen 3.5 Plus",      "ctx": 128000},
-    {"id": "qwen3.5-flash",              "label": "Qwen 3.5 Flash",     "ctx": 128000},
-    {"id": "qwen3.5-turbo",             "label": "Qwen 3.5 Turbo",     "ctx": 128000},
-    {"id": "qwen2.5-coder-32b-instruct", "label": "Qwen 2.5 Coder 32B", "ctx": 128000},
+    {"id": "qwen3.6-plus",               "label": "Qwen 3.6 Plus",        "ctx": 1000000},
+    {"id": "qwen3.6-max-preview",        "label": "Qwen 3.6 Max Preview", "ctx": 262144},
+    {"id": "qwen3.6-27b",                "label": "Qwen 3.6 27B",         "ctx": 262144},
+    {"id": "qwen3.5-plus",               "label": "Qwen 3.5 Plus",        "ctx": 128000},
+    {"id": "qwen3.5-flash",              "label": "Qwen 3.5 Flash",       "ctx": 128000},
+    {"id": "qwen3.5-turbo",             "label": "Qwen 3.5 Turbo",       "ctx": 128000},
+    {"id": "qwen2.5-coder-32b-instruct", "label": "Qwen 2.5 Coder 32B",  "ctx": 128000},
 ]
 
 BASE_URL = os.environ.get("QWEN_PROXY_URL", "https://qwen2api-n.smanx.xx.kg")
