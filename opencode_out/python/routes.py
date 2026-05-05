@@ -61,9 +61,6 @@ def history_to_api_messages(history: list) -> list:
             out.append({"role": "user", "content": turn.get("content", "")})
         elif role == "assistant":
             msg = {"role": "assistant", "content": turn.get("content", "") or ""}
-            rc  = turn.get("reasoning_content")
-            if rc:
-                msg["reasoning_content"] = rc
             tcs = turn.get("tool_calls")
             if tcs:
                 msg["tool_calls"] = tcs
@@ -499,11 +496,7 @@ def _register(app) -> None:
                 }
                 new_rich_turns.append(rich_asst)
 
-                flat_asst = {"role": "assistant", "tool_calls": tc_list}
-                if round_content:
-                    flat_asst["content"] = round_content
-                if round_reasoning:
-                    flat_asst["reasoning_content"] = round_reasoning
+                flat_asst = {"role": "assistant", "content": round_content or "", "tool_calls": tc_list}
                 messages.append(flat_asst)
 
                 # ── Parallel tool execution ────────────────────────────────
