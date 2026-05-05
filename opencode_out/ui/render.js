@@ -137,7 +137,7 @@ export function addAssistantMsgStatic(content, reasoning) {
 export function createAssistantShell() {
     const div = document.createElement('div');
     div.className = 'msg assistant streaming';
-    div.innerHTML = '<div class="agent-label">Agent</div><span class="cursor"></span>';
+    div.innerHTML = '<span class="reply-marker">&gt;</span><span class="cursor"></span>';
     chatEl.appendChild(div);
     scrollBottom();
     return div;
@@ -146,7 +146,7 @@ export function createAssistantShell() {
 export function sealAssistant(div, text) {
     div.classList.remove('streaming');
     div.removeAttribute('data-live');
-    div.innerHTML = parseMarkdown(text);
+    div.innerHTML = '<span class="reply-marker">&gt;</span>' + parseMarkdown(text);
     highlightCodeBlocks(div);
 }
 

@@ -316,8 +316,18 @@ body { display: flex; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 /* ─── Markdown content ─────────────────────────────────── */
-.msg p { margin-bottom: 8px; }
+.msg p { margin-bottom: 4px; }
 .msg p:last-child { margin-bottom: 0; }
+.msg.assistant { line-height: 1.5; }
+.reply-marker {
+    display: block;
+    color: var(--cyan);
+    font-weight: 700;
+    font-size: 13px;
+    margin-bottom: 2px;
+    user-select: none;
+    opacity: 0.8;
+}
 .msg h1, .msg h2, .msg h3 { font-weight: 600; color: var(--text); margin: 14px 0 6px; }
 .msg h1 { font-size: 18px; } .msg h2 { font-size: 16px; } .msg h3 { font-size: 14px; }
 .msg ul, .msg ol { padding-left: 20px; margin: 6px 0; }
