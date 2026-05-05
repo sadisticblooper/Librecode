@@ -27,7 +27,6 @@ def _fetch_models():
         ]
     except Exception:
         pass
-    # Fallback hardcoded list
     return [
         {"id": "gemma4:31b",           "label": "Gemma 4 31B",          "ctx": 128000},
         {"id": "ministral-3:14b",      "label": "Ministral 3 14B",       "ctx": 128000},
@@ -49,6 +48,54 @@ def _fetch_models():
 
 MODELS = _fetch_models()
 
+
+def _prepare_messages(messages: list[dict]) -> list[dict]:
+    """
+    Convert messages from OpenAI format (used internally by routes.py)
+    to Ollama's native /api/chat format:
+    - tool_calls arguments: JSON string → dict
+    - tool result messages: drop tool_call_id (Ollama doesn't use it)
+    """
+    out = []
+    for msg in messages:
+        role = msg.get("role")
+
+        if role == "assistant" and msg.get("tool_calls"):
+            fixed_tcs = []
+            for tc in msg["tool_calls"]:
+                func = tc.get("function", {})
+                args = func.get("arguments", {})
+                # routes.py stores arguments as a JSON string — convert to dict
+                if isinstance(args, str):
+                    try:
+                        args = json.loads(args)
+                    except (json.JSONDecodeError, ValueError):
+                        args = {}
+                fixed_tcs.append({
+                    "function": {
+                        "name":      func.get("name", ""),
+                        "arguments": args,
+                    }
+                })
+            out.append({
+                "role":       "assistant",
+                "content":    msg.get("content") or "",
+                "tool_calls": fixed_tcs,
+            })
+
+        elif role == "tool":
+            # Ollama tool results: just role + content, no tool_call_id
+            out.append({
+                "role":    "tool",
+                "content": msg.get("content", ""),
+            })
+
+        else:
+            out.append(msg)
+
+    return out
+
+
 def stream_chat(model_id: str, messages: list[dict], tools: list | None = None,
                 max_tokens: int | None = None) -> Generator[dict, None, None]:
     headers = {
@@ -57,7 +104,7 @@ def stream_chat(model_id: str, messages: list[dict], tools: list | None = None,
     }
     payload = {
         "model":    model_id,
-        "messages": messages,
+        "messages": _prepare_messages(messages),
         "stream":   True,
     }
     if max_tokens:
@@ -88,17 +135,16 @@ def stream_chat(model_id: str, messages: list[dict], tools: list | None = None,
 
         msg = chunk.get("message", {})
 
-        # thinking / reasoning
         thinking = msg.get("reasoning_content") or msg.get("thinking") or ""
         if thinking:
             yield {"type": "thinking", "text": thinking}
 
-        # text content
         content = msg.get("content") or ""
         if content:
             yield {"type": "text", "text": content}
 
-        # tool calls — Ollama returns arguments as a dict, convert to JSON string
+        # tool calls — Ollama returns arguments as dict, convert to JSON string
+        # for routes.py which expects the OpenAI format
         for tc in msg.get("tool_calls", []):
             func = tc.get("function", {})
             args = func.get("arguments", {})
