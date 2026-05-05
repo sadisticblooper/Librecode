@@ -19,11 +19,10 @@ _BUNDLED_PROMPTS = os.path.join(
     "prompts",
 )
 
-# Bundled provider sources — plain text assets (not a Python package)
-# so Chaquopy extracts them to the real filesystem, same as prompts/
-_BUNDLED_PROVIDERS_SRC = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "providers_src",
+# Bundled providers live inside opencode_out/python/providers/ (sibling of this file)
+_BUNDLED_PROVIDERS = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "providers",
 )
 
 # ── Fallback constants ─────────────────────────────────────────────────
@@ -77,16 +76,36 @@ def get_prompts_dir() -> str:
     return _BUNDLED_PROMPTS
 
 
+_BUNDLED_PROVIDER_NAMES = ["free", "gemini", "ollama"]
+
+
+def _copy_providers(dst: str) -> None:
+    import importlib
+    import inspect
+    os.makedirs(dst, exist_ok=True)
+    for name in _BUNDLED_PROVIDER_NAMES:
+        target = os.path.join(dst, f"{name}.py")
+        if os.path.exists(target):
+            continue
+        try:
+            mod = importlib.import_module(f"python.providers.{name}")
+            source = inspect.getsource(mod)
+            with open(target, "w", encoding="utf-8") as f:
+                f.write(source)
+        except Exception:
+            pass
+
+
 def get_providers_dir() -> str:
     from python.storage import get_opencode_dir
-    local_providers = os.path.join(get_opencode_dir(), "python", "providers")
+    local_providers = os.path.join(get_opencode_dir(), "providers")
     try:
-        _copy_missing_prompts(_BUNDLED_PROVIDERS_SRC, local_providers)
+        _copy_providers(local_providers)
     except Exception:
         pass
     if os.path.isdir(local_providers):
         return local_providers
-    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "providers")
+    return _BUNDLED_PROVIDERS
 
 
 def _load_system_prompt() -> str:
