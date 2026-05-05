@@ -79,10 +79,21 @@ def get_prompts_dir() -> str:
 _BUNDLED_PROVIDER_NAMES = ["free", "gemini", "ollama"]
 
 
+def _copy_providers(dst: str) -> None:
+    os.makedirs(dst, exist_ok=True)
+    for name in _BUNDLED_PROVIDER_NAMES:
+        target = os.path.join(dst, f"{name}.py")
+        if os.path.exists(target):
+            continue
+        src_file = os.path.join(_BUNDLED_PROVIDERS, f"{name}.txt")
+        if os.path.isfile(src_file):
+            shutil.copy2(src_file, target)
+
+
 def get_providers_dir() -> str:
     from python.storage import get_opencode_dir
     local_providers = os.path.join(get_opencode_dir(), "providers")
-    _copy_missing_prompts(_BUNDLED_PROVIDERS, local_providers)
+    _copy_providers(local_providers)
     return local_providers
 
 
