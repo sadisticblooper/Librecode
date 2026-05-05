@@ -381,35 +381,72 @@ function bindModelOptions() {
     });
 }
 
+const _PROVIDER_META = {
+    free:   { label: 'Free',   icon: '<circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/>',                         open: true  },
+    ollama: { label: 'Ollama', icon: '<rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/>',    open: false },
+    gemini: { label: 'Gemini', icon: '<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>', open: false },
+    qwen:   { label: 'Qwen',   icon: '<circle cx="12" cy="12" r="10"/><path d="M8 12h8M12 8v8"/>',                      open: false },
+};
+const _PROVIDER_META_DEFAULT = { label: null, icon: '<circle cx="12" cy="12" r="5"/>', open: false };
+
+function _buildProviderSection(provider, models) {
+    const meta   = _PROVIDER_META[provider] || _PROVIDER_META_DEFAULT;
+    const label  = meta.label || (provider.charAt(0).toUpperCase() + provider.slice(1));
+    const isOpen = meta.open;
+    const chevronClass = isOpen ? 'section-chevron' : 'section-chevron closed';
+    const bodyClass    = isOpen ? 'model-section-body open' : 'model-section-body';
+
+    const section = document.createElement('div');
+    section.className = 'model-section';
+    section.dataset.provider = provider;
+
+    const header = document.createElement('div');
+    header.className = 'model-section-header';
+    header.innerHTML =
+        `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${meta.icon}</svg>` +
+        `<span>${escHtml(label)}</span>` +
+        `<svg class="${chevronClass}" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>`;
+
+    const body = document.createElement('div');
+    body.className = bodyClass;
+
+    if (!models.length) {
+        body.innerHTML = '<div class="model-section-empty">No models</div>';
+    } else {
+        models.forEach(model => {
+            const btn = document.createElement('button');
+            btn.className = 'model-option' + (model.id === selectedModel ? ' active' : '');
+            btn.dataset.model  = model.id;
+            btn.dataset.label  = model.label;
+            btn.dataset.ctx    = model.ctx;
+            btn.textContent    = model.label;
+            body.appendChild(btn);
+        });
+    }
+
+    section.appendChild(header);
+    section.appendChild(body);
+    return section;
+}
+
 async function loadModels() {
     try {
-        const data = await loadModelsApi();
-        const providers = ['free', 'ollama', 'gemini'];
+        const data  = await loadModelsApi();
+        const inner = modelDropdown.querySelector('.model-dropdown-inner');
 
-        providers.forEach(provider => {
-            const section = modelDropdown.querySelector(`.model-section[data-provider="${provider}"]`);
-            if (!section) return;
-            const body = section.querySelector('.model-section-body');
-            body.innerHTML = '';
+        inner.querySelectorAll('.model-section').forEach(s => s.remove());
 
-            const models = data[provider] || [];
-            if (!models.length) {
-                body.innerHTML = '<div class="model-section-empty">No models</div>';
-                return;
-            }
+        const order    = Object.keys(_PROVIDER_META);
+        const returned = Object.keys(data);
+        const sorted   = [
+            ...order.filter(p => returned.includes(p)),
+            ...returned.filter(p => !order.includes(p)),
+        ];
 
-            models.forEach(model => {
-                const btn = document.createElement('button');
-                btn.className = 'model-option' + (model.id === selectedModel ? ' active' : '');
-                btn.dataset.model = model.id;
-                btn.dataset.label = model.label;
-                btn.dataset.ctx = model.ctx;
-                btn.textContent = model.label;
-                body.appendChild(btn);
-            });
+        sorted.forEach(provider => {
+            inner.appendChild(_buildProviderSection(provider, data[provider] || []));
         });
 
-        // Set default if none selected
         const firstFree = (data.free && data.free[0]) || null;
         if (firstFree && !selectedModel) {
             setSelectedModel(firstFree.id);
