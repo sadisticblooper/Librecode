@@ -76,11 +76,30 @@ def get_prompts_dir() -> str:
     return _BUNDLED_PROMPTS
 
 
+_BUNDLED_PROVIDER_NAMES = ["free", "gemini", "ollama"]
+
+
+def _copy_providers(dst: str) -> None:
+    import importlib
+    os.makedirs(dst, exist_ok=True)
+    for name in _BUNDLED_PROVIDER_NAMES:
+        target = os.path.join(dst, f"{name}.py")
+        if os.path.exists(target):
+            continue
+        try:
+            mod = importlib.import_module(f"python.providers.{name}")
+            src = getattr(mod, "__file__", None)
+            if src and os.path.isfile(src):
+                shutil.copy2(src, target)
+        except Exception:
+            pass
+
+
 def get_providers_dir() -> str:
     from python.storage import get_opencode_dir
     local_providers = os.path.join(get_opencode_dir(), "python", "providers")
     try:
-        _copy_missing_prompts(_BUNDLED_PROVIDERS, local_providers)
+        _copy_providers(local_providers)
     except Exception:
         pass
     if os.path.isdir(local_providers):

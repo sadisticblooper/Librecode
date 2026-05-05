@@ -8,9 +8,11 @@ from typing import Generator
 
 PROVIDER_NAME = "free"
 MODELS = [
-    {"id": "minimax-m2.5-free",                        "label": "MiniMax M2.5",      "ctx": 128000},
-    {"id": "nvidia/llama-3.1-nemotron-ultra-253b-v1",  "label": "Nemotron Ultra",    "ctx": 128000},
-    {"id": "gpt-4o-mini",                               "label": "GPT-4o mini",       "ctx": 128000},
+    {"id": "minimax-m2.5-free",    "label": "MiniMax M2.5",       "ctx": 128000},
+    {"id": "big-pickle",           "label": "Big Pickle",          "ctx": 128000},
+    {"id": "nemotron-3-super-free","label": "Nemotron 3 Super",    "ctx": 128000},
+    {"id": "hy3-preview-free",     "label": "Hy3 Preview",         "ctx": 128000},
+    {"id": "ling-2.6-flash-free",  "label": "Ling 2.6 Flash",      "ctx": 128000},
 ]
 
 def stream_chat(model_id: str, messages: list[dict], tools: list | None = None,
