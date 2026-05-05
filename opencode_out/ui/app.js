@@ -642,6 +642,7 @@ async function send() {
                         if (loadingDiv) { loadingDiv.remove(); loadingDiv = null; }
                         if (toolPill) { toolPill.classList.add('done'); toolPill = null; }
                         toolGroup = null;
+                        if (assistantDiv) { sealAssistant(assistantDiv, segmentText); assistantDiv = null; segmentText = ''; }
                         if (!thinkingBlock) thinkingBlock = createThinkingBlock();
                         thinkingBlock.body.textContent += ev.text;
                         scrollBottom();
