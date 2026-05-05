@@ -452,9 +452,9 @@ def _register(app) -> None:
                         if event.get("id"):
                             tc["id"] = event["id"]
                         if event.get("name"):
-                            tc["name"] = event["name"]
+                            tc["name"] += event["name"]
                         if event.get("arguments"):
-                            tc["arguments"] = event["arguments"]
+                            tc["arguments"] += event["arguments"]
 
                     elif evtype == "done":
                         pass  # handled below

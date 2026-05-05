@@ -1,18 +1,20 @@
 """
-Free provider — opencode.ai (minimax-m2.5-free) via SSE.
+Free provider — opencode.ai via SSE.
+SSE parsing matches the original routes.py implementation:
+iter_lines() + explicit UTF-8 decode, which correctly handles
+multi-byte characters (emoji etc.) and proper line boundaries.
 """
 import json
-import re
 import requests
 from typing import Generator
 
 PROVIDER_NAME = "free"
 MODELS = [
-    {"id": "minimax-m2.5-free",    "label": "MiniMax M2.5",       "ctx": 128000},
-    {"id": "big-pickle",           "label": "Big Pickle",          "ctx": 128000},
-    {"id": "nemotron-3-super-free","label": "Nemotron 3 Super",    "ctx": 128000},
-    {"id": "hy3-preview-free",     "label": "Hy3 Preview",         "ctx": 128000},
-    {"id": "ling-2.6-flash-free",  "label": "Ling 2.6 Flash",      "ctx": 128000},
+    {"id": "minimax-m2.5-free",     "label": "MiniMax M2.5",    "ctx": 128000},
+    {"id": "big-pickle",            "label": "Big Pickle",       "ctx": 128000},
+    {"id": "nemotron-3-super-free", "label": "Nemotron 3 Super", "ctx": 128000},
+    {"id": "hy3-preview-free",      "label": "Hy3 Preview",      "ctx": 128000},
+    {"id": "ling-2.6-flash-free",   "label": "Ling 2.6 Flash",   "ctx": 128000},
 ]
 
 def stream_chat(model_id: str, messages: list[dict], tools: list | None = None,
@@ -20,64 +22,68 @@ def stream_chat(model_id: str, messages: list[dict], tools: list | None = None,
     url = "https://opencode.ai/zen/v1/chat/completions"
 
     payload = {
-        "model": model_id,
-        "messages": messages,
-        "stream": True,
+        "model":      model_id,
+        "messages":   messages,
+        "stream":     True,
         "max_tokens": max_tokens or 4096,
     }
     if tools:
-        payload["tools"] = tools
+        payload["tools"]       = tools
+        payload["tool_choice"] = "auto"
 
     try:
-        with requests.post(url, json=payload, stream=True, timeout=120) as resp:
-            resp.raise_for_status()
-            buffer = ""
-            for chunk in resp.iter_content(chunk_size=None, decode_unicode=True):
-                if not chunk:
-                    continue
-                buffer += chunk
-                # Process complete SSE lines (data: ...)
-                while "\n" in buffer:
-                    line, buffer = buffer.split("\n", 1)
-                    line = line.strip()
-                    if not line or not line.startswith("data: "):
-                        continue
-                    data_str = line[6:].strip()
-                    if data_str == "[DONE]":
-                        yield {"type": "done"}
-                        return
-                    try:
-                        data = json.loads(data_str)
-                    except json.JSONDecodeError:
-                        continue
-
-                    # opencode SSE format
-                    choices = data.get("choices", [])
-                    if not choices:
-                        continue
-                    choice = choices[0]
-                    delta = choice.get("delta", {})
-
-                    # text
-                    if "content" in delta:
-                        yield {"type": "text", "text": delta["content"]}
-
-                    # thinking (reasoning_thought in some formats)
-                    thinking = delta.get("reasoning_thought") or delta.get("thinking")
-                    if thinking:
-                        yield {"type": "thinking", "text": thinking}
-
-                    # tool calls
-                    tool_calls = delta.get("tool_calls") or choice.get("tool_calls", [])
-                    for tc in tool_calls:
-                        idx = tc.get("index", 0)
-                        func = tc.get("function", {})
-                        yield {
-                            "type": "tool_delta",
-                            "index": idx,
-                            "id": tc.get("id", ""),
-                            "name": func.get("name", ""),
-                            "arguments": func.get("arguments", ""),
-                        }
+        api_resp = requests.post(url, json=payload, stream=True, timeout=600)
+        api_resp.raise_for_status()
     except Exception as e:
         yield {"type": "error", "text": str(e)}
+        return
+
+    # Use iter_lines() + explicit UTF-8 decode — same as the original
+    # routes.py. This is the correct way: iter_lines() handles chunk
+    # boundaries so a multi-byte sequence is never split, and decoding
+    # as UTF-8 ensures emoji render correctly instead of as Ã + boxes.
+    for raw in api_resp.iter_lines():
+        if not raw:
+            continue
+        line = raw.decode("utf-8", errors="replace")
+        if not line.startswith("data: "):
+            continue
+        data_str = line[6:].strip()
+        if data_str == "[DONE]":
+            yield {"type": "done"}
+            return
+        try:
+            chunk = json.loads(data_str)
+        except json.JSONDecodeError:
+            continue
+
+        choice = (chunk.get("choices") or [{}])[0]
+        delta  = choice.get("delta", {})
+
+        # thinking / reasoning
+        thinking = (
+            delta.get("reasoning_content")
+            or delta.get("reasoning")
+            or delta.get("thinking")
+            or delta.get("reasoning_thought")
+            or ""
+        )
+        if thinking:
+            yield {"type": "thinking", "text": thinking}
+
+        # text content
+        content = delta.get("content") or ""
+        if content:
+            yield {"type": "text", "text": content}
+
+        # tool call deltas — pass through raw so routes.py can accumulate
+        for tc_delta in delta.get("tool_calls", []):
+            idx  = tc_delta.get("index", 0)
+            func = tc_delta.get("function", {})
+            yield {
+                "type":      "tool_delta",
+                "index":     idx,
+                "id":        tc_delta.get("id", ""),
+                "name":      func.get("name", ""),
+                "arguments": func.get("arguments", ""),
+            }
