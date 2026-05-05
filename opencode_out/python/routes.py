@@ -164,7 +164,17 @@ def _register(app) -> None:
         state.current_chat_id = chat_id
         if chat_id:
             raw_history = data.get("history", [])
-            state.chat_histories[chat_id] = [t for t in raw_history if not t.get("_pending")]
+            cleaned = []
+            for t in raw_history:
+                if t.get("_pending"):
+                    continue  # drop unsent user messages
+                if t.get("_partial"):
+                    # commit interrupted assistant turn so model remembers its thoughts
+                    t = {k: v for k, v in t.items() if k != "_partial"}
+                    if t.get("content") and not t["content"].endswith("[interrupted]"):
+                        t["content"] = t["content"] + " [interrupted]"
+                cleaned.append(t)
+            state.chat_histories[chat_id] = cleaned
             if "summary" in data:
                 state.chat_summaries[chat_id] = data["summary"]
             max_seq = 0

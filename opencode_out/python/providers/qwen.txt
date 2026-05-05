@@ -104,7 +104,7 @@ def stream_chat(
     }
 
     try:
-        api_resp = requests.post(url, json=payload, stream=True, timeout=600)
+        api_resp = requests.post(url, json=payload, stream=True, timeout=(15, 120))
         api_resp.raise_for_status()
     except Exception as e:
         yield {"type": "error", "text": str(e)}
@@ -113,53 +113,58 @@ def stream_chat(
     pending     = ""
     tool_buffer = None
 
-    for raw in api_resp.iter_lines():
-        if not raw:
-            continue
-        line = raw.decode("utf-8", errors="replace")
-        if not line.startswith("data: "):
-            continue
-        data_str = line[6:].strip()
-        if data_str == "[DONE]":
-            break
-        try:
-            chunk = json.loads(data_str)
-        except json.JSONDecodeError:
-            continue
+    try:
+        for raw in api_resp.iter_lines():
+            if not raw:
+                continue
+            line = raw.decode("utf-8", errors="replace")
+            if not line.startswith("data: "):
+                continue
+            data_str = line[6:].strip()
+            if data_str == "[DONE]":
+                break
+            try:
+                chunk = json.loads(data_str)
+            except json.JSONDecodeError:
+                continue
 
-        choice = (chunk.get("choices") or [{}])[0]
-        delta  = choice.get("delta", {})
+            choice = (chunk.get("choices") or [{}])[0]
+            delta  = choice.get("delta", {})
 
-        thinking = (
-            delta.get("reasoning_content")
-            or delta.get("reasoning")
-            or delta.get("thinking")
-            or ""
-        )
-        if thinking:
-            yield {"type": "thinking", "text": thinking}
+            thinking = (
+                delta.get("reasoning_content")
+                or delta.get("reasoning")
+                or delta.get("thinking")
+                or ""
+            )
+            if thinking:
+                yield {"type": "thinking", "text": thinking}
 
-        content = delta.get("content") or ""
-        if not content:
-            continue
+            content = delta.get("content") or ""
+            if not content:
+                continue
 
-        if tool_buffer is not None:
-            tool_buffer += content
-            continue
+            if tool_buffer is not None:
+                tool_buffer += content
+                continue
 
-        pending += content
+            pending += content
 
-        if _TOOL_CALL_OPEN in pending:
-            before, _, after = pending.partition(_TOOL_CALL_OPEN)
-            if before:
-                yield {"type": "text", "text": before}
-            tool_buffer = after
-            pending     = ""
-        else:
-            safe_len = max(0, len(pending) - (_MARKER_LEN - 1))
-            if safe_len > 0:
-                yield {"type": "text", "text": pending[:safe_len]}
-                pending = pending[safe_len:]
+            if _TOOL_CALL_OPEN in pending:
+                before, _, after = pending.partition(_TOOL_CALL_OPEN)
+                if before:
+                    yield {"type": "text", "text": before}
+                tool_buffer = after
+                pending     = ""
+            else:
+                safe_len = max(0, len(pending) - (_MARKER_LEN - 1))
+                if safe_len > 0:
+                    yield {"type": "text", "text": pending[:safe_len]}
+                    pending = pending[safe_len:]
+
+    except Exception as e:
+        yield {"type": "error", "text": f"Stream interrupted: {e}"}
+        return
 
     if tool_buffer is None:
         if pending:
