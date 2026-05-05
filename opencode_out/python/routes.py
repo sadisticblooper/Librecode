@@ -169,9 +169,10 @@ def _register(app) -> None:
                 if t.get("_pending"):
                     continue  # drop unsent user messages
                 if t.get("_partial"):
-                    # commit interrupted assistant turn so model remembers its thoughts
+                    if not t.get("content"):
+                        continue
                     t = {k: v for k, v in t.items() if k != "_partial"}
-                    if t.get("content") and not t["content"].endswith("[interrupted]"):
+                    if not t["content"].endswith("[interrupted]"):
                         t["content"] = t["content"] + " [interrupted]"
                 cleaned.append(t)
             state.chat_histories[chat_id] = cleaned

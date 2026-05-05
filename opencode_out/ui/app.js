@@ -567,6 +567,9 @@ async function send() {
         await switchChatApi(chat.id, []);
         await syncWorkingDirs();
         renderChatList();
+    } else {
+        const chat = activeChat();
+        if (chat) await switchChatApi(chat.id, chat.history || []);
     }
 
     const sendingChatId = activeChatId;
