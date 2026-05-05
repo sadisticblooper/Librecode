@@ -599,6 +599,7 @@ async function send() {
     let toolPill      = null;
     let toolGroup     = null;
     let assistantText = '';
+    let segmentText   = '';
     const activePills = {};
     let loadingDiv    = null;
 
@@ -648,6 +649,7 @@ async function send() {
                     }
                     case 'text': {
                         assistantText += ev.text;
+                        segmentText   += ev.text;
                         chatStreamState[sendingChatId] = { assistantText, hasContent: true };
                         if (chat) {
                             const base = (chat.history || []).filter(t => !t._partial);
@@ -664,7 +666,7 @@ async function send() {
                                 assistantDiv.dataset.live = sendingChatId;
                             }
                         }
-                        assistantDiv.innerHTML = parseMarkdown(assistantText) + '<span class="cursor"></span>';
+                        assistantDiv.innerHTML = parseMarkdown(segmentText) + '<span class="cursor"></span>';
                         highlightCodeBlocks(assistantDiv);
                         scrollBottom();
                         break;
@@ -673,7 +675,7 @@ async function send() {
                         if (!isActive()) break;
                         if (loadingDiv) { loadingDiv.remove(); loadingDiv = null; }
                         if (thinkingBlock) { sealThinking(thinkingBlock); thinkingBlock = null; }
-                        if (assistantDiv) { sealAssistant(assistantDiv, assistantText); }
+                        if (assistantDiv) { sealAssistant(assistantDiv, segmentText); assistantDiv = null; segmentText = ''; }
                         if (!toolGroup) toolGroup = createToolGroup();
                         const pill = createToolPill(ev.name, ev.args, toolGroup);
                         if (ev.tc_id) activePills[ev.tc_id] = pill;
@@ -743,7 +745,7 @@ async function send() {
                     case 'done': {
                         if (isActive()) {
                             if (thinkingBlock) { sealThinking(thinkingBlock); thinkingBlock = null; }
-                            if (assistantDiv)  { sealAssistant(assistantDiv, assistantText); assistantDiv = null; }
+                            if (assistantDiv)  { sealAssistant(assistantDiv, segmentText); assistantDiv = null; }
                             if (toolPill)      { toolPill.classList.add('done'); toolPill = null; toolGroup = null; }
                             saveChats();
                         }
@@ -755,7 +757,7 @@ async function send() {
 
         if (isActive()) {
             if (thinkingBlock) sealThinking(thinkingBlock);
-            if (assistantDiv)  sealAssistant(assistantDiv, assistantText);
+            if (assistantDiv)  sealAssistant(assistantDiv, segmentText);
             if (toolPill)      toolPill.classList.add('done');
         }
 
