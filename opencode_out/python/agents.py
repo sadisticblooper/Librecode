@@ -81,6 +81,7 @@ _BUNDLED_PROVIDER_NAMES = ["free", "gemini", "ollama"]
 
 def _copy_providers(dst: str) -> None:
     import importlib
+    import inspect
     os.makedirs(dst, exist_ok=True)
     for name in _BUNDLED_PROVIDER_NAMES:
         target = os.path.join(dst, f"{name}.py")
@@ -88,9 +89,9 @@ def _copy_providers(dst: str) -> None:
             continue
         try:
             mod = importlib.import_module(f"python.providers.{name}")
-            src = getattr(mod, "__file__", None)
-            if src and os.path.isfile(src):
-                shutil.copy2(src, target)
+            source = inspect.getsource(mod)
+            with open(target, "w", encoding="utf-8") as f:
+                f.write(source)
         except Exception:
             pass
 
