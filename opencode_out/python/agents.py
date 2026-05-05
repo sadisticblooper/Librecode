@@ -19,6 +19,12 @@ _BUNDLED_PROMPTS = os.path.join(
     "prompts",
 )
 
+# Bundled providers live inside opencode_out/python/providers/ (sibling of this file)
+_BUNDLED_PROVIDERS = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "providers",
+)
+
 # ── Fallback constants ─────────────────────────────────────────────────
 _DEFAULT_SYSTEM_MD = (
     "You are a coding assistant running on a mobile Android app called OpenCode.\n\n"
@@ -68,6 +74,18 @@ def get_prompts_dir() -> str:
     ):
         return local_prompts
     return _BUNDLED_PROMPTS
+
+
+def get_providers_dir() -> str:
+    from python.storage import get_opencode_dir
+    local_providers = os.path.join(get_opencode_dir(), "python", "providers")
+    try:
+        _copy_missing_prompts(_BUNDLED_PROVIDERS, local_providers)
+    except Exception:
+        pass
+    if os.path.isdir(local_providers):
+        return local_providers
+    return _BUNDLED_PROVIDERS
 
 
 def _load_system_prompt() -> str:
