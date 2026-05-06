@@ -1226,113 +1226,114 @@ def run_subagent_streaming(agent_id: str, task: str, context: str = "",
             except Exception:
                 pass
 
-    for _round in range(20):
-        payload = {
-            "model":      model or MODEL,
-            "messages":   messages,
-            "max_tokens": MAX_TOKENS,
-            "stream":     True,
-        }
-        if active_tools:
-            payload["tools"]       = active_tools
-            payload["tool_choice"] = "auto"
+    try:
+        for _round in range(20):
+            payload = {
+                "model":      model or MODEL,
+                "messages":   messages,
+                "max_tokens": MAX_TOKENS,
+                "stream":     True,
+            }
+            if active_tools:
+                payload["tools"]       = active_tools
+                payload["tool_choice"] = "auto"
 
-        try:
-            resp = requests.post(API_URL, json=payload, stream=True, timeout=300)
-            resp.raise_for_status()
-        except Exception as e:
-            return f"Error: subagent API call failed: {e}"
-
-        tool_calls_acc = {}
-        round_content  = ""
-
-        for raw in resp.iter_lines():
-            if not raw:
-                continue
-            line = raw.decode("utf-8", errors="replace")
-            if not line.startswith("data: "):
-                continue
-            data_str = line[6:].strip()
-            if data_str == "[DONE]":
-                break
             try:
-                chunk = json.loads(data_str)
-            except json.JSONDecodeError:
-                continue
+                resp = requests.post(API_URL, json=payload, stream=True, timeout=300)
+                resp.raise_for_status()
+            except Exception as e:
+                return f"Error: subagent API call failed: {e}"
 
-            choice = (chunk.get("choices") or [{}])[0]
-            delta  = choice.get("delta", {})
+            tool_calls_acc = {}
+            round_content  = ""
 
-            thinking_chunk = (delta.get("reasoning_content") or
-                              delta.get("reasoning") or
-                              delta.get("thinking") or "")
-            if thinking_chunk:
-                _emit({"subtype": "thinking", "data": thinking_chunk})
+            for raw in resp.iter_lines():
+                if not raw:
+                    continue
+                line = raw.decode("utf-8", errors="replace")
+                if not line.startswith("data: "):
+                    continue
+                data_str = line[6:].strip()
+                if data_str == "[DONE]":
+                    break
+                try:
+                    chunk = json.loads(data_str)
+                except json.JSONDecodeError:
+                    continue
 
-            content_chunk = delta.get("content") or ""
-            if content_chunk:
-                round_content += content_chunk
-                _emit({"subtype": "text", "data": content_chunk})
+                choice = (chunk.get("choices") or [{}])[0]
+                delta  = choice.get("delta", {})
 
-            for tc_delta in delta.get("tool_calls", []):
-                idx = tc_delta.get("index", 0)
-                if idx not in tool_calls_acc:
-                    tool_calls_acc[idx] = {"id": "", "name": "", "arguments": ""}
-                if tc_delta.get("id"):
-                    tool_calls_acc[idx]["id"] = tc_delta["id"]
-                fn = tc_delta.get("function", {})
-                if fn.get("name"):
-                    tool_calls_acc[idx]["name"] += fn["name"]
-                if fn.get("arguments"):
-                    tool_calls_acc[idx]["arguments"] += fn["arguments"]
+                thinking_chunk = (delta.get("reasoning_content") or
+                                  delta.get("reasoning") or
+                                  delta.get("thinking") or "")
+                if thinking_chunk:
+                    _emit({"subtype": "thinking", "data": thinking_chunk})
 
-        if not tool_calls_acc:
-            return round_content.strip() or "(subagent returned no output)"
+                content_chunk = delta.get("content") or ""
+                if content_chunk:
+                    round_content += content_chunk
+                    _emit({"subtype": "text", "data": content_chunk})
 
-        tc_list = []
-        for idx in sorted(tool_calls_acc.keys()):
-            tc = tool_calls_acc[idx]
-            tc_id = tc["id"] or f"sub-tc-{_round}-{idx}"
-            tc_list.append({
-                "id": tc_id,
-                "type": "function",
-                "function": {"name": tc["name"], "arguments": tc["arguments"]}
-            })
+                for tc_delta in delta.get("tool_calls", []):
+                    idx = tc_delta.get("index", 0)
+                    if idx not in tool_calls_acc:
+                        tool_calls_acc[idx] = {"id": "", "name": "", "arguments": ""}
+                    if tc_delta.get("id"):
+                        tool_calls_acc[idx]["id"] = tc_delta["id"]
+                    fn = tc_delta.get("function", {})
+                    if fn.get("name"):
+                        tool_calls_acc[idx]["name"] += fn["name"]
+                    if fn.get("arguments"):
+                        tool_calls_acc[idx]["arguments"] += fn["arguments"]
 
-        messages.append({"role": "assistant", "content": round_content,
-                         "tool_calls": tc_list})
+            if not tool_calls_acc:
+                return round_content.strip() or "(subagent returned no output)"
 
-        for tc in tc_list:
-            fn_name = tc["function"]["name"]
-            try:
-                args = json.loads(tc["function"]["arguments"])
-            except json.JSONDecodeError:
-                args = {}
+            tc_list = []
+            for idx in sorted(tool_calls_acc.keys()):
+                tc = tool_calls_acc[idx]
+                tc_id = tc["id"] or f"sub-tc-{_round}-{idx}"
+                tc_list.append({
+                    "id": tc_id,
+                    "type": "function",
+                    "function": {"name": tc["name"], "arguments": tc["arguments"]}
+                })
 
-            _emit({"subtype": "tool_use", "name": fn_name, "args": args,
-                   "tc_id": tc["id"]})
+            messages.append({"role": "assistant", "content": round_content,
+                             "tool_calls": tc_list})
 
-            if fn_name == "spawn_agent":
-                result = run_subagent_streaming(
-                    agent_id     = args.get("agent_id", "build"),
-                    task         = args.get("task", ""),
-                    context      = args.get("context", ""),
-                    working_dirs = working_dirs,
-                    model        = model,
-                    depth        = depth + 1,
-                    on_event     = on_event,
-                )
-            else:
-                result = run_tool(fn_name, args)
+            for tc in tc_list:
+                fn_name = tc["function"]["name"]
+                try:
+                    args = json.loads(tc["function"]["arguments"])
+                except json.JSONDecodeError:
+                    args = {}
 
-            _emit({"subtype": "tool_done", "name": fn_name, "tc_id": tc["id"],
-                   "result": result})
+                _emit({"subtype": "tool_use", "name": fn_name, "args": args,
+                       "tc_id": tc["id"]})
 
-            messages.append({
-                "role":         "tool",
-                "tool_call_id": tc["id"],
-                "content":      result,
-            })
+                if fn_name == "spawn_agent":
+                    result = run_subagent_streaming(
+                        agent_id     = args.get("agent_id", "build"),
+                        task         = args.get("task", ""),
+                        context      = args.get("context", ""),
+                        working_dirs = working_dirs,
+                        model        = model,
+                        depth        = depth + 1,
+                        on_event     = on_event,
+                    )
+                else:
+                    result = run_tool(fn_name, args)
+
+                _emit({"subtype": "tool_done", "name": fn_name, "tc_id": tc["id"],
+                       "result": result})
+
+                messages.append({
+                    "role":         "tool",
+                    "tool_call_id": tc["id"],
+                    "content":      result,
+                })
 
     finally:
         # Restore caller's _current_stream_chat_id
