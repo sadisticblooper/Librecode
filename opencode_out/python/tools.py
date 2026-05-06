@@ -348,6 +348,17 @@ def tool_edit(filePath: str, oldString: str, newString: str, replaceAll: bool = 
 
         with open(full_path, 'w', encoding='utf-8') as f:
             f.write(new_content)
+        import difflib
+        diff_lines = difflib.unified_diff(
+            content.splitlines(keepends=True),
+            new_content.splitlines(keepends=True),
+            fromfile=f'a/{filePath}',
+            tofile=f'b/{filePath}',
+            n=3,
+        )
+        diff_text = ''.join(diff_lines)
+        if diff_text:
+            return f"Replaced {count} occurrence(s) in {filePath}\n\n<<<DIFF>>>\n{diff_text}"
         return f"Replaced {count} occurrence(s) in {filePath}"
     except Exception as e:
         return f"Edit error: {e}"

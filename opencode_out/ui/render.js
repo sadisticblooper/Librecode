@@ -212,11 +212,47 @@ function _toolInputSummary(name, args) {
     if (name === 'grep')        return (args.pattern || '') + (args.path    ? '\nin: '      + args.path    : '') + (args.include ? '\ninclude: ' + args.include : '');
     if (name === 'read')        return (args.filePath || '') + (args.offset != null ? '\noffset: ' + args.offset : '') + (args.limit != null ? '  limit: ' + args.limit : '');
     if (name === 'write')       return (args.filePath || '') + '\n\n' + (args.content  || '');
-    if (name === 'edit')        return (args.filePath || '') + '\n\n--- old ---\n' + (args.oldString || '') + '\n\n--- new ---\n' + (args.newString || '');
+    if (name === 'edit')        return args.filePath || '';
     if (name === 'shell')       return (args.command  || '') + (args.cwd    ? '\ncwd: '     + args.cwd     : '');
     if (name === 'web_fetch')   return args.url || '';
     if (name === 'github_walk') return (args.action || 'tree') + '  ' + (args.repo || '') + (args.file_path ? '\n' + args.file_path : '');
     return JSON.stringify(args, null, 2);
+}
+
+function _renderDiff(diffText) {
+    if (!diffText) return '<span class="diff-empty">no changes</span>';
+    return diffText.split('\n').map(line => {
+        if (line.startsWith('+++') || line.startsWith('---')) {
+            return '<div class="diff-line diff-meta">' + escHtml(line) + '</div>';
+        }
+        if (line.startsWith('@@')) {
+            return '<div class="diff-line diff-hunk">' + escHtml(line) + '</div>';
+        }
+        if (line.startsWith('+')) {
+            return '<div class="diff-line diff-add">' + escHtml(line) + '</div>';
+        }
+        if (line.startsWith('-')) {
+            return '<div class="diff-line diff-del">' + escHtml(line) + '</div>';
+        }
+        return '<div class="diff-line diff-ctx">' + escHtml(line) + '</div>';
+    }).join('');
+}
+
+function _makeDiffExpandPanel(filePath, resultText) {
+    const panel = document.createElement('div');
+    panel.className = 'tool-expand-panel';
+    const sepIdx  = resultText.indexOf('\n\n<<<DIFF>>>\n');
+    const status  = sepIdx !== -1 ? resultText.slice(0, sepIdx) : resultText;
+    const rawDiff = sepIdx !== -1 ? resultText.slice(sepIdx + '\n\n<<<DIFF>>>\n'.length) : '';
+    panel.innerHTML =
+        '<div class="tool-expand-section diff-file-row">'
+      +   '<span class="diff-filepath">' + escHtml(filePath) + '</span>'
+      +   '<span class="diff-status-badge">' + escHtml(status) + '</span>'
+      + '</div>'
+      + '<div class="tool-expand-section diff-section">'
+      +   '<div class="diff-view">' + _renderDiff(rawDiff) + '</div>'
+      + '</div>';
+    return panel;
 }
 
 function _makeExpandPanel(inputText, outputText) {
@@ -259,7 +295,11 @@ export function createToolPill(name, args, group) {
     };
 
     div._setResult = (result) => {
-        panel = _makeExpandPanel(_toolInputSummary(name, args), result);
+        if (name === 'edit') {
+            panel = _makeDiffExpandPanel(args.filePath || '', result);
+        } else {
+            panel = _makeExpandPanel(_toolInputSummary(name, args), result);
+        }
         wrapper.appendChild(panel);
     };
 
