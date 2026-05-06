@@ -388,7 +388,6 @@ def _register(app) -> None:
             full_reasoning = ""
             last_heartbeat = time.time()
             state.current_chat_id = chat_id
-            state.turn_file_changes = {}
 
             try:
                 provider = get_provider(model)
@@ -602,8 +601,6 @@ def _register(app) -> None:
                     state.chat_histories[chat_id] = history
 
             yield f"data: {json.dumps({'type': 'history_update', 'history': state.chat_histories[chat_id]})}\n\n"
-            if state.turn_file_changes:
-                yield f"data: {json.dumps({'type': 'files_changed', 'files': state.turn_file_changes})}\n\n"
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
 
         return Response(

@@ -309,17 +309,8 @@ def tool_write(content: str, filePath: str) -> str:
         return f"Error: Path '{filePath}' is outside working directory"
     try:
         os.makedirs(os.path.dirname(full_path), exist_ok=True)
-        old_lines = []
-        if os.path.isfile(full_path):
-            with open(full_path, 'r', encoding='utf-8', errors='ignore') as f:
-                old_lines = f.readlines()
-        new_lines = content.splitlines(keepends=True)
         with open(full_path, 'w', encoding='utf-8') as f:
             f.write(content)
-        added   = sum(1 for l in new_lines if l not in old_lines)
-        removed = sum(1 for l in old_lines if l not in new_lines)
-        prev = state.turn_file_changes.get(filePath, {"added": 0, "removed": 0})
-        state.turn_file_changes[filePath] = {"added": prev["added"] + added, "removed": prev["removed"] + removed}
         return f"Written to {filePath} ({len(content)} chars)"
     except Exception as e:
         return f"Write error: {e}"
@@ -357,21 +348,6 @@ def tool_edit(filePath: str, oldString: str, newString: str, replaceAll: bool = 
 
         with open(full_path, 'w', encoding='utf-8') as f:
             f.write(new_content)
-        import difflib
-        diff_lines = difflib.unified_diff(
-            content.splitlines(keepends=True),
-            new_content.splitlines(keepends=True),
-            fromfile=f'a/{filePath}',
-            tofile=f'b/{filePath}',
-            n=3,
-        )
-        diff_text = ''.join(diff_lines)
-        added   = sum(1 for l in diff_text.splitlines() if l.startswith('+') and not l.startswith('+++'))
-        removed = sum(1 for l in diff_text.splitlines() if l.startswith('-') and not l.startswith('---'))
-        prev = state.turn_file_changes.get(filePath, {"added": 0, "removed": 0})
-        state.turn_file_changes[filePath] = {"added": prev["added"] + added, "removed": prev["removed"] + removed}
-        if diff_text:
-            return f"Replaced {count} occurrence(s) in {filePath}\n\n<<<DIFF>>>\n{diff_text}"
         return f"Replaced {count} occurrence(s) in {filePath}"
     except Exception as e:
         return f"Edit error: {e}"
@@ -466,29 +442,6 @@ def _whitespace_normalized_match(content: str, old: str) -> str | None:
         if norm(block) == norm(old):
             return block
     return None
-
-
-def tool_diff(fileA: str, fileB: str, context: int = 3) -> str:
-    import difflib
-    if not state.working_dir:
-        return "No working directory set. Use /set_working_dir to set it first."
-    pathA = resolve_path(fileA)
-    pathB = resolve_path(fileB)
-    if not pathA or not os.path.isfile(pathA):
-        return f"Error: File not found: {fileA}"
-    if not pathB or not os.path.isfile(pathB):
-        return f"Error: File not found: {fileB}"
-    try:
-        with open(pathA, 'r', encoding='utf-8', errors='ignore') as f:
-            linesA = f.readlines()
-        with open(pathB, 'r', encoding='utf-8', errors='ignore') as f:
-            linesB = f.readlines()
-        diff = list(difflib.unified_diff(linesA, linesB, fromfile=f'a/{fileA}', tofile=f'b/{fileB}', n=context))
-        if not diff:
-            return f"No differences between {fileA} and {fileB}\n\n<<<DIFF>>>\n"
-        return f"Diff: {fileA} vs {fileB}\n\n<<<DIFF>>>\n" + ''.join(diff)
-    except Exception as e:
-        return f"Diff error: {e}"
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -985,22 +938,6 @@ TOOLS: list = [
             },
         },
     },
-    {
-        "type": "function",
-        "function": {
-            "name": "diff",
-            "description": "Show a unified diff between two files. Use this to compare file versions, review changes, or understand differences between files.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "fileA":   {"type": "string",  "description": "Path to the first (original) file"},
-                    "fileB":   {"type": "string",  "description": "Path to the second (modified) file"},
-                    "context": {"type": "integer", "description": "Lines of context around each change (default 3)"},
-                },
-                "required": ["fileA", "fileB"],
-            },
-        },
-    },
 ]
 
 
@@ -1078,12 +1015,6 @@ def run_tool(name: str, args: dict) -> str:
                 args.get("oldString", ""),
                 args.get("newString", ""),
                 args.get("replaceAll", False),
-            )
-        elif name == "diff":
-            result = tool_diff(
-                args.get("fileA", ""),
-                args.get("fileB", ""),
-                args.get("context", 3),
             )
         elif name == "shell":
             result = tool_shell(args.get("command", ""), args.get("cwd"))
