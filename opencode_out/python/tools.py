@@ -309,8 +309,17 @@ def tool_write(content: str, filePath: str) -> str:
         return f"Error: Path '{filePath}' is outside working directory"
     try:
         os.makedirs(os.path.dirname(full_path), exist_ok=True)
+        old_lines = []
+        if os.path.isfile(full_path):
+            with open(full_path, 'r', encoding='utf-8', errors='ignore') as f:
+                old_lines = f.readlines()
+        new_lines = content.splitlines(keepends=True)
         with open(full_path, 'w', encoding='utf-8') as f:
             f.write(content)
+        added   = sum(1 for l in new_lines if l not in old_lines)
+        removed = sum(1 for l in old_lines if l not in new_lines)
+        prev = state.turn_file_changes.get(filePath, {"added": 0, "removed": 0})
+        state.turn_file_changes[filePath] = {"added": prev["added"] + added, "removed": prev["removed"] + removed}
         return f"Written to {filePath} ({len(content)} chars)"
     except Exception as e:
         return f"Write error: {e}"
@@ -357,6 +366,10 @@ def tool_edit(filePath: str, oldString: str, newString: str, replaceAll: bool = 
             n=3,
         )
         diff_text = ''.join(diff_lines)
+        added   = sum(1 for l in diff_text.splitlines() if l.startswith('+') and not l.startswith('+++'))
+        removed = sum(1 for l in diff_text.splitlines() if l.startswith('-') and not l.startswith('---'))
+        prev = state.turn_file_changes.get(filePath, {"added": 0, "removed": 0})
+        state.turn_file_changes[filePath] = {"added": prev["added"] + added, "removed": prev["removed"] + removed}
         if diff_text:
             return f"Replaced {count} occurrence(s) in {filePath}\n\n<<<DIFF>>>\n{diff_text}"
         return f"Replaced {count} occurrence(s) in {filePath}"

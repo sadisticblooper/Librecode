@@ -408,7 +408,50 @@ export function createSubagentPill(agentId, task, context, group) {
     return div;
 }
 
-// ── Status banner ──────────────────────────────────────────────────────
+// ── Files changed summary ──────────────────────────────────────────────
+
+export function renderFilesChanged(files) {
+    const paths  = Object.keys(files);
+    if (!paths.length) return;
+    const totAdd = paths.reduce((s, p) => s + (files[p].added   || 0), 0);
+    const totDel = paths.reduce((s, p) => s + (files[p].removed || 0), 0);
+
+    const card = document.createElement('div');
+    card.className = 'files-changed-card';
+
+    const header = document.createElement('div');
+    header.className = 'files-changed-header';
+    header.innerHTML =
+        '<span class="files-changed-title">'
+      + escHtml(paths.length) + ' changed file' + (paths.length !== 1 ? 's' : '')
+      + '</span>'
+      + (totAdd ? ' <span class="fc-add">+' + totAdd + '</span>' : '')
+      + (totDel ? ' <span class="fc-del">-' + totDel + '</span>' : '');
+    card.appendChild(header);
+
+    paths.forEach(filePath => {
+        const { added = 0, removed = 0 } = files[filePath];
+        const parts    = filePath.replace(/\\/g, '/').split('/');
+        const fileName = parts.pop();
+        const dirPart  = parts.length ? parts.join('/') + '/' : '';
+
+        const row = document.createElement('div');
+        row.className = 'files-changed-row';
+        row.innerHTML =
+            '<span class="fc-path">'
+          + (dirPart ? '<span class="fc-dir">' + escHtml(dirPart) + '</span>' : '')
+          + '<span class="fc-name">' + escHtml(fileName) + '</span>'
+          + '</span>'
+          + '<span class="fc-stats">'
+          + (added   ? '<span class="fc-add">+' + added   + '</span>' : '')
+          + (removed ? '<span class="fc-del">-' + removed + '</span>' : '')
+          + '</span>';
+        card.appendChild(row);
+    });
+
+    chatEl.appendChild(card);
+    scrollBottom();
+}
 
 export function showStatusBanner(text, kind = 'info') {
     const old = document.getElementById('status-banner');

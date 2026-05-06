@@ -20,3 +20,5 @@ chat_msg_counts: dict = {}
 todo_lists: dict = {}
 
 current_chat_id = None
+
+turn_file_changes: dict = {}

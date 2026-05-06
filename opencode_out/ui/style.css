@@ -331,6 +331,37 @@ body { display: flex; }
 .diff-meta { color: var(--text-dim); }
 .diff-ctx  { color: var(--text-muted); }
 .diff-empty { display: block; padding: 10px 12px; color: var(--text-dim); font-size: 12px; }
+
+/* ─── Files changed summary card ──────────────────────────── */
+.files-changed-card {
+    margin: 10px 0 4px;
+    border: 1px solid var(--border-mid);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+    font-size: 12px;
+}
+.files-changed-header {
+    display: flex; align-items: center; gap: 6px;
+    padding: 7px 12px;
+    background: var(--surface2);
+    border-bottom: 1px solid var(--border);
+    font-weight: 500; color: var(--text-muted);
+}
+.files-changed-title { color: var(--text); font-weight: 600; }
+.files-changed-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 5px 12px; gap: 8px;
+    border-bottom: 1px solid var(--border);
+    transition: background .1s;
+}
+.files-changed-row:last-child { border-bottom: none; }
+.files-changed-row:hover { background: var(--surface2); }
+.fc-path { font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.fc-dir  { color: var(--text-dim); }
+.fc-name { color: var(--text); font-weight: 500; }
+.fc-stats { display: flex; gap: 6px; flex-shrink: 0; font-family: var(--font-mono); }
+.fc-add { color: var(--green); }
+.fc-del { color: var(--red); }
 .subagent-pill { color: var(--cyan); font-weight: 500; }
 .subagent-pill em { color: var(--cyan); opacity: .85; }
 .tool-spinner {

@@ -40,7 +40,7 @@ import {
     createAssistantShell, sealAssistant,
     createThinkingBlock, sealThinking,
     createToolGroup, createToolPill, createSubagentPill,
-    showStatusBanner, highlightCodeBlocks,
+    showStatusBanner, highlightCodeBlocks, renderFilesChanged,
 } from './render.js';
 
 // Auto-save every 500 ms
@@ -726,6 +726,10 @@ async function send() {
                         break;
                     }
                     case 'heartbeat': break;
+                    case 'files_changed': {
+                        if (isActive()) renderFilesChanged(ev.files || {});
+                        break;
+                    }
                     case 'history_update': {
                         if (chat) {
                             chat.history = ev.history;
