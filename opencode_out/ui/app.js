@@ -195,34 +195,19 @@ function renderHistory() {
     const chat = activeChat();
     chatEl.innerHTML = '';
     if (!chat) { updateContextBadge(); return; }
-
     const events = chat.uiEvents && chat.uiEvents.length ? chat.uiEvents : null;
-
     if (events) {
         for (const ev of events) {
-            switch (ev.type) {
-                case 'user':
-                    addUserMsgStatic(ev.content);
-                    break;
-                case 'thinking':
-                    addThinkingStatic(ev.text);
-                    break;
-                case 'assistant':
-                    addAssistantMsgStatic(ev.content, ev.reasoning || null);
-                    break;
-                case 'tool_group':
-                    addToolGroupStatic(ev.tools);
-                    break;
-                case 'subagent':
-                    addSubagentStatic(ev.agentId, ev.task, ev.context, ev.result);
-                    break;
-                case 'error': {
-                    const errDiv = document.createElement('div');
-                    errDiv.className = 'msg assistant';
-                    errDiv.innerHTML = '<span class="error-msg">\u26a0 ' + escHtml(ev.text) + '</span>';
-                    chatEl.appendChild(errDiv);
-                    break;
-                }
+            if      (ev.type === 'user')       addUserMsgStatic(ev.content);
+            else if (ev.type === 'thinking')   addThinkingStatic(ev.text);
+            else if (ev.type === 'assistant')  addAssistantMsgStatic(ev.content, ev.reasoning || null);
+            else if (ev.type === 'tool_group') addToolGroupStatic(ev.tools);
+            else if (ev.type === 'subagent')   addSubagentStatic(ev.agentId, ev.task, ev.context, ev.result);
+            else if (ev.type === 'error') {
+                const errDiv = document.createElement('div');
+                errDiv.className = 'msg assistant';
+                errDiv.innerHTML = '<span class="error-msg">⚠ ' + escHtml(ev.text) + '</span>';
+                chatEl.appendChild(errDiv);
             }
         }
     } else if (chat.history && chat.history.length) {
@@ -234,7 +219,6 @@ function renderHistory() {
             }
         }
     }
-
     updateContextBadge();
     forceScrollBottom();
 }
@@ -367,7 +351,7 @@ compressChatBtn.onclick = async (e) => {
         const data = await compactChatApi(chat.id, selectedModel);
         if (data.history) {
             chat.history  = data.history;
-            chat.uiEvents = [];   // history was summarised; clear rich events to avoid stale UI
+            chat.uiEvents = [];
             await saveChats();
             renderHistory();
             updateContextBadge();
@@ -629,43 +613,17 @@ async function send() {
                           { id: 'u_' + Date.now(), role: 'user', content: userMsg }];
     }
 
-    // ── uiEvents recording ─────────────────────────────────────────────
-    // Append the user message event. We keep uiEvents in sync with what's
-    // visible so a reload reconstructs the UI exactly.
+    // ── uiEvents: initialise and record user turn ──────────────────────
     if (chat) {
         if (!chat.uiEvents) chat.uiEvents = [];
         chat.uiEvents.push({ type: 'user', content: userMsg });
     }
-
-    // Accumulators for the current assistant turn
-    let uiThinkingText  = '';          // accumulated thinking for current block
-    let uiAssistantText = '';          // accumulated assistant text for current segment
-    let uiToolGroup     = null;        // { type:'tool_group', tools:[] } being built
-    let uiSubagent      = null;        // subagent event being built
-    // Map tc_id / key → index in uiToolGroup.tools or reference to uiSubagent
-    const uiToolMap     = {};
-    const uiSubagentMap = {};
-
-    function _flushThinking() {
-        if (!uiThinkingText || !chat) return;
-        chat.uiEvents.push({ type: 'thinking', text: uiThinkingText });
-        uiThinkingText = '';
-    }
-    function _flushAssistant() {
-        if (!uiAssistantText || !chat) return;
-        chat.uiEvents.push({ type: 'assistant', content: uiAssistantText });
-        uiAssistantText = '';
-    }
-    function _flushToolGroup() {
-        if (!uiToolGroup || !chat) return;
-        chat.uiEvents.push(uiToolGroup);
-        uiToolGroup = null;
-    }
-    function _flushSubagent() {
-        if (!uiSubagent || !chat) return;
-        chat.uiEvents.push(uiSubagent);
-        uiSubagent = null;
-    }
+    let _uiThink = '', _uiText = '', _uiGroup = null, _uiSub = null;
+    const _uiToolMap = {}, _uiSubMap = {};
+    const _flushThink = () => { if (_uiThink && chat) { chat.uiEvents.push({ type: 'thinking', text: _uiThink }); _uiThink = ''; } };
+    const _flushText  = () => { if (_uiText  && chat) { chat.uiEvents.push({ type: 'assistant', content: _uiText }); _uiText = ''; } };
+    const _flushGroup = () => { if (_uiGroup && chat) { chat.uiEvents.push(_uiGroup); _uiGroup = null; } };
+    const _flushSub   = () => { if (_uiSub   && chat) { chat.uiEvents.push(_uiSub); _uiSub = null; } };
     // ──────────────────────────────────────────────────────────────────
 
     let thinkingBlock = null;
@@ -712,9 +670,7 @@ async function send() {
 
                 switch (ev.type) {
                     case 'thinking': {
-                        // ── record ──
-                        uiThinkingText += ev.text;
-                        // ── render ──
+                        _uiThink += ev.text;
                         if (!isActive()) break;
                         if (loadingDiv) { loadingDiv.remove(); loadingDiv = null; }
                         if (toolPill) { toolPill.classList.add('done'); toolPill = null; }
@@ -726,11 +682,8 @@ async function send() {
                         break;
                     }
                     case 'text': {
-                        // ── record ──
-                        _flushThinking();
-                        if (uiToolGroup) _flushToolGroup();
-                        if (uiSubagent)  _flushSubagent();
-                        uiAssistantText += ev.text;
+                        _flushThink(); _flushGroup(); _flushSub();
+                        _uiText += ev.text;
                         assistantText += ev.text;
                         segmentText   += ev.text;
                         chatStreamState[sendingChatId] = { assistantText, hasContent: true };
@@ -738,7 +691,6 @@ async function send() {
                             const base = (chat.history || []).filter(t => !t._partial);
                             chat.history = [...base, { id: 'a_partial', role: 'assistant', content: assistantText, _partial: true }];
                         }
-                        // ── render ──
                         if (!isActive()) break;
                         if (loadingDiv) { loadingDiv.remove(); loadingDiv = null; }
                         if (thinkingBlock) { sealThinking(thinkingBlock); thinkingBlock = null; }
@@ -756,15 +708,11 @@ async function send() {
                         break;
                     }
                     case 'tool_use': {
-                        // ── record ──
-                        _flushThinking();
-                        _flushAssistant();
-                        if (uiSubagent) _flushSubagent();
-                        if (!uiToolGroup) uiToolGroup = { type: 'tool_group', tools: [] };
-                        const toolEntry = { name: ev.name, args: ev.args || {}, result: null, tc_id: ev.tc_id || null };
-                        uiToolGroup.tools.push(toolEntry);
-                        if (ev.tc_id) uiToolMap[ev.tc_id] = toolEntry;
-                        // ── render ──
+                        _flushThink(); _flushText(); _flushSub();
+                        if (!_uiGroup) _uiGroup = { type: 'tool_group', tools: [] };
+                        const _toolEntry = { name: ev.name, args: ev.args || {}, result: null };
+                        _uiGroup.tools.push(_toolEntry);
+                        if (ev.tc_id) _uiToolMap[ev.tc_id] = _toolEntry;
                         if (!isActive()) break;
                         if (loadingDiv) { loadingDiv.remove(); loadingDiv = null; }
                         if (thinkingBlock) { sealThinking(thinkingBlock); thinkingBlock = null; }
@@ -776,23 +724,10 @@ async function send() {
                         break;
                     }
                     case 'subagent_start': {
-                        // ── record ──
-                        _flushThinking();
-                        _flushAssistant();
-                        // Mark the spawn tool_use entry as resolved (it became a subagent)
-                        if (ev.key && uiToolMap[ev.key]) {
-                            // Remove the spawn tool entry — the subagent pill replaces it visually
-                            if (uiToolGroup) {
-                                uiToolGroup.tools = uiToolGroup.tools.filter(t => t.tc_id !== ev.key);
-                                if (!uiToolGroup.tools.length) uiToolGroup = null;
-                            }
-                            delete uiToolMap[ev.key];
-                        }
-                        _flushToolGroup();
-                        const subEv = { type: 'subagent', agentId: ev.agent, task: ev.task || '', context: ev.context || '', result: '' };
-                        uiSubagent = subEv;
-                        if (ev.key) uiSubagentMap[ev.key] = subEv;
-                        // ── render ──
+                        _flushThink(); _flushText(); _flushGroup();
+                        const _subEntry = { type: 'subagent', agentId: ev.agent, task: ev.task || '', context: ev.context || '', result: '' };
+                        _uiSub = _subEntry;
+                        if (ev.key) _uiSubMap[ev.key] = _subEntry;
                         if (!isActive()) break;
                         if (!toolGroup) toolGroup = createToolGroup();
                         const spawnPill = (ev.key && activePills[ev.key]) || toolPill;
@@ -806,21 +741,16 @@ async function send() {
                         break;
                     }
                     case 'subagent_stream': {
-                        // Not recorded (we only store final input/output per user preference)
                         if (!isActive()) break;
                         const target = ev.key && activePills[ev.key];
                         if (target && typeof target._liveEvent === 'function') target._liveEvent(ev);
                         break;
                     }
                     case 'subagent_done': {
-                        // ── record ──
-                        const subRecord = (ev.key && uiSubagentMap[ev.key]) || uiSubagent;
-                        if (subRecord) subRecord.result = ev.result || '';
-                        if (uiSubagent && (!ev.key || uiSubagentMap[ev.key] === uiSubagent)) {
-                            _flushSubagent();
-                        }
-                        if (ev.key) delete uiSubagentMap[ev.key];
-                        // ── render ──
+                        const _sr = (ev.key && _uiSubMap[ev.key]) || _uiSub;
+                        if (_sr) _sr.result = ev.result || '';
+                        _flushSub();
+                        if (ev.key) delete _uiSubMap[ev.key];
                         if (!isActive()) break;
                         const dPill = (ev.key && activePills[ev.key]) || toolPill;
                         if (dPill) {
@@ -833,11 +763,9 @@ async function send() {
                         break;
                     }
                     case 'tool_done': {
-                        // ── record ──
-                        const toolRecord = ev.tc_id && uiToolMap[ev.tc_id];
-                        if (toolRecord) toolRecord.result = ev.result || '';
-                        if (ev.tc_id) delete uiToolMap[ev.tc_id];
-                        // ── render ──
+                        const _tr = ev.tc_id && _uiToolMap[ev.tc_id];
+                        if (_tr) _tr.result = ev.result || '';
+                        if (ev.tc_id) delete _uiToolMap[ev.tc_id];
                         if (!isActive()) break;
                         const tPill = (ev.tc_id && activePills[ev.tc_id]) || toolPill;
                         if (tPill) {
@@ -858,13 +786,8 @@ async function send() {
                         break;
                     }
                     case 'error': {
-                        // ── record ──
-                        _flushThinking();
-                        _flushAssistant();
-                        _flushToolGroup();
-                        _flushSubagent();
+                        _flushThink(); _flushText(); _flushGroup(); _flushSub();
                         if (chat) chat.uiEvents.push({ type: 'error', text: ev.text });
-                        // ── render ──
                         if (!isActive()) break;
                         if (thinkingBlock) { sealThinking(thinkingBlock); thinkingBlock = null; }
                         if (!assistantDiv) assistantDiv = createAssistantShell();
@@ -874,30 +797,18 @@ async function send() {
                         break;
                     }
                     case 'done': {
-                        // ── record ──
-                        _flushThinking();
-                        _flushAssistant();
-                        _flushToolGroup();
-                        _flushSubagent();
-                        // ── render ──
+                        _flushThink(); _flushText(); _flushGroup(); _flushSub();
+                        if (chat) saveChats();
                         if (isActive()) {
                             if (thinkingBlock) { sealThinking(thinkingBlock); thinkingBlock = null; }
                             if (assistantDiv)  { sealAssistant(assistantDiv, segmentText); assistantDiv = null; }
                             if (toolPill)      { toolPill.classList.add('done'); toolPill = null; toolGroup = null; }
-                            saveChats();
                         }
                         break;
                     }
                 }
             }
         }
-
-        // ── record any still-open blocks ──
-        _flushThinking();
-        _flushAssistant();
-        _flushToolGroup();
-        _flushSubagent();
-        if (chat) saveChats();
 
         if (isActive()) {
             if (thinkingBlock) sealThinking(thinkingBlock);
@@ -906,15 +817,6 @@ async function send() {
         }
 
     } catch (e) {
-        // ── record error ──
-        _flushThinking();
-        _flushAssistant();
-        _flushToolGroup();
-        _flushSubagent();
-        if (chat) {
-            chat.uiEvents.push({ type: 'error', text: e.message });
-            saveChats();
-        }
         if (isActive()) {
             const d = assistantDiv || createAssistantShell();
             d.classList.remove('streaming');
