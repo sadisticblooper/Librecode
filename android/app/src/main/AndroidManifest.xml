@@ -1,13 +1,28 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- ── Network ───────────────────────────────────────────────────────── -->
     <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- ── Storage ───────────────────────────────────────────────────────── -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="29" />
-    <!-- Android 11+ (API 30+): broad access to all files -->
+    <!-- Android 11+ broad file access -->
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+
+    <!-- ── Background / foreground service ──────────────────────────────── -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <!-- Required on Android 14+ to declare the service type -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <!-- Keeps CPU on while screen is off -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- Ask user to exempt us from battery optimisation (Doze / App Standby) -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
+    <!-- ── Notifications (Android 13+) ──────────────────────────────────── -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:allowBackup="true"
@@ -18,9 +33,12 @@
         android:theme="@style/Theme.OpenCode"
         android:usesCleartextTraffic="true">
 
+        <!-- singleTop: tapping the notification re-uses the existing activity
+             instead of creating a second one. -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:launchMode="singleTop"
             android:configChanges="orientation|screenSize|keyboardHidden|uiMode"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
@@ -28,6 +46,18 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!--
+            FlaskService:
+              • stopWithTask=false  → keeps running after user swipes app away
+              • foregroundServiceType → required on Android 10+ / mandatory on 14+
+                "dataSync" is the correct type for a background data / server process
+        -->
+        <service
+            android:name=".FlaskService"
+            android:exported="false"
+            android:stopWithTask="false"
+            android:foregroundServiceType="dataSync" />
 
     </application>
 
