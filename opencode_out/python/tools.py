@@ -455,6 +455,29 @@ def _whitespace_normalized_match(content: str, old: str) -> str | None:
     return None
 
 
+def tool_diff(fileA: str, fileB: str, context: int = 3) -> str:
+    import difflib
+    if not state.working_dir:
+        return "No working directory set. Use /set_working_dir to set it first."
+    pathA = resolve_path(fileA)
+    pathB = resolve_path(fileB)
+    if not pathA or not os.path.isfile(pathA):
+        return f"Error: File not found: {fileA}"
+    if not pathB or not os.path.isfile(pathB):
+        return f"Error: File not found: {fileB}"
+    try:
+        with open(pathA, 'r', encoding='utf-8', errors='ignore') as f:
+            linesA = f.readlines()
+        with open(pathB, 'r', encoding='utf-8', errors='ignore') as f:
+            linesB = f.readlines()
+        diff = list(difflib.unified_diff(linesA, linesB, fromfile=f'a/{fileA}', tofile=f'b/{fileB}', n=context))
+        if not diff:
+            return f"No differences between {fileA} and {fileB}\n\n<<<DIFF>>>\n"
+        return f"Diff: {fileA} vs {fileB}\n\n<<<DIFF>>>\n" + ''.join(diff)
+    except Exception as e:
+        return f"Diff error: {e}"
+
+
 # ══════════════════════════════════════════════════════════════════════
 # GitHub tool
 # ══════════════════════════════════════════════════════════════════════
@@ -949,6 +972,22 @@ TOOLS: list = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "diff",
+            "description": "Show a unified diff between two files. Use this to compare file versions, review changes, or understand differences between files.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "fileA":   {"type": "string",  "description": "Path to the first (original) file"},
+                    "fileB":   {"type": "string",  "description": "Path to the second (modified) file"},
+                    "context": {"type": "integer", "description": "Lines of context around each change (default 3)"},
+                },
+                "required": ["fileA", "fileB"],
+            },
+        },
+    },
 ]
 
 
@@ -1026,6 +1065,12 @@ def run_tool(name: str, args: dict) -> str:
                 args.get("oldString", ""),
                 args.get("newString", ""),
                 args.get("replaceAll", False),
+            )
+        elif name == "diff":
+            result = tool_diff(
+                args.get("fileA", ""),
+                args.get("fileB", ""),
+                args.get("context", 3),
             )
         elif name == "shell":
             result = tool_shell(args.get("command", ""), args.get("cwd"))

@@ -189,6 +189,8 @@ function _toolPillIcon(name) {
         return `<svg ${s} stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>`;
     if (name === 'web_fetch')
         return `<svg ${s} stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>`;
+    if (name === 'diff')
+        return `<svg ${s} stroke-width="2"><path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v10m0 0H5m4 0h4m6-10v10m0 0h-4m4 0h-2"/><line x1="3" y1="15" x2="9" y2="15"/><line x1="15" y1="15" x2="21" y2="15"/></svg>`;
     return `<svg ${s} stroke-width="2"><circle cx="12" cy="12" r="10"/></svg>`;
 }
 
@@ -201,6 +203,7 @@ function _toolPillLabel(name, args) {
     if (name === 'edit')        return 'editing&nbsp;<em>'   + escHtml(args.filePath || '') + '</em>';
     if (name === 'shell')       return 'running&nbsp;<em>'   + escHtml(args.command  || '') + '</em>';
     if (name === 'web_fetch')   return 'fetching&nbsp;<em>'  + escHtml(args.url      || '') + '</em>';
+    if (name === 'diff')        return 'diffing&nbsp;<em>'   + escHtml(args.fileA    || '') + '</em>&nbsp;→&nbsp;<em>' + escHtml(args.fileB || '') + '</em>';
     if (name === 'github_walk') return 'github&nbsp;<em>'    + escHtml(args.repo     || '') + '</em>';
     if (name === 'spawn_agent') return 'spawning&nbsp;<em>'  + escHtml(args.agent_id || 'agent') + '</em>';
     return 'running&nbsp;<em>' + escHtml(name) + '</em>';
@@ -215,6 +218,7 @@ function _toolInputSummary(name, args) {
     if (name === 'edit')        return args.filePath || '';
     if (name === 'shell')       return (args.command  || '') + (args.cwd    ? '\ncwd: '     + args.cwd     : '');
     if (name === 'web_fetch')   return args.url || '';
+    if (name === 'diff')        return (args.fileA || '') + '\n' + (args.fileB || '');
     if (name === 'github_walk') return (args.action || 'tree') + '  ' + (args.repo || '') + (args.file_path ? '\n' + args.file_path : '');
     return JSON.stringify(args, null, 2);
 }
@@ -297,6 +301,9 @@ export function createToolPill(name, args, group) {
     div._setResult = (result) => {
         if (name === 'edit') {
             panel = _makeDiffExpandPanel(args.filePath || '', result);
+        } else if (name === 'diff') {
+            const label = (args.fileA || '') + ' → ' + (args.fileB || '');
+            panel = _makeDiffExpandPanel(label, result);
         } else {
             panel = _makeExpandPanel(_toolInputSummary(name, args), result);
         }
