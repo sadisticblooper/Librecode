@@ -388,7 +388,6 @@ def _register(app) -> None:
             full_reasoning = ""
             last_heartbeat = time.time()
             state.current_chat_id = chat_id
-            state.turn_file_changes = {}
 
             try:
                 provider = get_provider(model)
@@ -573,6 +572,9 @@ def _register(app) -> None:
                         if fn_name == "spawn_agent":
                             yield f"data: {json.dumps({'type': 'subagent_done', 'key': tc_id, 'agent': args.get('agent_id','build'), 'result': result[:4000]})}\n\n"
                         yield f"data: {json.dumps({'type': 'tool_done', 'name': fn_name, 'tc_id': tc_id, 'result': result[:4000]})}\n\n"
+                        if fn_name in ('write', 'edit') and state.last_file_diff:
+                            yield f"data: {json.dumps({'type': 'file_diff', **state.last_file_diff})}\n\n"
+                            state.last_file_diff = None
                     elif evt.get("_evt"):
                         yield f"data: {json.dumps({'type': 'subagent_stream', 'key': evt['key'], 'subtype': evt.get('subtype'), 'data': evt.get('data'), 'name': evt.get('name'), 'args': evt.get('args'), 'tc_id': evt.get('tc_id'), 'result': evt.get('result','')[:500] if evt.get('result') else None})}\n\n"
 
@@ -602,8 +604,6 @@ def _register(app) -> None:
                     state.chat_histories[chat_id] = history
 
             yield f"data: {json.dumps({'type': 'history_update', 'history': state.chat_histories[chat_id]})}\n\n"
-            if state.turn_file_changes:
-                yield f"data: {json.dumps({'type': 'files_changed', 'files': state.turn_file_changes})}\n\n"
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
 
         return Response(

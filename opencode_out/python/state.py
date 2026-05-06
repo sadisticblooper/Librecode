@@ -21,4 +21,5 @@ todo_lists: dict = {}
 
 current_chat_id = None
 
-turn_file_changes: dict = {}
+# Last file diff metadata set by tool_write / tool_edit for SSE emission
+last_file_diff: dict | None = None

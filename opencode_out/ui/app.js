@@ -40,7 +40,7 @@ import {
     createAssistantShell, sealAssistant,
     createThinkingBlock, sealThinking,
     createToolGroup, createToolPill, createSubagentPill,
-    showStatusBanner, highlightCodeBlocks, renderFilesChanged,
+    showStatusBanner, highlightCodeBlocks, createFileDiffBar,
 } from './render.js';
 
 // Auto-save every 500 ms
@@ -726,8 +726,9 @@ async function send() {
                         break;
                     }
                     case 'heartbeat': break;
-                    case 'files_changed': {
-                        if (isActive()) renderFilesChanged(ev.files || {});
+                    case 'file_diff': {
+                        if (!isActive()) break;
+                        createFileDiffBar(ev.filePath || '', ev.action || 'edited', ev.added || 0, ev.deleted || 0);
                         break;
                     }
                     case 'history_update': {
