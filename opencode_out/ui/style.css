@@ -365,8 +365,9 @@ body { display: flex; }
 .msg li { margin: 3px 0; }
 .msg code {
     background: var(--surface3); border: 1px solid var(--border-mid);
-    padding: 2px 6px; border-radius: 4px;
-    font-family: var(--font-mono); font-size: 13px; color: var(--green);
+    padding: 1px 5px; border-radius: 4px; margin: 0 2px;
+    font-family: var(--font-mono); font-size: 12.5px; color: var(--green);
+    vertical-align: baseline;
 }
 .msg a { color: var(--accent); text-decoration: none; }
 .msg a:hover { text-decoration: underline; }
