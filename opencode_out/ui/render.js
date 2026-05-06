@@ -363,40 +363,58 @@ export function createSubagentPill(agentId, task, context, group) {
 
 // ── Status banner ──────────────────────────────────────────────────────
 
-// ── File diff bar ──────────────────────────────────────────────────────
+// ── File diff panel (rendered after response ends) ─────────────────────
 
-export function createFileDiffBar(filePath, action, added, deleted) {
-    const bar = document.createElement('div');
-    bar.className = 'file-diff-bar';
+export function createFileDiffBar() {}  // kept for compat, unused
 
-    // Shorten the file path for display
-    const parts = filePath.replace(/\\/g, '/').split('/').filter(Boolean);
-    const shortPath = parts.length > 3 ? '.../' + parts.slice(-3).join('/') : filePath;
-    const fileName  = parts[parts.length - 1] || filePath;
-    const dirPart   = shortPath.slice(0, shortPath.length - fileName.length);
+export function flushFileDiffs(diffs) {
+    if (!diffs || !diffs.length) return;
 
-    const actionClass = action === 'created' ? 'diff-action-created'
-                      : action === 'edited'  ? 'diff-action-edited'
-                      : 'diff-action-written';
-    const actionLabel = action === 'created' ? 'created'
-                      : action === 'edited'  ? 'modified'
-                      : 'written';
+    const panel = document.createElement('div');
+    panel.className = 'file-diff-panel';
 
-    let statsHtml = '';
-    if (added > 0)   statsHtml += `<span class="diff-stat-add">+${added}</span>`;
-    if (deleted > 0) statsHtml += `<span class="diff-stat-del">-${deleted}</span>`;
+    diffs.forEach(({ filePath, action, added, deleted }) => {
+        const parts    = (filePath || '').replace(/\\/g, '/').split('/').filter(Boolean);
+        const fileName = parts[parts.length - 1] || filePath;
+        const dirPart  = parts.length > 1 ? parts.slice(0, -1).join('/') + '/' : '';
 
-    bar.innerHTML =
-        `<span class="diff-action-badge ${actionClass}">${actionLabel}</span>` +
-        `<span class="diff-filepath"><span class="diff-dir">${escHtml(dirPart)}</span><span class="diff-filename">${escHtml(fileName)}</span></span>` +
-        (statsHtml ? `<span class="diff-stats">${statsHtml}</span>` : '');
+        const actionClass = action === 'created' ? 'diff-action-created'
+                          : action === 'edited'  ? 'diff-action-edited'
+                          : 'diff-action-written';
+        const actionLabel = action === 'created' ? 'created'
+                          : action === 'edited'  ? 'modified'
+                          : 'written';
 
-    chatEl.appendChild(bar);
+        const totalChanged = (added || 0) + (deleted || 0);
+        const maxBlocks    = 12;
+        let blocksHtml     = '';
+        if (totalChanged > 0) {
+            const addBlocks = Math.round(((added || 0) / totalChanged) * maxBlocks);
+            const delBlocks = maxBlocks - addBlocks;
+            blocksHtml = '<span class="diff-blocks">'
+                + (addBlocks > 0 ? '<span class="diff-block-add" style="flex:' + addBlocks + '"></span>' : '')
+                + (delBlocks > 0 ? '<span class="diff-block-del" style="flex:' + delBlocks + '"></span>' : '')
+                + '</span>';
+        }
+
+        const row = document.createElement('div');
+        row.className = 'file-diff-row';
+        row.innerHTML =
+            `<span class="diff-action-badge ${actionClass}">${actionLabel}</span>` +
+            `<span class="diff-filepath"><span class="diff-dir">${escHtml(dirPart)}</span><span class="diff-filename">${escHtml(fileName)}</span></span>` +
+            blocksHtml +
+            `<span class="diff-stats">` +
+            ((added   > 0) ? `<span class="diff-stat-add">+${added}</span>`   : '') +
+            ((deleted > 0) ? `<span class="diff-stat-del">-${deleted}</span>` : '') +
+            `</span>`;
+
+        panel.appendChild(row);
+    });
+
+    chatEl.appendChild(panel);
     scrollBottom();
-    return bar;
+    return panel;
 }
-
-
 
 export function showStatusBanner(text, kind = 'info') {
     const old = document.getElementById('status-banner');

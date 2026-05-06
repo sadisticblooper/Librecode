@@ -40,7 +40,7 @@ import {
     createAssistantShell, sealAssistant,
     createThinkingBlock, sealThinking,
     createToolGroup, createToolPill, createSubagentPill,
-    showStatusBanner, highlightCodeBlocks, createFileDiffBar,
+    showStatusBanner, highlightCodeBlocks, createFileDiffBar, flushFileDiffs,
 } from './render.js';
 
 // Auto-save every 500 ms
@@ -602,6 +602,7 @@ async function send() {
     let segmentText   = '';
     const activePills = {};
     let loadingDiv    = null;
+    const pendingDiffs = [];
 
     if (isActive()) {
         loadingDiv = document.createElement('div');
@@ -728,7 +729,7 @@ async function send() {
                     case 'heartbeat': break;
                     case 'file_diff': {
                         if (!isActive()) break;
-                        createFileDiffBar(ev.filePath || '', ev.action || 'edited', ev.added || 0, ev.deleted || 0);
+                        pendingDiffs.push({ filePath: ev.filePath || '', action: ev.action || 'edited', added: ev.added || 0, deleted: ev.deleted || 0 });
                         break;
                     }
                     case 'history_update': {
@@ -753,6 +754,10 @@ async function send() {
                             if (thinkingBlock) { sealThinking(thinkingBlock); thinkingBlock = null; }
                             if (assistantDiv)  { sealAssistant(assistantDiv, segmentText); assistantDiv = null; }
                             if (toolPill)      { toolPill.classList.add('done'); toolPill = null; toolGroup = null; }
+                            if (pendingDiffs.length > 0) {
+                                flushFileDiffs(pendingDiffs);
+                                pendingDiffs.length = 0;
+                            }
                             saveChats();
                         }
                         break;
