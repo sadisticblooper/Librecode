@@ -20,6 +20,3 @@ chat_msg_counts: dict = {}
 todo_lists: dict = {}
 
 current_chat_id = None
-
-# Last file diff metadata set by tool_write / tool_edit for SSE emission
-last_file_diff: dict | None = None

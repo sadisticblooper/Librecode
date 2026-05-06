@@ -309,30 +309,8 @@ def tool_write(content: str, filePath: str) -> str:
         return f"Error: Path '{filePath}' is outside working directory"
     try:
         os.makedirs(os.path.dirname(full_path), exist_ok=True)
-        # Read existing content for diff stats
-        is_new = not os.path.isfile(full_path)
-        old_lines = []
-        if not is_new:
-            try:
-                with open(full_path, 'r', encoding='utf-8', errors='ignore') as f:
-                    old_lines = f.read().splitlines()
-            except Exception:
-                old_lines = []
-        new_lines = content.splitlines()
         with open(full_path, 'w', encoding='utf-8') as f:
             f.write(content)
-        if is_new:
-            added   = len(new_lines)
-            deleted = 0
-            action  = "created"
-        else:
-            import difflib
-            diff    = list(difflib.unified_diff(old_lines, new_lines))
-            added   = sum(1 for l in diff if l.startswith('+') and not l.startswith('+++'))
-            deleted = sum(1 for l in diff if l.startswith('-') and not l.startswith('---'))
-            action  = "written"
-        # Store diff metadata for SSE emission
-        state.last_file_diff = {"filePath": filePath, "action": action, "added": added, "deleted": deleted}
         return f"Written to {filePath} ({len(content)} chars)"
     except Exception as e:
         return f"Write error: {e}"
@@ -370,14 +348,6 @@ def tool_edit(filePath: str, oldString: str, newString: str, replaceAll: bool = 
 
         with open(full_path, 'w', encoding='utf-8') as f:
             f.write(new_content)
-        # Compute diff stats
-        import difflib
-        old_lines = content.splitlines()
-        new_lines = new_content.splitlines()
-        diff    = list(difflib.unified_diff(old_lines, new_lines))
-        added   = sum(1 for l in diff if l.startswith('+') and not l.startswith('+++'))
-        deleted = sum(1 for l in diff if l.startswith('-') and not l.startswith('---'))
-        state.last_file_diff = {"filePath": filePath, "action": "edited", "added": added, "deleted": deleted}
         return f"Replaced {count} occurrence(s) in {filePath}"
     except Exception as e:
         return f"Edit error: {e}"
