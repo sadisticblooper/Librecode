@@ -176,11 +176,19 @@ async function switchChat(id) {
 
     if (sendingChats.has(id)) {
         const state = chatStreamState[id];
-        const div   = createAssistantShell();
-        div.dataset.live = id;
-        if (state && state.hasContent) {
-            div.innerHTML = parseMarkdown(state.assistantText) + '<span class="cursor"></span>';
-            highlightCodeBlocks(div);
+        if (state && state.hasContent && state.segmentText) {
+            // uiEvents is fully live so renderHistory() already drew the in-progress
+            // assistant text. Find that last assistant div and mark it as the live
+            // target so the stream loop keeps updating it in place -- no duplicate shell.
+            const allAssistants = chatEl.querySelectorAll('.msg.assistant');
+            const lastDiv = allAssistants[allAssistants.length - 1];
+            if (lastDiv) {
+                lastDiv.dataset.live = id;
+                lastDiv.innerHTML = '<span class="reply-marker">&gt;</span>' +
+                    parseMarkdown(state.segmentText) + '<span class="cursor"></span>';
+                highlightCodeBlocks(lastDiv);
+            }
+            // If no assistant div yet (only tools running), stream loop creates shell naturally.
         }
         forceScrollBottom();
     }
@@ -618,12 +626,15 @@ async function send() {
         if (!chat.uiEvents) chat.uiEvents = [];
         chat.uiEvents.push({ type: 'user', content: userMsg });
     }
-    let _uiThink = '', _uiText = '', _uiGroup = null, _uiSub = null;
+    // Live event objects — pushed to uiEvents immediately and mutated in place.
+    // This keeps uiEvents authoritative at all times so renderHistory() is always
+    // the source of truth when switching chats mid-stream.
+    let _uiLiveThink = null, _uiLiveText = null, _uiGroup = null, _uiSub = null;
     const _uiToolMap = {}, _uiSubMap = {};
-    const _flushThink = () => { if (_uiThink && chat) { chat.uiEvents.push({ type: 'thinking', text: _uiThink }); _uiThink = ''; } };
-    const _flushText  = () => { if (_uiText  && chat) { chat.uiEvents.push({ type: 'assistant', content: _uiText }); _uiText = ''; } };
-    const _flushGroup = () => { if (_uiGroup && chat) { chat.uiEvents.push(_uiGroup); _uiGroup = null; } };
-    const _flushSub   = () => { if (_uiSub   && chat) { chat.uiEvents.push(_uiSub); _uiSub = null; } };
+    const _flushThink = () => { _uiLiveThink = null; };
+    const _flushText  = () => { _uiLiveText  = null; };
+    const _flushGroup = () => { _uiGroup = null; };
+    const _flushSub   = () => { _uiSub   = null; };
     // ──────────────────────────────────────────────────────────────────
 
     let thinkingBlock = null;
@@ -670,7 +681,8 @@ async function send() {
 
                 switch (ev.type) {
                     case 'thinking': {
-                        _uiThink += ev.text;
+                        if (!_uiLiveThink) { _uiLiveThink = { type: 'thinking', text: '' }; if (chat) chat.uiEvents.push(_uiLiveThink); }
+                        _uiLiveThink.text += ev.text;
                         if (!isActive()) break;
                         if (loadingDiv) { loadingDiv.remove(); loadingDiv = null; }
                         if (toolPill) { toolPill.classList.add('done'); toolPill = null; }
@@ -683,10 +695,11 @@ async function send() {
                     }
                     case 'text': {
                         _flushThink(); _flushGroup(); _flushSub();
-                        _uiText += ev.text;
+                        if (!_uiLiveText) { _uiLiveText = { type: 'assistant', content: '' }; if (chat) chat.uiEvents.push(_uiLiveText); }
+                        _uiLiveText.content += ev.text;
                         assistantText += ev.text;
                         segmentText   += ev.text;
-                        chatStreamState[sendingChatId] = { assistantText, hasContent: true };
+                        chatStreamState[sendingChatId] = { assistantText, hasContent: true, segmentText };
                         if (chat) {
                             const base = (chat.history || []).filter(t => !t._partial);
                             chat.history = [...base, { id: 'a_partial', role: 'assistant', content: assistantText, _partial: true }];
@@ -709,7 +722,7 @@ async function send() {
                     }
                     case 'tool_use': {
                         _flushThink(); _flushText(); _flushSub();
-                        if (!_uiGroup) _uiGroup = { type: 'tool_group', tools: [] };
+                        if (!_uiGroup) { _uiGroup = { type: 'tool_group', tools: [] }; if (chat) chat.uiEvents.push(_uiGroup); }
                         const _toolEntry = { name: ev.name, args: ev.args || {}, result: null };
                         _uiGroup.tools.push(_toolEntry);
                         if (ev.tc_id) _uiToolMap[ev.tc_id] = _toolEntry;
@@ -727,6 +740,7 @@ async function send() {
                         _flushThink(); _flushText(); _flushGroup();
                         const _subEntry = { type: 'subagent', agentId: ev.agent, task: ev.task || '', context: ev.context || '', result: '' };
                         _uiSub = _subEntry;
+                        if (chat) chat.uiEvents.push(_uiSub);
                         if (ev.key) _uiSubMap[ev.key] = _subEntry;
                         if (!isActive()) break;
                         if (!toolGroup) toolGroup = createToolGroup();
