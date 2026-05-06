@@ -667,7 +667,7 @@ async function send() {
                                 assistantDiv.dataset.live = sendingChatId;
                             }
                         }
-                        assistantDiv.innerHTML = parseMarkdown(segmentText) + '<span class="cursor"></span>';
+                        assistantDiv.innerHTML = '<span class="reply-marker">&gt;</span>' + parseMarkdown(segmentText) + '<span class="cursor"></span>';
                         highlightCodeBlocks(assistantDiv);
                         scrollBottom();
                         break;

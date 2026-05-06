@@ -61,8 +61,8 @@ export function parseMarkdown(text) {
             b = b.trim();
             if (!b) return '';
             if (/^<(div|ul|ol|h[1-6]|hr|blockquote)/.test(b)) return b;
-            return '<p>' + b.replace(/\n/g, '<br>') + '</p>';
-        }).join('\n');
+            return b.replace(/\n/g, '<br>');
+        }).join('<br>');
     }).join('');
 }
 

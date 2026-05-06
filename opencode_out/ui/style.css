@@ -319,14 +319,16 @@ body { display: flex; }
 .msg p { margin-bottom: 4px; }
 .msg p:last-child { margin-bottom: 0; }
 .msg.assistant { line-height: 1.5; }
+.msg.assistant p { margin-bottom: 3px; }
+.msg.assistant p:last-child { margin-bottom: 0; }
 .reply-marker {
-    display: block;
+    display: inline;
     color: var(--cyan);
-    font-weight: 700;
-    font-size: 13px;
-    margin-bottom: 2px;
+    font-weight: 800;
+    font-size: 15px;
+    margin-right: 6px;
     user-select: none;
-    opacity: 0.8;
+    opacity: 0.9;
 }
 .msg h1, .msg h2, .msg h3 { font-weight: 600; color: var(--text); margin: 14px 0 6px; }
 .msg h1 { font-size: 18px; } .msg h2 { font-size: 16px; } .msg h3 { font-size: 14px; }
