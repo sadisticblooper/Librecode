@@ -1,0 +1,141 @@
+"""
+Free provider — MercuryAI (chat.mercuryai.io) via direct API.
+No authentication required - works for guest/anonymous users.
+Endpoint: https://chat.mercuryai.io/api/chat
+
+Usage:
+    from mercury_provider import stream_chat, chat, MODELS, PROVIDER_NAME
+"""
+
+import json
+import uuid
+import requests
+from typing import Generator
+
+PROVIDER_NAME = "mercury"
+MODELS = [
+    {"id": "mercury-atom", "label": "Mercury Atom", "ctx": 128000},
+    {"id": "cohere-command-r-plus-08", "label": "Cohere Command R+ 08", "ctx": 128000},
+    {"id": "cohere-command-a", "label": "Cohere Command A", "ctx": 128000},
+]
+
+BASE_URL = "https://chat.mercuryai.io"
+CHAT_ENDPOINT = f"{BASE_URL}/api/chat"
+
+
+def _build_messages(messages: list[dict]) -> list[dict]:
+    formatted = []
+    for msg in messages:
+        formatted.append({
+            "id": str(uuid.uuid4())[:12],
+            "role": msg.get("role", "user"),
+            "content": msg.get("content", ""),
+            "createdAt": msg.get("createdAt", ""),
+            "attachments": msg.get("attachments", [])
+        })
+    return formatted
+
+
+def stream_chat(
+    model_id: str,
+    messages: list[dict],
+    tools: list | None = None,
+    max_tokens: int | None = None,
+    use_search: bool = False,
+) -> Generator[dict, None, None]:
+    url = CHAT_ENDPOINT
+    conversation_id = str(uuid.uuid4())
+
+    payload = {
+        "messages": _build_messages(messages),
+        "conversationId": conversation_id,
+        "attachments": [],
+        "modelId": model_id,
+        "useSearch": use_search
+    }
+
+    headers = {
+        "Content-Type": "application/json",
+        "Origin": BASE_URL,
+        "Referer": f"{BASE_URL}/"
+    }
+
+    try:
+        response = requests.post(url, json=payload, headers=headers, timeout=120)
+        response.raise_for_status()
+    except Exception as e:
+        yield {"type": "error", "text": str(e)}
+        return
+
+    try:
+        data = response.json()
+    except json.JSONDecodeError as e:
+        yield {"type": "error", "text": f"Failed to parse response: {e}"}
+        return
+
+    if "error" in data:
+        yield {"type": "error", "text": data.get("error", "Unknown error")}
+        return
+
+    response_text = data.get("response", "")
+    web_search_used = data.get("webSearchUsed", False)
+    web_results = data.get("webSearchResults")
+
+    if web_search_used and web_results:
+        yield {"type": "web_search", "used": True, "results": web_results}
+
+    if response_text:
+        chunk_size = 20
+        for i in range(0, len(response_text), chunk_size):
+            yield {"type": "text", "text": response_text[i:i + chunk_size]}
+
+    if tools:
+        yield {"type": "error", "text": "MercuryAI does not support tool calling."}
+
+    yield {"type": "done"}
+
+
+def chat(
+    model_id: str,
+    messages: list[dict],
+    tools: list | None = None,
+    max_tokens: int | None = None,
+    use_search: bool = False,
+) -> dict:
+    url = CHAT_ENDPOINT
+    conversation_id = str(uuid.uuid4())
+
+    payload = {
+        "messages": _build_messages(messages),
+        "conversationId": conversation_id,
+        "attachments": [],
+        "modelId": model_id,
+        "useSearch": use_search
+    }
+
+    headers = {
+        "Content-Type": "application/json",
+        "Origin": BASE_URL,
+        "Referer": f"{BASE_URL}/"
+    }
+
+    try:
+        response = requests.post(url, json=payload, headers=headers, timeout=120)
+        response.raise_for_status()
+    except Exception as e:
+        return {"type": "error", "text": str(e)}
+
+    try:
+        data = response.json()
+    except json.JSONDecodeError:
+        return {"type": "error", "text": "Failed to parse response"}
+
+    if "error" in data:
+        return {"type": "error", "text": data.get("error", "Unknown error")}
+
+    return {
+        "type": "text",
+        "text": data.get("response", ""),
+        "webSearchUsed": data.get("webSearchUsed", False),
+        "webSearchResults": data.get("webSearchResults"),
+    }
