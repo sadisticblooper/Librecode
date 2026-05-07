@@ -366,7 +366,8 @@ body { display: flex; }
 .msg li { margin: 3px 0; }
 .msg code {
     background: var(--surface3); border: 1px solid var(--border-mid);
-    padding: 2px 6px; border-radius: 4px;
+    padding: 4px 8px;
+    margin-bottom: 4px; border-radius: 4px;
     font-family: var(--font-mono); font-size: 13px; color: var(--green);
 }
 .msg a { color: var(--accent); text-decoration: none; }
