@@ -1,0 +1,125 @@
+"""
+Mercury provider — Inception Labs (inceptionlabs.ai) OpenAI-compatible API.
+Endpoint: https://api.inceptionlabs.ai/v1/chat/completions
+
+Mercury models are diffusion-based LLMs that use an OpenAI-compatible
+streaming API. Native tool calling is supported.
+"""
+
+import json
+import os
+import requests
+from typing import Generator
+
+PROVIDER_NAME = "mercury"
+API_BASE = "https://api.inceptionlabs.ai/v1"
+API_KEY = os.environ.get("MERCURY_API_KEY", "")
+
+MODELS = [
+    {"id": "mercury-2",      "label": "Mercury 2",      "ctx": 32000},
+    {"id": "mercury-2-edit", "label": "Mercury 2 Edit", "ctx": 32000},
+]
+
+
+def stream_chat(
+    model_id: str,
+    messages: list[dict],
+    tools: list | None = None,
+    max_tokens: int | None = None,
+) -> Generator[dict, None, None]:
+    if not API_KEY:
+        yield {"type": "error", "text": "MERCURY_API_KEY not set in providers/mercury.py or environment"}
+        return
+
+    url = f"{API_BASE}/chat/completions"
+    payload = {
+        "model":      model_id,
+        "messages":   messages,
+        "stream":     True,
+        "max_tokens": max_tokens or 4096,
+    }
+    if tools:
+        payload["tools"] = tools
+        payload["tool_choice"] = "auto"
+
+    headers = {
+        "Authorization": f"Bearer {API_KEY}",
+        "Content-Type":  "application/json",
+    }
+
+    try:
+        api_resp = requests.post(url, json=payload, headers=headers, stream=True, timeout=(15, 120))
+        api_resp.raise_for_status()
+    except Exception as e:
+        yield {"type": "error", "text": str(e)}
+        return
+
+    # Accumulate partial tool_calls across chunks (OpenAI streaming format)
+    tool_calls_buf: dict[int, dict] = {}
+
+    try:
+        for raw in api_resp.iter_lines():
+            if not raw:
+                continue
+            line = raw.decode("utf-8", errors="replace")
+            if not line.startswith("data: "):
+                continue
+            data_str = line[6:].strip()
+            if data_str == "[DONE]":
+                break
+            try:
+                chunk = json.loads(data_str)
+            except json.JSONDecodeError:
+                continue
+
+            choice = (chunk.get("choices") or [{}])[0]
+            delta  = choice.get("delta", {})
+
+            # Thinking / reasoning tokens
+            thinking = (
+                delta.get("reasoning_content")
+                or delta.get("reasoning")
+                or delta.get("thinking")
+                or ""
+            )
+            if thinking:
+                yield {"type": "thinking", "text": thinking}
+
+            # Regular text content
+            content = delta.get("content") or ""
+            if content:
+                yield {"type": "text", "text": content}
+
+            # Native tool calls (OpenAI streaming format)
+            for tc in delta.get("tool_calls") or []:
+                idx  = tc.get("index", 0)
+                fn   = tc.get("function", {})
+                if idx not in tool_calls_buf:
+                    tool_calls_buf[idx] = {
+                        "id":        tc.get("id", ""),
+                        "name":      fn.get("name", ""),
+                        "arguments": "",
+                    }
+                else:
+                    if tc.get("id"):
+                        tool_calls_buf[idx]["id"] = tc["id"]
+                    if fn.get("name"):
+                        tool_calls_buf[idx]["name"] += fn["name"]
+                tool_calls_buf[idx]["arguments"] += fn.get("arguments", "")
+
+    except Exception as e:
+        yield {"type": "error", "text": f"Stream interrupted: {e}"}
+        return
+
+    # Emit accumulated tool calls
+    for idx in sorted(tool_calls_buf):
+        tc = tool_calls_buf[idx]
+        yield {
+            "type":      "tool_delta",
+            "index":     idx,
+            "id":        tc["id"],
+            "name":      tc["name"],
+            "arguments": tc["arguments"],
+        }
+
+    yield {"type": "done"}
