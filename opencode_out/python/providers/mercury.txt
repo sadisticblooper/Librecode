@@ -1,60 +1,50 @@
 """
-Mercury provider — Inception Labs (inceptionlabs.ai) OpenAI-compatible API.
-Endpoint: https://api.inceptionlabs.ai/v1/chat/completions
-
-Mercury models are diffusion-based LLMs that use an OpenAI-compatible
-streaming API. Native tool calling is supported.
+Mercury provider — Inception Labs (inceptionlabs.ai)
 """
 
 import json
-import os
 import requests
 from typing import Generator
 
-PROVIDER_NAME = "Diffusion mercury"
-API_BASE = "https://api.inceptionlabs.ai/v1"
-API_KEY = os.environ.get("MERCURY_API_KEY", "")
+PROVIDER_NAME = "mercury"
+API_BASE      = "https://api.inceptionlabs.ai/v1"
+API_KEY       = "sk_ed6c5f9b76c20217c5b95a6c954d916f"
 
 MODELS = [
     {"id": "mercury-2",      "label": "Mercury 2",      "ctx": 32000},
-    {"id": "mercury-2-edit", "label": "Mercury 2 Edit", "ctx": 32000},
 ]
+
+# Only mercury-2 supports tools
+_TOOLS_SUPPORTED = {"mercury-2"}
 
 
 def stream_chat(
-    model_id: str,
-    messages: list[dict],
-    tools: list | None = None,
-    max_tokens: int | None = None,
+    model_id:   str,
+    messages:   list[dict],
+    tools:      list | None = None,
+    max_tokens: int  | None = None,
 ) -> Generator[dict, None, None]:
-    if not API_KEY:
-        yield {"type": "error", "text": "MERCURY_API_KEY not set in providers/mercury.py or environment"}
-        return
 
-    url = f"{API_BASE}/chat/completions"
-    payload = {
-        "model":      model_id,
-        "messages":   messages,
-        "stream":     True,
-        "max_tokens": max_tokens or 4096,
-    }
-    if tools:
-        payload["tools"] = tools
-        payload["tool_choice"] = "auto"
-
+    url     = f"{API_BASE}/chat/completions"
     headers = {
         "Authorization": f"Bearer {API_KEY}",
         "Content-Type":  "application/json",
     }
+    payload = {
+        "model":      model_id,
+        "messages":   messages,
+        "stream":     True,
+        "max_tokens": min(max_tokens or 4096, 32000),
+    }
+    if tools and model_id in _TOOLS_SUPPORTED:
+        payload["tools"]       = tools
+        payload["tool_choice"] = "auto"
 
-    try:
-        api_resp = requests.post(url, json=payload, headers=headers, stream=True, timeout=(15, 120))
-        api_resp.raise_for_status()
-    except Exception as e:
-        yield {"type": "error", "text": str(e)}
+    api_resp = requests.post(url, json=payload, headers=headers, stream=True, timeout=(15, 120))
+    if not api_resp.ok:
+        yield {"type": "error", "text": f"HTTP {api_resp.status_code}: {api_resp.text}"}
         return
 
-    # Accumulate partial tool_calls across chunks (OpenAI streaming format)
     tool_calls_buf: dict[int, dict] = {}
 
     try:
@@ -75,51 +65,26 @@ def stream_chat(
             choice = (chunk.get("choices") or [{}])[0]
             delta  = choice.get("delta", {})
 
-            # Thinking / reasoning tokens
-            thinking = (
-                delta.get("reasoning_content")
-                or delta.get("reasoning")
-                or delta.get("thinking")
-                or ""
-            )
-            if thinking:
-                yield {"type": "thinking", "text": thinking}
-
-            # Regular text content
             content = delta.get("content") or ""
             if content:
                 yield {"type": "text", "text": content}
 
-            # Native tool calls (OpenAI streaming format)
             for tc in delta.get("tool_calls") or []:
-                idx  = tc.get("index", 0)
-                fn   = tc.get("function", {})
+                idx = tc.get("index", 0)
+                fn  = tc.get("function", {})
                 if idx not in tool_calls_buf:
-                    tool_calls_buf[idx] = {
-                        "id":        tc.get("id", ""),
-                        "name":      fn.get("name", ""),
-                        "arguments": "",
-                    }
+                    tool_calls_buf[idx] = {"id": tc.get("id", ""), "name": fn.get("name", ""), "arguments": ""}
                 else:
-                    if tc.get("id"):
-                        tool_calls_buf[idx]["id"] = tc["id"]
-                    if fn.get("name"):
-                        tool_calls_buf[idx]["name"] += fn["name"]
+                    if tc.get("id"):   tool_calls_buf[idx]["id"]   = tc["id"]
+                    if fn.get("name"): tool_calls_buf[idx]["name"] += fn["name"]
                 tool_calls_buf[idx]["arguments"] += fn.get("arguments", "")
 
     except Exception as e:
-        yield {"type": "error", "text": f"Stream interrupted: {e}"}
+        yield {"type": "error", "text": f"Stream error: {e}"}
         return
 
-    # Emit accumulated tool calls
     for idx in sorted(tool_calls_buf):
         tc = tool_calls_buf[idx]
-        yield {
-            "type":      "tool_delta",
-            "index":     idx,
-            "id":        tc["id"],
-            "name":      tc["name"],
-            "arguments": tc["arguments"],
-        }
+        yield {"type": "tool_delta", "index": idx, "id": tc["id"], "name": tc["name"], "arguments": tc["arguments"]}
 
     yield {"type": "done"}
