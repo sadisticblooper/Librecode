@@ -185,6 +185,8 @@ function _toolPillIcon(name) {
         return `<svg ${s} stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>`;
     if (name === 'write' || name === 'edit')
         return `<svg ${s} stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`;
+    if (name === 'diff')
+        return `<svg ${s} stroke-width="2"><path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v10m0 0H5m4 0h4m6-10v10m0 0h-4m4 0h-2"/><line x1="3" y1="15" x2="9" y2="15"/><line x1="15" y1="15" x2="21" y2="15"/></svg>`;
     if (name === 'shell')
         return `<svg ${s} stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>`;
     if (name === 'web_fetch')
@@ -199,6 +201,7 @@ function _toolPillLabel(name, args) {
     if (name === 'read')        return 'reading&nbsp;<em>'   + escHtml(args.filePath || '') + '</em>';
     if (name === 'write')       return 'writing&nbsp;<em>'   + escHtml(args.filePath || '') + '</em>';
     if (name === 'edit')        return 'editing&nbsp;<em>'   + escHtml(args.filePath || '') + '</em>';
+    if (name === 'diff')        return 'diffing&nbsp;<em>'   + escHtml(args.fileA    || '') + '</em>&nbsp;→&nbsp;<em>' + escHtml(args.fileB || '') + '</em>';
     if (name === 'shell')       return 'running&nbsp;<em>'   + escHtml(args.command  || '') + '</em>';
     if (name === 'web_fetch')   return 'fetching&nbsp;<em>'  + escHtml(args.url      || '') + '</em>';
     if (name === 'github_walk') return 'github&nbsp;<em>'    + escHtml(args.repo     || '') + '</em>';
@@ -216,7 +219,44 @@ function _toolInputSummary(name, args) {
     if (name === 'shell')       return (args.command  || '') + (args.cwd    ? '\ncwd: '     + args.cwd     : '');
     if (name === 'web_fetch')   return args.url || '';
     if (name === 'github_walk') return (args.action || 'tree') + '  ' + (args.repo || '') + (args.file_path ? '\n' + args.file_path : '');
+    if (name === 'diff')        return (args.fileA || '') + '\n' + (args.fileB || '');
     return JSON.stringify(args, null, 2);
+}
+
+function _renderDiff(diffText) {
+    if (!diffText) return '<span class="diff-empty">no changes</span>';
+    return diffText.split('\n').map(line => {
+        if (line.startsWith('+++') || line.startsWith('---')) {
+            return '<div class="diff-line diff-meta">' + escHtml(line) + '</div>';
+        }
+        if (line.startsWith('@@')) {
+            return '<div class="diff-line diff-hunk">' + escHtml(line) + '</div>';
+        }
+        if (line.startsWith('+')) {
+            return '<div class="diff-line diff-add">' + escHtml(line) + '</div>';
+        }
+        if (line.startsWith('-')) {
+            return '<div class="diff-line diff-del">' + escHtml(line) + '</div>';
+        }
+        return '<div class="diff-line diff-ctx">' + escHtml(line) + '</div>';
+    }).join('');
+}
+
+function _makeDiffExpandPanel(filePath, resultText) {
+    const panel = document.createElement('div');
+    panel.className = 'tool-expand-panel';
+    const sepIdx  = resultText.indexOf('\n\n<<<DIFF>>>\n');
+    const status  = sepIdx !== -1 ? resultText.slice(0, sepIdx) : resultText;
+    const rawDiff = sepIdx !== -1 ? resultText.slice(sepIdx + '\n\n<<<DIFF>>>\n'.length) : '';
+    panel.innerHTML =
+        '<div class="tool-expand-section diff-file-row">'
+      +   '<span class="diff-filepath">' + escHtml(filePath) + '</span>'
+      +   '<span class="diff-status-badge">' + escHtml(status) + '</span>'
+      + '</div>'
+      + '<div class="tool-expand-section diff-section">'
+      +   '<div class="diff-view">' + _renderDiff(rawDiff) + '</div>'
+      + '</div>';
+    return panel;
 }
 
 function _makeExpandPanel(inputText, outputText) {
@@ -259,7 +299,14 @@ export function createToolPill(name, args, group) {
     };
 
     div._setResult = (result) => {
-        panel = _makeExpandPanel(_toolInputSummary(name, args), result);
+        if (name === 'edit') {
+            panel = _makeDiffExpandPanel(args.filePath || '', result);
+        } else if (name === 'diff') {
+            const label = (args.fileA || '') + ' → ' + (args.fileB || '');
+            panel = _makeDiffExpandPanel(label, result);
+        } else {
+            panel = _makeExpandPanel(_toolInputSummary(name, args), result);
+        }
         wrapper.appendChild(panel);
     };
 
