@@ -75,8 +75,6 @@ public class MainActivity extends Activity {
         File storageDir = new File(storageFolderPath);
         if (!storageDir.exists()) {
             storageDir.mkdirs();
-        } else {
-            android.util.Log.d("OpenCode", "Storage dir already exists, preserving: " + storageFolderPath);
         }
 
         try {

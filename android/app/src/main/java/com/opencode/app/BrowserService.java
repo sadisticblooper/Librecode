@@ -49,8 +49,6 @@ public class BrowserService {
     private static final int CORNER_DP      = 16;
     private static final int HEADER_DP      = 42;
     private static final int RESIZE_DP      = 32;
-    private static final int TAB_W_DP       = 32;   // wider — fat-finger friendly pull target
-    private static final int TAB_H_DP       = 90;   // taller — fat-finger friendly pull target
     private static final int SNAP_THRESH_DP = 60;
     private static final int MIN_W_DP       = 160;
     private static final int MIN_H_DP       = 140;
@@ -504,41 +502,47 @@ public class BrowserService {
     }
 
     // ─────────────────────────────────────────────────────────────────────
-    // Edge tabs — full-height invisible touch strips covering the entire
-    // peeking portion when tucked. No visual button — any touch on the
-    // visible strip pulls the window out.
+    // Edge overlays — shown when window is tucked to a screen edge.
+    // A transparent full-window overlay intercepts any touch on the peeking
+    // strip so the user can drag or tap anywhere to unsnap.
     // ─────────────────────────────────────────────────────────────────────
 
     private void buildEdgeTabs(android.app.Activity activity) {
-        // rightTab: covers the right (END) edge → visible when window is snapped LEFT
-        rightTab = makePullStrip(activity);
-        FrameLayout.LayoutParams rlp = new FrameLayout.LayoutParams(dp(TAB_W_DP), ViewGroup.LayoutParams.MATCH_PARENT);
-        rlp.gravity = Gravity.END;
-        rightTab.setLayoutParams(rlp);
+        // Instead of a small pill button, we use a transparent full-size overlay that
+        // sits on top of overlayRoot. When snapped, it is VISIBLE and intercepts ALL
+        // touches anywhere on the peeking strip — shape/size of the window doesn't matter.
+        // When not snapped, it is GONE so all touches reach the WebView normally.
+
+        // rightTab → shown when window is snapped LEFT (user pulls from the right strip)
+        rightTab = new View(activity);
+        rightTab.setBackgroundColor(0x00000000); // fully transparent
+        rightTab.setLayoutParams(new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         rightTab.setVisibility(View.GONE);
         attachPullListener(rightTab, +1);
         overlayRoot.addView(rightTab);
 
-        // leftTab: covers the left (START) edge → visible when window is snapped RIGHT
-        leftTab = makePullStrip(activity);
-        FrameLayout.LayoutParams llp = new FrameLayout.LayoutParams(dp(TAB_W_DP), ViewGroup.LayoutParams.MATCH_PARENT);
-        llp.gravity = Gravity.START;
-        leftTab.setLayoutParams(llp);
+        // leftTab → shown when window is snapped RIGHT (user pulls from the left strip)
+        leftTab = new View(activity);
+        leftTab.setBackgroundColor(0x00000000);
+        leftTab.setLayoutParams(new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         leftTab.setVisibility(View.GONE);
         attachPullListener(leftTab, -1);
         overlayRoot.addView(leftTab);
     }
 
     /**
-     * Attach a touch listener that unsnaps the window when the user taps or
-     * drags anywhere on the pull strip. pullDir = +1 → strip is on right edge
-     * (window snapped left), unsnap rightward; -1 is the mirror case.
+     * Attach a touch listener that unsnapps the window when the user taps or
+     * drags anywhere on the transparent overlay that covers the snapped window.
+     * pullDir = +1 → snapped left, drag rightward to unsnap.
+     * pullDir = -1 → snapped right, drag leftward to unsnap.
      */
     @SuppressLint("ClickableViewAccessibility")
-    private void attachPullListener(View strip, int pullDir) {
+    private void attachPullListener(View tab, int pullDir) {
         final float[] downRawX = {0f};
         final boolean[] didUnsnap = {false};
-        strip.setOnTouchListener((v, ev) -> {
+        tab.setOnTouchListener((v, ev) -> {
             switch (ev.getAction()) {
                 case MotionEvent.ACTION_DOWN:
                     downRawX[0] = ev.getRawX();
@@ -547,7 +551,7 @@ public class BrowserService {
                 case MotionEvent.ACTION_MOVE:
                     if (!didUnsnap[0]) {
                         float dragPx = (ev.getRawX() - downRawX[0]) * pullDir;
-                        if (dragPx > dp(6)) {
+                        if (dragPx > dp(6)) {  // low threshold — any swipe unsnapps
                             didUnsnap[0] = true;
                             unsnap();
                         }
@@ -555,18 +559,15 @@ public class BrowserService {
                     break;
                 case MotionEvent.ACTION_UP:
                 case MotionEvent.ACTION_CANCEL:
-                    if (!didUnsnap[0]) unsnap(); // any tap anywhere on strip = unsnap
+                    if (!didUnsnap[0]) {
+                        // Any tap also unsnapps
+                        float dragPx = Math.abs(ev.getRawX() - downRawX[0]);
+                        if (dragPx < dp(16)) unsnap();
+                    }
                     break;
             }
             return true;
         });
-    }
-
-    /** Fully transparent touch-sink — no visual, covers the whole peeking strip. */
-    private View makePullStrip(android.app.Activity activity) {
-        View strip = new View(activity);
-        strip.setBackgroundColor(0x00000000); // fully transparent
-        return strip;
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -594,16 +595,16 @@ public class BrowserService {
         lastFreeX = overlayParams.x;
         lastFreeY = overlayParams.y;
 
-        int tabPx = dp(TAB_W_DP);
-        int w     = overlayParams.width;
+        int peekPx = dp(32); // dp of the window that remain visible on-screen as a pull handle
+        int w      = overlayParams.width;
 
-        // side=-1 → slide window left until only right TAB_W_DP pixels remain on screen
-        //   targetX = -(w - tabPx)   →  left edge = -(w-tabPx),  right edge = tabPx ✓
-        // side=+1 → slide window right until only left TAB_W_DP pixels remain on screen
-        //   targetX = displayW - tabPx  →  left edge = displayW-tabPx,  right edge off-screen ✓
-        int targetX = (side == -1) ? -(w - tabPx) : (displayW - tabPx);
+        // side=-1 → slide left until only peekPx pixels remain on the right edge
+        // side=+1 → slide right until only peekPx pixels remain on the left edge
+        int targetX = (side == -1) ? -(w - peekPx) : (displayW - peekPx);
 
         animateX(overlayParams.x, targetX, () -> {
+            // Show the transparent full-window overlay so any touch on the peeking
+            // strip (regardless of window shape/size) triggers the unsnap.
             if (rightTab != null) rightTab.setVisibility(side == -1 ? View.VISIBLE : View.GONE);
             if (leftTab  != null)  leftTab.setVisibility(side == +1 ? View.VISIBLE : View.GONE);
         });
