@@ -49,8 +49,8 @@ public class BrowserService {
     private static final int CORNER_DP      = 16;
     private static final int HEADER_DP      = 42;
     private static final int RESIZE_DP      = 32;
-    private static final int TAB_W_DP       = 22;
-    private static final int TAB_H_DP       = 72;
+    private static final int TAB_W_DP       = 32;   // wider — fat-finger friendly pull target
+    private static final int TAB_H_DP       = 90;   // taller — fat-finger friendly pull target
     private static final int SNAP_THRESH_DP = 60;
     private static final int MIN_W_DP       = 160;
     private static final int MIN_H_DP       = 140;
@@ -111,12 +111,15 @@ public class BrowserService {
     }
 
     public String snapshot() {
-        if (!isVisible || browserWebView == null) return "{\"error\":\"No browser open.\"}";
+        if (!isVisible || browserWebView == null) return "{\"error\":\"Browser is not open.\"}";
         CountDownLatch latch = new CountDownLatch(1);
         AtomicReference<String> result = new AtomicReference<>("");
         mainHandler.post(() -> snapshotInternal(s -> { result.set(s); latch.countDown(); }));
         awaitLatch(latch, 15);
-        return result.get();
+        String r = result.get();
+        if (r == null || r.isEmpty())
+            return "{\"error\":\"Snapshot timed out — page may still be loading.\"}";
+        return r;
     }
 
     public String click(String uid) {
@@ -144,7 +147,7 @@ public class BrowserService {
     }
 
     public String navigate(String url) {
-        if (!isVisible || browserWebView == null) return "{\"error\":\"No browser open.\"}";
+        if (!isVisible || browserWebView == null) return "{\"error\":\"Browser is not open.\"}";
         CountDownLatch latch = new CountDownLatch(1);
         AtomicReference<String> result = new AtomicReference<>("");
         mainHandler.post(() -> {
@@ -254,6 +257,13 @@ public class BrowserService {
                 WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL |
                 WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
                 PixelFormat.TRANSLUCENT);
+
+        // Allow the keyboard to show when an input inside the WebView is focused.
+        // Without this the overlay window never requests input method focus and the
+        // soft keyboard never appears.
+        overlayParams.softInputMode =
+                WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE |
+                WindowManager.LayoutParams.SOFT_INPUT_STATE_UNSPECIFIED;
 
         // TOP|START: x = left edge, y = top edge (simple screen coordinates)
         overlayParams.gravity = Gravity.TOP | Gravity.START;
@@ -433,40 +443,75 @@ public class BrowserService {
     }
 
     // ─────────────────────────────────────────────────────────────────────
-    // Edge tabs — shown when window is tucked to a screen edge
+    // Edge tabs — shown when window is tucked to a screen edge.
+    // No arrow label — the whole visible pill is the drag/tap target.
     // ─────────────────────────────────────────────────────────────────────
 
     private void buildEdgeTabs(android.app.Activity activity) {
         // rightTab: at END (right) of FrameLayout → visible when window is snapped LEFT
-        rightTab = makeTab(activity, "›");
+        rightTab = makeTab(activity);
         FrameLayout.LayoutParams rlp = new FrameLayout.LayoutParams(dp(TAB_W_DP), dp(TAB_H_DP));
         rlp.gravity = Gravity.END | Gravity.CENTER_VERTICAL;
         rightTab.setLayoutParams(rlp);
         rightTab.setVisibility(View.GONE);
-        rightTab.setOnClickListener(v -> unsnap());
+        attachPullListener(rightTab, +1);  // pull rightward to unsnap
         overlayRoot.addView(rightTab);
 
         // leftTab: at START (left) of FrameLayout → visible when window is snapped RIGHT
-        leftTab = makeTab(activity, "‹");
+        leftTab = makeTab(activity);
         FrameLayout.LayoutParams llp = new FrameLayout.LayoutParams(dp(TAB_W_DP), dp(TAB_H_DP));
         llp.gravity = Gravity.START | Gravity.CENTER_VERTICAL;
         leftTab.setLayoutParams(llp);
         leftTab.setVisibility(View.GONE);
-        leftTab.setOnClickListener(v -> unsnap());
+        attachPullListener(leftTab, -1);  // pull leftward to unsnap
         overlayRoot.addView(leftTab);
     }
 
-    /** Minimal dark pill — no aggressive colour, just a subtle handle. */
-    private View makeTab(android.app.Activity activity, String arrow) {
+    /**
+     * Attach a touch listener that unsnapps the window when the user taps or
+     * drags the edge-tab pill.  pullDir = +1 means the tab is on the right
+     * edge (window snapped left) and the unsnap direction is rightward; -1 is
+     * the mirror case.
+     */
+    @SuppressLint("ClickableViewAccessibility")
+    private void attachPullListener(View tab, int pullDir) {
+        final float[] downRawX = {0f};
+        final boolean[] didUnsnap = {false};
+        tab.setOnTouchListener((v, ev) -> {
+            switch (ev.getAction()) {
+                case MotionEvent.ACTION_DOWN:
+                    downRawX[0] = ev.getRawX();
+                    didUnsnap[0] = false;
+                    break;
+                case MotionEvent.ACTION_MOVE:
+                    if (!didUnsnap[0]) {
+                        float dragPx = (ev.getRawX() - downRawX[0]) * pullDir;
+                        if (dragPx > dp(8)) {          // ~8 dp threshold — any flick unsnapps
+                            didUnsnap[0] = true;
+                            unsnap();
+                        }
+                    }
+                    break;
+                case MotionEvent.ACTION_UP:
+                case MotionEvent.ACTION_CANCEL:
+                    if (!didUnsnap[0]) {
+                        // treat a tap (no meaningful drag) as an unsnap too
+                        float dragPx = Math.abs(ev.getRawX() - downRawX[0]);
+                        if (dragPx < dp(12)) unsnap();
+                    }
+                    break;
+            }
+            return true;
+        });
+    }
+
+    /** Plain dark pill — no text, just a subtle grab handle. */
+    private View makeTab(android.app.Activity activity) {
         android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
         bg.setColor(0xDD1E1E20);
         bg.setCornerRadius(dp(10));
-        bg.setStroke(1, 0x22FFFFFF);
-        TextView tab = new TextView(activity);
-        tab.setText(arrow);
-        tab.setTextColor(0xBBFFFFFF);
-        tab.setTextSize(20);
-        tab.setGravity(Gravity.CENTER);
+        bg.setStroke(1, 0x33FFFFFF);
+        View tab = new View(activity);
         tab.setBackground(bg);
         return tab;
     }

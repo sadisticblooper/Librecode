@@ -466,6 +466,16 @@ public class MainActivity extends Activity {
     }
 
     @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        // Kill the floating overlay so it doesn't linger after the app closes.
+        try {
+            BrowserService bs = BrowserService.getInstance();
+            if (bs.isOpen()) bs.close();
+        } catch (Exception ignored) {}
+    }
+
+    @Override
     public void onBackPressed() {
         if (webView != null && webView.canGoBack()) webView.goBack();
         else super.onBackPressed();

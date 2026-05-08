@@ -15,6 +15,16 @@ def _activity():
     return MainActivity.instance
 
 
+def _check_open():
+    """Returns an error string if the browser is not currently open, else None."""
+    if not _svc().isOpen():
+        return (
+            "Error: The browser is not open. "
+            "Call spawn_browser first to open a floating browser window."
+        )
+    return None
+
+
 def _inject_tools():
     global _browser_active
     import python.tools as tools_mod
@@ -39,6 +49,30 @@ def _eject_tools():
         _browser_active = False
 
 
+def _parse_snapshot_result(result: str, fallback_url: str = "") -> str:
+    """
+    Parse a snapshot/navigate JSON result and return a human-readable string.
+    Surfaces any error key clearly instead of silently swallowing it.
+    """
+    if not result:
+        return "Error: Got an empty response — the browser may have crashed or the page timed out."
+    try:
+        data = json.loads(result)
+        if "error" in data:
+            return f"Error: {data['error']}"
+        url = data.get("url", fallback_url)
+        title = data.get("title", "")
+        snapshot = data.get("snapshot")
+        if snapshot:
+            snap_str = json.dumps(snapshot, indent=2)[:8000]
+        else:
+            snap_str = "(empty snapshot — page may still be loading or has no visible body)"
+        return f"URL: {url}\nTitle: {title}\n\nDOM snapshot:\n{snap_str}"
+    except Exception:
+        # Not JSON — return raw so the AI can still read it
+        return result
+
+
 def tool_browser_open(url: str = "about:blank") -> str:
     svc = _svc()
     if not svc.hasOverlayPermission():
@@ -55,6 +89,8 @@ def tool_browser_open(url: str = "about:blank") -> str:
 
     try:
         data = json.loads(result)
+        if "error" in data:
+            return f"Error opening browser: {data['error']}"
         current_url = data.get("url", url)
         title = data.get("title", "")
         snapshot = data.get("snapshot")
@@ -81,19 +117,17 @@ def tool_browser_open(url: str = "about:blank") -> str:
 
 
 def tool_browser_snapshot() -> str:
+    err = _check_open()
+    if err:
+        return err
     result = str(_svc().snapshot())
-    try:
-        data = json.loads(result)
-        url = data.get("url", "")
-        title = data.get("title", "")
-        snapshot = data.get("snapshot")
-        snap_str = json.dumps(snapshot, indent=2)[:8000] if snapshot else "(empty page)"
-        return f"URL: {url}\nTitle: {title}\n\nDOM snapshot:\n{snap_str}"
-    except Exception:
-        return result
+    return _parse_snapshot_result(result)
 
 
 def tool_browser_click(uid: str) -> str:
+    err = _check_open()
+    if err:
+        return err
     result = str(_svc().click(uid))
     if result.startswith("error"):
         return result
@@ -103,27 +137,41 @@ def tool_browser_click(uid: str) -> str:
 
 
 def tool_browser_fill(uid: str, value: str) -> str:
-    return str(_svc().fill(uid, value))
+    err = _check_open()
+    if err:
+        return err
+    result = str(_svc().fill(uid, value))
+    if result.startswith("error"):
+        return result
+    return result
 
 
 def tool_browser_navigate(url: str) -> str:
+    err = _check_open()
+    if err:
+        return err
     result = str(_svc().navigate(url))
-    try:
-        data = json.loads(result)
-        url_out = data.get("url", url)
-        title = data.get("title", "")
-        snapshot = data.get("snapshot")
-        snap_str = json.dumps(snapshot, indent=2)[:8000] if snapshot else "(no snapshot)"
-        return f"Navigated to: {url_out}\nTitle: {title}\n\nDOM snapshot:\n{snap_str}"
-    except Exception:
-        return result
+    parsed = _parse_snapshot_result(result, fallback_url=url)
+    # Prepend "Navigated to:" context when it succeeded
+    if not parsed.startswith("Error"):
+        parsed = f"Navigated to: {url}\n" + parsed
+    return parsed
 
 
 def tool_browser_eval(script: str) -> str:
-    return str(_svc().evaluate(script))
+    err = _check_open()
+    if err:
+        return err
+    result = str(_svc().evaluate(script))
+    if not result:
+        return "Error: JavaScript evaluation returned an empty result."
+    return result
 
 
 def tool_browser_wait(text: str, timeout_ms: int = 15000) -> str:
+    err = _check_open()
+    if err:
+        return err
     result = str(_svc().waitForText(text, timeout_ms))
     try:
         data = json.loads(result)
@@ -137,10 +185,19 @@ def tool_browser_wait(text: str, timeout_ms: int = 15000) -> str:
 
 
 def tool_browser_screenshot() -> str:
-    return str(_svc().screenshot())
+    err = _check_open()
+    if err:
+        return err
+    result = str(_svc().screenshot())
+    if not result or result.startswith("error"):
+        return result if result else "Error: Screenshot failed — no data returned."
+    return result
 
 
 def tool_browser_cookies(url: str) -> str:
+    err = _check_open()
+    if err:
+        return err
     cookies = str(_svc().getCookies(url))
     return cookies if cookies else f"No cookies found for {url}"
 
