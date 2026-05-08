@@ -8,6 +8,7 @@
         android:maxSdkVersion="29" />
     <!-- Android 11+ (API 30+): broad access to all files -->
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
     <application
         android:allowBackup="true"

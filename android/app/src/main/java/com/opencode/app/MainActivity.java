@@ -32,6 +32,8 @@ import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
+import com.opencode.app.BrowserService;
+
 public class MainActivity extends Activity {
 
     public static MainActivity instance;
@@ -44,6 +46,7 @@ public class MainActivity extends Activity {
     private static final int POLL_INTERVAL_MS = 100;
     private static final int POLL_TIMEOUT_MS = 15000;
     private static final int REQUEST_FOLDER_PICKER = 100;
+    private static final int REQUEST_OVERLAY_PERMISSION = 101;
 
     private boolean returningFromSettings = false;
     private SharedPreferences prefs;
@@ -348,6 +351,86 @@ public class MainActivity extends Activity {
         public void openFolderPicker() {
             Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
             startActivityForResult(intent, REQUEST_FOLDER_PICKER);
+        }
+
+        @JavascriptInterface
+        public String browserOpen(String url) {
+            return BrowserService.getInstance().open(url);
+        }
+
+        @JavascriptInterface
+        public String browserSnapshot() {
+            return BrowserService.getInstance().snapshot();
+        }
+
+        @JavascriptInterface
+        public String browserClick(String uid) {
+            return BrowserService.getInstance().click(uid);
+        }
+
+        @JavascriptInterface
+        public String browserFill(String uid, String value) {
+            return BrowserService.getInstance().fill(uid, value);
+        }
+
+        @JavascriptInterface
+        public String browserNavigate(String url) {
+            return BrowserService.getInstance().navigate(url);
+        }
+
+        @JavascriptInterface
+        public String browserEval(String script) {
+            return BrowserService.getInstance().evaluate(script);
+        }
+
+        @JavascriptInterface
+        public String browserWait(String text, int timeoutMs) {
+            return BrowserService.getInstance().waitForText(text, timeoutMs);
+        }
+
+        @JavascriptInterface
+        public String browserScreenshot() {
+            return BrowserService.getInstance().screenshot();
+        }
+
+        @JavascriptInterface
+        public String browserGetCookies(String url) {
+            return BrowserService.getInstance().getCookies(url);
+        }
+
+        @JavascriptInterface
+        public void browserLoginCCT(String url) {
+            BrowserService.getInstance().openCCT(url);
+        }
+
+        @JavascriptInterface
+        public String browserClose() {
+            return BrowserService.getInstance().close();
+        }
+
+        @JavascriptInterface
+        public boolean browserIsOpen() {
+            return BrowserService.getInstance().isOpen();
+        }
+
+        @JavascriptInterface
+        public String browserCurrentUrl() {
+            return BrowserService.getInstance().getCurrentUrl();
+        }
+
+        @JavascriptInterface
+        public boolean browserHasOverlayPermission() {
+            return BrowserService.getInstance().hasOverlayPermission();
+        }
+
+        @JavascriptInterface
+        public void browserRequestOverlayPermission() {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                Intent intent = new Intent(
+                    android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    android.net.Uri.parse("package:" + getPackageName()));
+                startActivityForResult(intent, REQUEST_OVERLAY_PERMISSION);
+            }
         }
 
         @JavascriptInterface

@@ -990,6 +990,9 @@ TOOLS: list = [
     },
 ]
 
+from python.browser_tools import BROWSER_OPEN_SPEC as _BROWSER_OPEN_SPEC
+TOOLS.append(_BROWSER_OPEN_SPEC)
+
 
 # ══════════════════════════════════════════════════════════════════════
 # Helpers: get_tools_for_agent, reload_agents, run_tool
@@ -1086,6 +1089,25 @@ def run_tool(name: str, args: dict) -> str:
                 context      = args.get("context", ""),
                 working_dirs = dirs,
             )
+        elif name.startswith("browser_"):
+            import python.browser_tools as bt
+            dispatch = {
+                "browser_open":       lambda: bt.tool_browser_open(args.get("url", "about:blank")),
+                "browser_snapshot":   lambda: bt.tool_browser_snapshot(),
+                "browser_click":      lambda: bt.tool_browser_click(args.get("uid", "")),
+                "browser_fill":       lambda: bt.tool_browser_fill(args.get("uid", ""), args.get("value", "")),
+                "browser_navigate":   lambda: bt.tool_browser_navigate(args.get("url", "")),
+                "browser_eval":       lambda: bt.tool_browser_eval(args.get("script", "")),
+                "browser_wait":       lambda: bt.tool_browser_wait(args.get("text", ""), args.get("timeout_ms", 15000)),
+                "browser_screenshot": lambda: bt.tool_browser_screenshot(),
+                "browser_cookies":    lambda: bt.tool_browser_cookies(args.get("url", "")),
+                "browser_login_cct":  lambda: bt.tool_browser_login_cct(args.get("url", "")),
+                "browser_close":      lambda: bt.tool_browser_close(),
+            }
+            fn = dispatch.get(name)
+            if fn is None:
+                return f"Error: unknown browser tool '{name}'"
+            result = fn()
         else:
             return f"Error: unknown tool '{name}'"
     except Exception as e:
