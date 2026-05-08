@@ -187,7 +187,13 @@ public class BrowserService {
         if (!isVisible || browserWebView == null) return "error: no browser open";
         CountDownLatch latch = new CountDownLatch(1);
         AtomicReference<String> result = new AtomicReference<>("");
-        String wrapped = "(function(){try{return String((function(){\n" + script + "\n})());}catch(e){return 'error:'+e.message;}})()";
+        // Wrap result in JSON.stringify so the WebView callback always receives a
+        // properly-quoted string.  String(undefined) would come back as the literal
+        // "undefined" which is indistinguishable from a script that returns the
+        // string "undefined".  JSON.stringify(undefined) → null, which we surface
+        // as a clear "(no return value)" message; all other values round-trip correctly.
+        String wrapped = "(function(){try{var _r=(function(){\n" + script + "\n})();return JSON.stringify(_r===undefined?null:_r);}catch(e){return JSON.stringify('error:'+e.message);}})()";
+
         mainHandler.post(() -> browserWebView.evaluateJavascript(wrapped, raw -> {
             String v = unquoteJs(raw); result.set(v != null ? v : ""); latch.countDown();
         }));

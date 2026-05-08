@@ -53,6 +53,8 @@ def _parse_snapshot_result(result: str, fallback_url: str = "") -> str:
     """
     Parse a snapshot/navigate JSON result and return a human-readable string.
     Surfaces any error key clearly instead of silently swallowing it.
+    The full snapshot object is passed through without truncation so the AI
+    receives the complete DOM tree.
     """
     if not result:
         return "Error: Got an empty response — the browser may have crashed or the page timed out."
@@ -64,7 +66,8 @@ def _parse_snapshot_result(result: str, fallback_url: str = "") -> str:
         title = data.get("title", "")
         snapshot = data.get("snapshot")
         if snapshot:
-            snap_str = json.dumps(snapshot, indent=2)[:8000]
+            # Serialize the full snapshot — no truncation
+            snap_str = json.dumps(snapshot, indent=2)
         else:
             snap_str = "(empty snapshot — page may still be loading or has no visible body)"
         return f"URL: {url}\nTitle: {title}\n\nDOM snapshot:\n{snap_str}"
@@ -94,7 +97,7 @@ def tool_browser_open(url: str = "about:blank") -> str:
         current_url = data.get("url", url)
         title = data.get("title", "")
         snapshot = data.get("snapshot")
-        snap_str = json.dumps(snapshot, indent=2)[:6000] if snapshot else "(no snapshot)"
+        snap_str = json.dumps(snapshot, indent=2) if snapshot else "(no snapshot)"
         return (
             f"Browser opened: {current_url}\n"
             f"Title: {title}\n\n"
@@ -162,10 +165,20 @@ def tool_browser_eval(script: str) -> str:
     err = _check_open()
     if err:
         return err
-    result = str(_svc().evaluate(script))
-    if not result:
+    raw = str(_svc().evaluate(script))
+    if not raw:
         return "Error: JavaScript evaluation returned an empty result."
-    return result
+    # evaluate() now returns JSON.stringify'd output so we can distinguish
+    # undefined (→ null) from the string "undefined".
+    try:
+        value = json.loads(raw)
+        if value is None:
+            return "(no return value — script completed but returned undefined)"
+        # If the value is already a string, return it directly; otherwise pretty-print.
+        return value if isinstance(value, str) else json.dumps(value, indent=2)
+    except Exception:
+        # Fallback: return raw as-is (e.g. if old Java path fires)
+        return raw
 
 
 def tool_browser_wait(text: str, timeout_ms: int = 15000) -> str:
