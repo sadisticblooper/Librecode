@@ -21,7 +21,7 @@
     "description": "Read-only analysis - no file writes",
     "file": "plan.md",
     "no_tools": false,
-    "denied_tools": ["write", "edit", "shell", "python_exec", "spawn_agent"]
+    "denied_tools": ["write", "edit", "shell", "python_exec"]
   },
   {
     "id": "explore",
@@ -29,7 +29,7 @@
     "description": "Search and read only - fast codebase nav",
     "file": "explore.md",
     "no_tools": false,
-    "denied_tools": ["write", "edit", "shell", "python_exec", "spawn_agent"]
+    "denied_tools": ["write", "edit", "shell", "python_exec", "web_search", "web_fetch", "spawn_agent"]
   },
   {
     "id": "ask",

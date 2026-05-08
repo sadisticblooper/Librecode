@@ -2,16 +2,18 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
     <title>OpenCode</title>
     <link rel="stylesheet" href="ui/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
 </head>
 <body>
     <div id="sidebar">
         <div class="sidebar-top">
             <span class="sidebar-brand">opencode</span>
             <button id="new-chat-btn" class="new-chat-btn" title="New chat">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
             </button>
         </div>
         <div id="chat-list" class="chat-list"></div>
@@ -20,31 +22,31 @@
     <div id="main">
         <div id="header">
             <button id="menu-btn" class="menu-btn">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
             </button>
             <div class="header-center">
                 <span id="chat-title" class="chat-title">new chat</span>
                 <button id="folder-btn" class="folder-chip" title="Add folder">
-                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg>
                     <span>add folder</span>
                 </button>
             </div>
             <div class="header-right">
-                <span id="context-badge" class="context-badge" title="Estimated context usage">—</span>
+                <span id="context-badge" class="context-badge" title="Estimated context usage">&mdash;</span>
                 <button id="chat-menu-btn" class="icon-btn" title="Chat options">
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="5" r="1.2" fill="currentColor"/><circle cx="12" cy="12" r="1.2" fill="currentColor"/><circle cx="12" cy="19" r="1.2" fill="currentColor"/></svg>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="5" r="1.5" fill="currentColor"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/><circle cx="12" cy="19" r="1.5" fill="currentColor"/></svg>
                 </button>
                 <div id="chat-menu" class="chat-menu hidden">
                     <button class="chat-menu-item" id="rename-chat-btn">
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                         Rename chat
                     </button>
                     <button class="chat-menu-item" id="compress-chat-btn">
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="14" y1="10" x2="21" y2="3"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="14" y1="10" x2="21" y2="3"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
                         Compress chat
                     </button>
                     <button class="chat-menu-item danger" id="delete-chat-btn">
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
                         Delete chat
                     </button>
                 </div>
@@ -55,8 +57,7 @@
         <div id="chat"></div>
 
         <div id="input-area">
-            <span class="input-prefix">&gt;</span>
-            <textarea id="input" placeholder="send a message..." rows="1"></textarea>
+            <textarea id="input" placeholder="Message Opencode..." rows="1"></textarea>
             <button id="send"></button>
         </div>
 
@@ -64,30 +65,24 @@
             <span class="model-bar-label">model</span>
             <div class="agent-selector-wrap">
                 <button id="agent-btn" class="agent-btn" title="Switch agent mode">
-                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
                     <span id="agent-label">build</span>
-                    <svg class="model-chevron" width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+                    <svg class="model-chevron" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
                 </button>
                 <div id="agent-dropdown" class="agent-dropdown hidden">
                     <div class="model-dropdown-label">Agent Mode</div>
-                    <!-- populated dynamically from /agents -->
                 </div>
             </div>
             <div class="model-selector-wrap">
                 <button id="model-btn" class="model-btn">
-                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
                     <span id="model-label">minimax-m2.5</span>
-                    <svg class="model-chevron" width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+                    <svg class="model-chevron" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
                 </button>
                 <div id="model-dropdown" class="model-dropdown hidden">
-                    <div class="model-dropdown-label">Free models</div>
-                    <button class="model-option active" data-model="minimax-m2.5-free" data-label="minimax-m2.5" data-ctx="1000000">minimax-m2.5</button>
-                    <button class="model-option" data-model="kimi-k2.5-free" data-label="kimi-k2.5" data-ctx="131072">kimi-k2.5</button>
-                    <button class="model-option" data-model="glm-4.7-free" data-label="glm-4.7" data-ctx="128000">glm-4.7</button>
-                    <button class="model-option" data-model="big-pickle" data-label="big-pickle" data-ctx="128000">big-pickle</button>
-                    <button class="model-option" data-model="gpt-5-nano" data-label="gpt-5-nano" data-ctx="128000">gpt-5-nano</button>
-                    <button class="model-option" data-model="mimo-v2-pro-free" data-label="mimo-v2-pro" data-ctx="32768">mimo-v2-pro</button>
-                    <button class="model-option" data-model="nemotron-3-super-free" data-label="nemotron-3-super" data-ctx="128000">nemotron-3-super</button>
+                    <div class="model-dropdown-inner">
+                    <div class="model-dropdown-label">Models</div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -104,19 +99,6 @@
         </div>
     </div>
 
-    <script src="ui/app.js"></script>
-
-    <!-- PiP browser overlay -->
-    <div id="browser-panel">
-      <div id="browser-handle">
-        <div id="browser-handle-grip"></div>
-        <span id="browser-url-bar">about:blank</span>
-        <button id="browser-close-btn" title="Close browser">&#x2715;</button>
-      </div>
-      <div id="browser-content-area"></div>
-      <div id="browser-resize-handle"></div>
-    </div>
-
-    <script src="ui/browser.js"></script>
+    <script type="module" src="ui/app.js"></script>
 </body>
 </html>
