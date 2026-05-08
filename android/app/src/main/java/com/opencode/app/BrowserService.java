@@ -93,15 +93,15 @@ public class BrowserService {
             createOverlay();
             browserWebView.setWebViewClient(new WebViewClient() {
                 @Override public void onPageFinished(WebView v, String u) {
+                    // Flush cookies to disk immediately so they persist across chats
+                    CookieManager.getInstance().flush();
                     injectFocusListeners(v);
                     mainHandler.postDelayed(() -> snapshotInternal(s -> {
                         result.set(s); latch.countDown();
                     }), 900);
                 }
             });
-            CookieManager cm = CookieManager.getInstance();
-            cm.setAcceptCookie(true);
-            cm.setAcceptThirdPartyCookies(browserWebView, true);
+            // CookieManager already configured in buildWebView; just load the URL.
             browserWebView.loadUrl(url != null && !url.isEmpty() ? url : "about:blank");
             isVisible = true;
         });
@@ -166,6 +166,7 @@ public class BrowserService {
         mainHandler.post(() -> {
             browserWebView.setWebViewClient(new WebViewClient() {
                 @Override public void onPageFinished(WebView v, String u) {
+                    CookieManager.getInstance().flush();
                     injectFocusListeners(v);
                     mainHandler.postDelayed(() -> snapshotInternal(s -> {
                         result.set(s); latch.countDown();
@@ -401,6 +402,20 @@ public class BrowserService {
     // ─────────────────────────────────────────────────────────────────────
 
     private void buildWebView(android.app.Activity activity) {
+        // ── Persistent browser data inside opencode/browser_data ────────────────
+        // Cookies, localStorage, cache and WebSQL all live here so logins persist
+        // across chats and app restarts.
+        java.io.File opencodeDir   = new java.io.File(
+                android.os.Environment.getExternalStorageDirectory(), "opencode");
+        java.io.File browserDataDir  = new java.io.File(opencodeDir, "browser_data");
+        java.io.File browserCacheDir = new java.io.File(browserDataDir, "cache");
+        browserDataDir.mkdirs();
+        browserCacheDir.mkdirs();
+
+        // Suffix routes WebView's internal data (localStorage, WebSQL) to a named
+        // subdirectory under the app's data folder so it is stable across launches.
+        android.webkit.WebView.setDataDirectorySuffix("opencode_browser");
+
         browserWebView = new WebView(activity);
         FrameLayout.LayoutParams wlp = new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
@@ -416,7 +431,14 @@ public class BrowserService {
         s.setBuiltInZoomControls(true);
         s.setDisplayZoomControls(false);
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+        s.setAppCachePath(browserCacheDir.getAbsolutePath());
+        s.setAppCacheEnabled(true);
         s.setUserAgentString("Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36");
+
+        // Accept and persist cookies now — before any page loads
+        CookieManager cm = CookieManager.getInstance();
+        cm.setAcceptCookie(true);
+        cm.setAcceptThirdPartyCookies(browserWebView, true);
 
         browserWebView.setWebChromeClient(new WebChromeClient() {
             @Override public void onReceivedTitle(WebView view, String title) {
