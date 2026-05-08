@@ -89,6 +89,7 @@ public class MainActivity extends Activity {
         extractToybox();
         setupFullscreen();
         requestFileAccess();
+        requestOverlayPermission();
 
         webView = findViewById(R.id.webview);
         loadingWebView = findViewById(R.id.loading_webview);
@@ -209,6 +210,16 @@ public class MainActivity extends Activity {
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
         if (hasFocus) setupFullscreen();
+    }
+
+    private void requestOverlayPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M
+                && !Settings.canDrawOverlays(this)) {
+            startActivityForResult(
+                new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:" + getPackageName())),
+                REQUEST_OVERLAY_PERMISSION);
+        }
     }
 
     private void requestFileAccess() {
