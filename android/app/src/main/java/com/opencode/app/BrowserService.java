@@ -95,6 +95,7 @@ public class BrowserService {
             createOverlay();
             browserWebView.setWebViewClient(new WebViewClient() {
                 @Override public void onPageFinished(WebView v, String u) {
+                    injectFocusListeners(v);
                     mainHandler.postDelayed(() -> snapshotInternal(s -> {
                         result.set(s); latch.countDown();
                     }), 900);
@@ -124,11 +125,19 @@ public class BrowserService {
 
     public String click(String uid) {
         return jsEval(
-            "(function(){var el=document.querySelector('[data-ocuid=\"" + uid + "\"]');" +
+            "(function(){" +
+            // Shadow-DOM-aware UID finder (recursive BFS through open shadow roots)
+            "function _ocFind(uid){var q='[data-ocuid=\"'+uid+'\"]';" +
+            "function s(root){var el=root.querySelector(q);if(el)return el;" +
+            "var all=root.querySelectorAll('*');" +
+            "for(var i=0;i<all.length;i++){if(all[i].shadowRoot){var f=s(all[i].shadowRoot);if(f)return f;}}" +
+            "return null;}return s(document);}" +
+            "var el=_ocFind(\"" + uid + "\");" +
             "if(!el)return 'error: uid not found';" +
             "el.scrollIntoView({block:'center'});el.focus();" +
+            // composed:true lets synthetic events cross shadow DOM boundaries
             "['mousedown','mouseup','click'].forEach(function(t){" +
-            "el.dispatchEvent(new MouseEvent(t,{bubbles:true,cancelable:true}));});" +
+            "el.dispatchEvent(new MouseEvent(t,{bubbles:true,cancelable:true,composed:true}));});" +
             "return 'clicked:'+el.tagName;})()"
         );
     }
@@ -136,12 +145,18 @@ public class BrowserService {
     public String fill(String uid, String value) {
         String safe = value.replace("\\", "\\\\").replace("`", "\\`").replace("$", "\\$");
         return jsEval(
-            "(function(){var el=document.querySelector('[data-ocuid=\"" + uid + "\"]');" +
+            "(function(){" +
+            "function _ocFind(uid){var q='[data-ocuid=\"'+uid+'\"]';" +
+            "function s(root){var el=root.querySelector(q);if(el)return el;" +
+            "var all=root.querySelectorAll('*');" +
+            "for(var i=0;i<all.length;i++){if(all[i].shadowRoot){var f=s(all[i].shadowRoot);if(f)return f;}}" +
+            "return null;}return s(document);}" +
+            "var el=_ocFind(\"" + uid + "\");" +
             "if(!el)return 'error: uid not found';" +
             "el.focus();" +
             "var d=Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value');" +
             "if(d&&d.set)d.set.call(el,`" + safe + "`);else el.value=`" + safe + "`;" +
-            "['input','change'].forEach(function(e){el.dispatchEvent(new Event(e,{bubbles:true}));});" +
+            "['input','change'].forEach(function(e){el.dispatchEvent(new Event(e,{bubbles:true,composed:true}));});" +
             "return 'filled';})()"
         );
     }
@@ -153,6 +168,7 @@ public class BrowserService {
         mainHandler.post(() -> {
             browserWebView.setWebViewClient(new WebViewClient() {
                 @Override public void onPageFinished(WebView v, String u) {
+                    injectFocusListeners(v);
                     mainHandler.postDelayed(() -> snapshotInternal(s -> {
                         result.set(s); latch.countDown();
                     }), 900);
@@ -252,15 +268,17 @@ public class BrowserService {
 
         // FLAG_NOT_TOUCH_MODAL  → touches outside the window reach the app behind it
         // FLAG_LAYOUT_NO_LIMITS → window can slide partially off-screen
+        // FLAG_NOT_FOCUSABLE    → overlay never steals IME focus from the main app;
+        //                         we clear this flag dynamically when a browser input is
+        //                         focused and restore it on blur (see _ocFocus JS interface)
         overlayParams = new WindowManager.LayoutParams(
                 initW, initH, type,
                 WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL |
-                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS |
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
                 PixelFormat.TRANSLUCENT);
 
-        // Allow the keyboard to show when an input inside the WebView is focused.
-        // Without this the overlay window never requests input method focus and the
-        // soft keyboard never appears.
+        // Keyboard resizes the overlay content area when it appears.
         overlayParams.softInputMode =
                 WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE |
                 WindowManager.LayoutParams.SOFT_INPUT_STATE_UNSPECIFIED;
@@ -390,6 +408,32 @@ public class BrowserService {
                 mainHandler.post(() -> { if (headerTitle != null && title != null) headerTitle.setText(title); });
             }
         });
+
+        // Dynamic focus bridge: remove FLAG_NOT_FOCUSABLE when a browser input is
+        // focused so the keyboard can appear, restore it on blur so the main app
+        // can reclaim IME focus when the user taps outside the overlay.
+        browserWebView.addJavascriptInterface(new Object() {
+            @android.webkit.JavascriptInterface
+            public void onFocused() {
+                mainHandler.post(() -> {
+                    if (overlayParams == null || overlayRoot == null || windowManager == null) return;
+                    overlayParams.flags &= ~WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
+                    try {
+                        windowManager.updateViewLayout(overlayRoot, overlayParams);
+                        if (browserWebView != null) browserWebView.requestFocus();
+                    } catch (Exception ignored) {}
+                });
+            }
+            @android.webkit.JavascriptInterface
+            public void onBlurred() {
+                mainHandler.post(() -> {
+                    if (overlayParams == null || overlayRoot == null || windowManager == null) return;
+                    overlayParams.flags |= WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
+                    try { windowManager.updateViewLayout(overlayRoot, overlayParams); }
+                    catch (Exception ignored) {}
+                });
+            }
+        }, "_ocFocus");
 
         overlayRoot.addView(browserWebView);
     }
@@ -580,6 +624,29 @@ public class BrowserService {
     }
 
     // ─────────────────────────────────────────────────────────────────────
+    // Focus-bridge injection — called after every page load.
+    // Wires focusin/focusout on inputs → _ocFocus Java interface so the
+    // overlay window can gain/lose FLAG_NOT_FOCUSABLE dynamically.
+    // ─────────────────────────────────────────────────────────────────────
+
+    private void injectFocusListeners(WebView v) {
+        v.evaluateJavascript(
+            "(function(){" +
+            "if(window._ocFocusInstalled)return;" +
+            "window._ocFocusInstalled=true;" +
+            "var SEL='input,textarea,select,[contenteditable=true]';" +
+            "document.addEventListener('focusin',function(e){" +
+            "  if(e.target.matches&&e.target.matches(SEL)&&window._ocFocus)" +
+            "    window._ocFocus.onFocused();" +
+            "},true);" +
+            "document.addEventListener('focusout',function(e){" +
+            "  if(e.target.matches&&e.target.matches(SEL)&&window._ocFocus)" +
+            "    window._ocFocus.onBlurred();" +
+            "},true);" +
+            "})()", null);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
     // Snapshot / JS helpers
     // ─────────────────────────────────────────────────────────────────────
 
@@ -599,7 +666,7 @@ public class BrowserService {
             "var TAGS='a,button,input,textarea,select,[role=button],[role=link]," +
             "[role=checkbox],[role=menuitem],[role=tab],[role=option],[contenteditable=true]';" +
             "function proc(el,d){" +
-            "if(d>9||!el)return null;" +
+            "if(d>12||!el)return null;" +
             "if(el.nodeType===3){var t=el.textContent.trim();return t?{t:'txt',v:t.substring(0,200)}:null;}" +
             "if(el.nodeType!==1)return null;" +
             "var tag=el.tagName.toLowerCase();" +
@@ -622,8 +689,12 @@ public class BrowserService {
             "if(rl)r.role=rl;" +
             "if(vl!==undefined&&vl!=='')r.value=String(vl).substring(0,100);" +
             "if(inter){var txt=el.innerText?el.innerText.trim().substring(0,200):'';if(txt)r.text=txt;}" +
-            "if(!inter){var kids=[];el.childNodes.forEach(function(c){var n=proc(c,d+1);if(n)kids.push(n);});" +
-            "if(kids.length)r.children=kids.slice(0,50);}" +
+            // For non-interactive elements: recurse into childNodes AND shadow root
+            "if(!inter){var kids=[];" +
+            "el.childNodes.forEach(function(c){var n=proc(c,d+1);if(n)kids.push(n);});" +
+            // Shadow DOM: if element has an open shadow root, walk it too
+            "if(el.shadowRoot){el.shadowRoot.childNodes.forEach(function(c){var n=proc(c,d+1);if(n)kids.push(n);});}" +
+            "if(kids.length)r.children=kids.slice(0,60);}" +
             "return r;}" +
             "var root=document.body||document.documentElement;" +
             "return JSON.stringify(proc(root,0));})()";
