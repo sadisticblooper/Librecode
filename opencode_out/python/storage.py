@@ -8,6 +8,8 @@ import re
 
 
 def get_opencode_dir() -> str:
+    # This folder is persistent across app updates.
+    # Never delete or recreate it — existing providers/chats are preserved.
     possible_paths = [
         "/data/data/com.opencode.app/files/storage_dir.txt",
         os.path.join(os.path.dirname(os.path.abspath(__file__)), "storage_dir.txt"),

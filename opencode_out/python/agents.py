@@ -68,28 +68,23 @@ def get_prompts_dir() -> str:
         _copy_missing_prompts(_BUNDLED_PROMPTS, local_prompts)
     except Exception:
         pass
-    if (
-        os.path.isfile(os.path.join(local_prompts, "system.md"))
-        or os.path.isfile(os.path.join(local_prompts, "agents", "index.json"))
-    ):
+    # Local prompts dir always takes priority — folder IS the source of truth
+    if os.path.isdir(local_prompts):
         return local_prompts
     return _BUNDLED_PROMPTS
 
 
 def _get_bundled_provider_names() -> list[str]:
-    index_path = os.path.join(_BUNDLED_PROVIDERS, "index.json")
+    # Folder IS the source of truth — scan for .txt files directly.
+    # No index.json needed.
     try:
-        with open(index_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        if isinstance(data, list):
-            return [str(x) for x in data]
+        return [
+            os.path.splitext(f)[0]
+            for f in os.listdir(_BUNDLED_PROVIDERS)
+            if f.endswith(".txt")
+        ]
     except Exception:
-        pass
-    return [
-        os.path.splitext(f)[0]
-        for f in os.listdir(_BUNDLED_PROVIDERS)
-        if f.endswith(".txt")
-    ]
+        return []
 
 
 def _copy_providers(dst: str) -> None:
@@ -99,8 +94,7 @@ def _copy_providers(dst: str) -> None:
         if os.path.exists(target):
             continue
         src_file = os.path.join(_BUNDLED_PROVIDERS, f"{name}.txt")
-        if os.path.isfile(src_file):
-            shutil.copy2(src_file, target)
+        shutil.copy2(src_file, target)
 
 
 def get_providers_dir() -> str:
