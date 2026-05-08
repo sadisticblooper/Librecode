@@ -181,7 +181,18 @@ public class BrowserService {
     }
 
     public String evaluate(String script) {
-        return jsEval("(function(){try{return String(eval(" + jsonString(script) + "));}catch(e){return 'error:'+e.message;}})()");
+        // Do NOT use eval() here — pages with strict CSP (e.g. GitHub) block it.
+        // WebView.evaluateJavascript() is a privileged native injection that bypasses
+        // CSP entirely, so we can embed the script directly as an IIFE.
+        if (!isVisible || browserWebView == null) return "error: no browser open";
+        CountDownLatch latch = new CountDownLatch(1);
+        AtomicReference<String> result = new AtomicReference<>("");
+        String wrapped = "(function(){try{return String((function(){\n" + script + "\n})());}catch(e){return 'error:'+e.message;}})()";
+        mainHandler.post(() -> browserWebView.evaluateJavascript(wrapped, raw -> {
+            String v = unquoteJs(raw); result.set(v != null ? v : ""); latch.countDown();
+        }));
+        awaitLatch(latch, 10);
+        return result.get();
     }
 
     public String waitForText(String text, int timeoutMs) {
@@ -666,7 +677,7 @@ public class BrowserService {
             "var TAGS='a,button,input,textarea,select,[role=button],[role=link]," +
             "[role=checkbox],[role=menuitem],[role=tab],[role=option],[contenteditable=true]';" +
             "function proc(el,d){" +
-            "if(d>12||!el)return null;" +
+            "if(d>20||!el)return null;" +
             "if(el.nodeType===3){var t=el.textContent.trim();return t?{t:'txt',v:t.substring(0,200)}:null;}" +
             "if(el.nodeType!==1)return null;" +
             "var tag=el.tagName.toLowerCase();" +
