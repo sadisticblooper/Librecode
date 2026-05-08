@@ -1,8 +1,10 @@
 package com.opencode.app;
 
+import android.animation.ValueAnimator;
 import android.annotation.SuppressLint;
 import android.content.Context;
 import android.graphics.Bitmap;
+import android.graphics.Outline;
 import android.graphics.PixelFormat;
 import android.net.Uri;
 import android.os.Build;
@@ -13,8 +15,11 @@ import android.util.Base64;
 import android.util.DisplayMetrics;
 import android.view.Gravity;
 import android.view.MotionEvent;
+import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewOutlineProvider;
 import android.view.WindowManager;
+import android.view.animation.DecelerateInterpolator;
 import android.webkit.CookieManager;
 import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
@@ -35,22 +40,32 @@ import java.util.function.Consumer;
 
 public class BrowserService {
 
-    public interface StatusListener {
-        void onBrowserOpened();
-        void onBrowserClosed();
-    }
-
     private static BrowserService instance;
 
+    private static final int CORNER_DP    = 18;
+    private static final int HEADER_DP    = 44;
+    private static final int TAB_DP       = 46;
+    private static final int SNAP_EDGE_DP = 72;
+    private static final int ANIM_MS      = 260;
+
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
-    private WindowManager windowManager;
-    private WebView browserWebView;
-    private FrameLayout overlayRoot;
+
+    private WindowManager              windowManager;
+    private FrameLayout                overlayRoot;
+    private WebView                    browserWebView;
     private WindowManager.LayoutParams overlayParams;
-    private TextView headerTitle;
+    private TextView                   headerTitle;
+    private View                       leftTab;
+    private View                       rightTab;
+
     private boolean isVisible = false;
-    private int pageCounter = 1;
-    private StatusListener statusListener;
+    private boolean isSnapped = false;
+    private int     snapSide  = 0;       // -1 = left edge, +1 = right edge
+    private int     lastFreeX = 0;
+    private int     lastFreeY = 80;
+    private int     pageCounter = 1;
+
+    private int displayW, overlayW, overlayH;
 
     private BrowserService() {}
 
@@ -59,26 +74,25 @@ public class BrowserService {
         return instance;
     }
 
-    public void setStatusListener(StatusListener l) {
-        statusListener = l;
-    }
+    // ── Public API ──────────────────────────────────────────────────────
 
     public boolean hasOverlayPermission() {
-        return Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(getActivity());
+        return Build.VERSION.SDK_INT < Build.VERSION_CODES.M
+                || Settings.canDrawOverlays(getActivity());
     }
 
     public String open(String url) {
-        if (!hasOverlayPermission()) {
-            return "{\"error\":\"OVERLAY_PERMISSION_REQUIRED\",\"message\":\"Grant display over other apps permission in Settings.\"}";
-        }
-        CountDownLatch latch = new CountDownLatch(1);
+        if (!hasOverlayPermission())
+            return "{\"error\":\"OVERLAY_PERMISSION_REQUIRED\"}";
+
+        CountDownLatch latch  = new CountDownLatch(1);
         AtomicReference<String> result = new AtomicReference<>("");
+
         mainHandler.post(() -> {
             if (isVisible) destroyOverlay();
             createOverlay();
             browserWebView.setWebViewClient(new WebViewClient() {
-                @Override
-                public void onPageFinished(WebView view, String u) {
+                @Override public void onPageFinished(WebView v, String u) {
                     mainHandler.postDelayed(() -> snapshotInternal(s -> {
                         result.set(s);
                         latch.countDown();
@@ -90,15 +104,15 @@ public class BrowserService {
             cm.setAcceptThirdPartyCookies(browserWebView, true);
             browserWebView.loadUrl(url != null && !url.isEmpty() ? url : "about:blank");
             isVisible = true;
-            if (statusListener != null) statusListener.onBrowserOpened();
         });
+
         awaitLatch(latch, 25);
         return result.get();
     }
 
     public String snapshot() {
         if (!isVisible || browserWebView == null)
-            return "{\"error\":\"No browser open. Call browser_open first.\"}";
+            return "{\"error\":\"No browser open.\"}";
         CountDownLatch latch = new CountDownLatch(1);
         AtomicReference<String> result = new AtomicReference<>("");
         mainHandler.post(() -> snapshotInternal(s -> { result.set(s); latch.countDown(); }));
@@ -108,32 +122,25 @@ public class BrowserService {
 
     public String click(String uid) {
         return jsEval(
-            "(function(){" +
-            "var el=document.querySelector('[data-ocuid=\"" + uid + "\"]');" +
+            "(function(){var el=document.querySelector('[data-ocuid=\"" + uid + "\"]');" +
             "if(!el)return 'error: uid not found';" +
-            "el.scrollIntoView({block:'center'});" +
-            "el.focus();" +
+            "el.scrollIntoView({block:'center'});el.focus();" +
             "['mousedown','mouseup','click'].forEach(function(t){" +
-            "  el.dispatchEvent(new MouseEvent(t,{bubbles:true,cancelable:true}));});" +
-            "return 'clicked:'+el.tagName;" +
-            "})()"
+            "el.dispatchEvent(new MouseEvent(t,{bubbles:true,cancelable:true}));});" +
+            "return 'clicked:'+el.tagName;})()"
         );
     }
 
     public String fill(String uid, String value) {
         String safe = value.replace("\\", "\\\\").replace("`", "\\`").replace("$", "\\$");
         return jsEval(
-            "(function(){" +
-            "var el=document.querySelector('[data-ocuid=\"" + uid + "\"]');" +
+            "(function(){var el=document.querySelector('[data-ocuid=\"" + uid + "\"]');" +
             "if(!el)return 'error: uid not found';" +
             "el.focus();" +
             "var d=Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value');" +
-            "if(d&&d.set)d.set.call(el,`" + safe + "`);" +
-            "else el.value=`" + safe + "`;" +
-            "['input','change'].forEach(function(e){" +
-            "  el.dispatchEvent(new Event(e,{bubbles:true}));});" +
-            "return 'filled';" +
-            "})()"
+            "if(d&&d.set)d.set.call(el,`" + safe + "`);else el.value=`" + safe + "`;" +
+            "['input','change'].forEach(function(e){el.dispatchEvent(new Event(e,{bubbles:true}));});" +
+            "return 'filled';})()"
         );
     }
 
@@ -143,8 +150,7 @@ public class BrowserService {
         AtomicReference<String> result = new AtomicReference<>("");
         mainHandler.post(() -> {
             browserWebView.setWebViewClient(new WebViewClient() {
-                @Override
-                public void onPageFinished(WebView view, String u) {
+                @Override public void onPageFinished(WebView v, String u) {
                     mainHandler.postDelayed(() -> snapshotInternal(s -> {
                         result.set(s);
                         latch.countDown();
@@ -177,15 +183,14 @@ public class BrowserService {
         AtomicReference<String> result = new AtomicReference<>("error: capture failed");
         mainHandler.post(() -> {
             try {
-                Bitmap bm = Bitmap.createBitmap(browserWebView.getWidth(), browserWebView.getHeight(), Bitmap.Config.ARGB_8888);
-                android.graphics.Canvas canvas = new android.graphics.Canvas(bm);
-                browserWebView.draw(canvas);
+                Bitmap bm = Bitmap.createBitmap(
+                        browserWebView.getWidth(), browserWebView.getHeight(), Bitmap.Config.ARGB_8888);
+                browserWebView.draw(new android.graphics.Canvas(bm));
                 ByteArrayOutputStream baos = new ByteArrayOutputStream();
                 bm.compress(Bitmap.CompressFormat.JPEG, 80, baos);
-                result.set("data:image/jpeg;base64," + Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP));
-            } catch (Exception e) {
-                result.set("error: " + e.getMessage());
-            }
+                result.set("data:image/jpeg;base64," +
+                        Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP));
+            } catch (Exception e) { result.set("error: " + e.getMessage()); }
             latch.countDown();
         });
         awaitLatch(latch, 10);
@@ -200,19 +205,17 @@ public class BrowserService {
     public void openCCT(String url) {
         mainHandler.post(() -> {
             try {
-                CustomTabsIntent cct = new CustomTabsIntent.Builder().setShowTitle(true).build();
-                cct.launchUrl(getActivity(), Uri.parse(url));
+                new CustomTabsIntent.Builder().setShowTitle(true).build()
+                        .launchUrl(getActivity(), Uri.parse(url));
             } catch (Exception e) {
-                Toast.makeText(getActivity(), "Could not open browser: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                Toast.makeText(getActivity(), "Cannot open browser: " + e.getMessage(),
+                        Toast.LENGTH_SHORT).show();
             }
         });
     }
 
     public String close() {
-        mainHandler.post(() -> {
-            destroyOverlay();
-            if (statusListener != null) statusListener.onBrowserClosed();
-        });
+        mainHandler.post(this::destroyOverlay);
         return "Browser closed.";
     }
 
@@ -230,84 +233,9 @@ public class BrowserService {
         return result.get();
     }
 
-    public boolean isOpen() {
-        return isVisible && browserWebView != null;
-    }
+    public boolean isOpen() { return isVisible && browserWebView != null; }
 
-    public void reshowOverlay() {
-        if (!isVisible || overlayRoot == null) return;
-        mainHandler.post(() -> {
-            try {
-                windowManager.removeView(overlayRoot);
-                windowManager.addView(overlayRoot, overlayParams);
-            } catch (Exception ignored) {}
-        });
-    }
-
-    // ── Private helpers ──────────────────────────────────────────────────
-
-    private void snapshotInternal(Consumer<String> cb) {
-        browserWebView.evaluateJavascript(buildSnapshotJs(), raw -> {
-            String url   = browserWebView.getUrl()   != null ? browserWebView.getUrl()   : "";
-            String title = browserWebView.getTitle() != null ? browserWebView.getTitle() : "";
-            String tree  = unquoteJs(raw);
-            cb.accept("{\"url\":\"" + esc(url) + "\",\"title\":\"" + esc(title) + "\",\"snapshot\":" + (tree != null ? tree : "null") + "}");
-        });
-    }
-
-    private String buildSnapshotJs() {
-        int pid = pageCounter;
-        return "(function(){" +
-            "var uid=1;" +
-            "var TAGS='a,button,input,textarea,select,[role=button],[role=link],[role=checkbox],[role=menuitem],[role=tab],[role=option],[contenteditable=true]';" +
-            "function proc(el,d){" +
-            "  if(d>9||!el)return null;" +
-            "  if(el.nodeType===3){var t=el.textContent.trim();return t?{t:'txt',v:t.substring(0,200)}:null;}" +
-            "  if(el.nodeType!==1)return null;" +
-            "  var tag=el.tagName.toLowerCase();" +
-            "  if(['script','style','svg','noscript','head','meta','link'].includes(tag))return null;" +
-            "  var inter=el.matches&&el.matches(TAGS);" +
-            "  var id=null;" +
-            "  if(inter){id='" + pid + "_'+(uid++);el.setAttribute('data-ocuid',id);}" +
-            "  var r={tag:tag};" +
-            "  if(id)r.uid=id;" +
-            "  var al=el.getAttribute&&el.getAttribute('aria-label');" +
-            "  var ph=el.getAttribute&&el.getAttribute('placeholder');" +
-            "  var tp=el.getAttribute&&el.getAttribute('type');" +
-            "  var hr=el.getAttribute&&el.getAttribute('href');" +
-            "  var rl=el.getAttribute&&el.getAttribute('role');" +
-            "  var vl=el.value;" +
-            "  if(al)r.label=al.substring(0,100);" +
-            "  if(ph)r.placeholder=ph.substring(0,100);" +
-            "  if(tp)r.type=tp;" +
-            "  if(hr)r.href=hr.substring(0,200);" +
-            "  if(rl)r.role=rl;" +
-            "  if(vl!==undefined&&vl!=='')r.value=String(vl).substring(0,100);" +
-            "  if(inter){var txt=el.innerText?el.innerText.trim().substring(0,200):'';if(txt)r.text=txt;}" +
-            "  if(!inter){" +
-            "    var kids=[];" +
-            "    el.childNodes.forEach(function(c){var n=proc(c,d+1);if(n)kids.push(n);});" +
-            "    if(kids.length)r.children=kids.slice(0,50);" +
-            "  }" +
-            "  return r;" +
-            "}" +
-            "var root=document.body||document.documentElement;" +
-            "return JSON.stringify(proc(root,0));" +
-            "})()";
-    }
-
-    private String jsEval(String script) {
-        if (!isVisible || browserWebView == null) return "error: no browser open";
-        CountDownLatch latch = new CountDownLatch(1);
-        AtomicReference<String> result = new AtomicReference<>("");
-        mainHandler.post(() -> browserWebView.evaluateJavascript(script, raw -> {
-            String v = unquoteJs(raw);
-            result.set(v != null ? v : "");
-            latch.countDown();
-        }));
-        awaitLatch(latch, 10);
-        return result.get();
-    }
+    // ── Overlay creation ─────────────────────────────────────────────────
 
     @SuppressLint({"SetJavaScriptEnabled", "ClickableViewAccessibility"})
     private void createOverlay() {
@@ -315,58 +243,124 @@ public class BrowserService {
         windowManager = (WindowManager) activity.getSystemService(Context.WINDOW_SERVICE);
 
         DisplayMetrics dm = activity.getResources().getDisplayMetrics();
-        int w = (int) (dm.widthPixels  * 0.94f);
-        int h = (int) (dm.heightPixels * 0.52f);
+        displayW  = dm.widthPixels;
+        overlayW  = (int) (displayW * 0.94f);
+        overlayH  = (int) (dm.heightPixels * 0.52f);
 
         int type = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
                 ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
                 : WindowManager.LayoutParams.TYPE_PHONE;
 
         overlayParams = new WindowManager.LayoutParams(
-                w, h, type,
+                overlayW, overlayH, type,
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
                 PixelFormat.TRANSLUCENT);
         overlayParams.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
-        overlayParams.y = 80;
+        overlayParams.x = lastFreeX;
+        overlayParams.y = lastFreeY;
 
+        // Root with rounded corners
         overlayRoot = new FrameLayout(activity);
-        overlayRoot.setBackgroundColor(0xFF121212);
+        overlayRoot.setBackgroundColor(0xFF111111);
+        overlayRoot.setClipToOutline(true);
+        overlayRoot.setOutlineProvider(new ViewOutlineProvider() {
+            @Override public void getOutline(View view, Outline outline) {
+                outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), dp(CORNER_DP));
+            }
+        });
 
+        buildHeader(activity);
+        buildWebView(activity);
+        buildEdgeTabs(activity);
+
+        windowManager.addView(overlayRoot, overlayParams);
+    }
+
+    private void buildHeader(android.app.Activity activity) {
         LinearLayout header = new LinearLayout(activity);
         header.setOrientation(LinearLayout.HORIZONTAL);
-        header.setBackgroundColor(0xFF1E1E1E);
+        header.setBackgroundColor(0xFF1C1C1E);
         header.setGravity(Gravity.CENTER_VERTICAL);
-        header.setPadding(dp(12), 0, dp(12), 0);
-        FrameLayout.LayoutParams headerLp = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(42));
-        header.setLayoutParams(headerLp);
+        header.setPadding(dp(14), 0, dp(14), 0);
+
+        FrameLayout.LayoutParams hlp = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(HEADER_DP));
+        header.setLayoutParams(hlp);
+
+        // Drag handle dot
+        TextView handle = new TextView(activity);
+        handle.setText("⠿");
+        handle.setTextColor(0xFF555555);
+        handle.setTextSize(16);
+        handle.setPadding(0, 0, dp(10), 0);
 
         headerTitle = new TextView(activity);
-        headerTitle.setTextColor(0xFFCCCCCC);
-        headerTitle.setTextSize(13);
+        headerTitle.setTextColor(0xFFBBBBBB);
+        headerTitle.setTextSize(12.5f);
         headerTitle.setSingleLine(true);
         headerTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        LinearLayout.LayoutParams titleLp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-        headerTitle.setLayoutParams(titleLp);
+        LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        headerTitle.setLayoutParams(tlp);
         headerTitle.setText("Browser");
 
         TextView closeBtn = new TextView(activity);
         closeBtn.setText("✕");
-        closeBtn.setTextColor(0xFF777777);
-        closeBtn.setTextSize(18);
+        closeBtn.setTextColor(0xFF666666);
+        closeBtn.setTextSize(17);
         closeBtn.setPadding(dp(12), 0, 0, 0);
-        closeBtn.setOnClickListener(v -> {
-            destroyOverlay();
-            if (statusListener != null) statusListener.onBrowserClosed();
-        });
+        closeBtn.setOnClickListener(v -> destroyOverlay());
 
+        header.addView(handle);
         header.addView(headerTitle);
         header.addView(closeBtn);
 
+        final int[] down = {0, 0, 0, 0};
+        final boolean[] dragging = {false};
+
+        header.setOnTouchListener((v, ev) -> {
+            switch (ev.getAction()) {
+                case MotionEvent.ACTION_DOWN:
+                    down[0] = (int) ev.getRawX();
+                    down[1] = (int) ev.getRawY();
+                    down[2] = overlayParams.x;
+                    down[3] = overlayParams.y;
+                    dragging[0] = false;
+                    if (isSnapped) {
+                        unsnap();
+                        return true;
+                    }
+                    break;
+
+                case MotionEvent.ACTION_MOVE:
+                    int dx = (int) ev.getRawX() - down[0];
+                    int dy = (int) ev.getRawY() - down[1];
+                    if (!dragging[0] && Math.abs(dx) + Math.abs(dy) > dp(6)) dragging[0] = true;
+                    if (dragging[0]) {
+                        overlayParams.x = down[2] + dx;
+                        overlayParams.y = down[3] - dy;
+                        try { windowManager.updateViewLayout(overlayRoot, overlayParams); }
+                        catch (Exception ignored) {}
+                    }
+                    break;
+
+                case MotionEvent.ACTION_UP:
+                    if (dragging[0]) checkEdgeSnap();
+                    else if (isSnapped) unsnap();
+                    break;
+            }
+            return true;
+        });
+
+        overlayRoot.addView(header);
+    }
+
+    private void buildWebView(android.app.Activity activity) {
         browserWebView = new WebView(activity);
-        FrameLayout.LayoutParams wvLp = new FrameLayout.LayoutParams(
+        FrameLayout.LayoutParams wlp = new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
-        wvLp.topMargin = dp(42);
-        browserWebView.setLayoutParams(wvLp);
+        wlp.topMargin = dp(HEADER_DP);
+        browserWebView.setLayoutParams(wlp);
 
         WebSettings s = browserWebView.getSettings();
         s.setJavaScriptEnabled(true);
@@ -383,36 +377,171 @@ public class BrowserService {
             "Chrome/120.0.0.0 Mobile Safari/537.36");
 
         browserWebView.setWebChromeClient(new WebChromeClient() {
-            @Override
-            public void onReceivedTitle(WebView view, String title) {
-                mainHandler.post(() -> { if (headerTitle != null && title != null) headerTitle.setText(title); });
+            @Override public void onReceivedTitle(WebView view, String title) {
+                mainHandler.post(() -> {
+                    if (headerTitle != null && title != null) headerTitle.setText(title);
+                });
             }
         });
 
-        final int[] dragStart = {0, 0, 0, 0};
-        header.setOnTouchListener((v, ev) -> {
-            switch (ev.getAction()) {
-                case MotionEvent.ACTION_DOWN:
-                    dragStart[0] = (int) ev.getRawX();
-                    dragStart[1] = (int) ev.getRawY();
-                    dragStart[2] = overlayParams.x;
-                    dragStart[3] = overlayParams.y;
-                    break;
-                case MotionEvent.ACTION_MOVE:
-                    overlayParams.x = dragStart[2] + (int) ev.getRawX() - dragStart[0];
-                    overlayParams.y = dragStart[3] - ((int) ev.getRawY() - dragStart[1]);
-                    if (overlayRoot != null) {
-                        try { windowManager.updateViewLayout(overlayRoot, overlayParams); } catch (Exception ignored) {}
-                    }
-                    break;
-            }
-            return true;
-        });
-
-        overlayRoot.addView(header);
         overlayRoot.addView(browserWebView);
-        windowManager.addView(overlayRoot, overlayParams);
     }
+
+    private void buildEdgeTabs(android.app.Activity activity) {
+        // Left-side tab (visible when snapped to right edge — right portion of window hidden)
+        leftTab = makeTab(activity, "›");
+        FrameLayout.LayoutParams llp = new FrameLayout.LayoutParams(dp(TAB_DP),
+                ViewGroup.LayoutParams.MATCH_PARENT);
+        llp.gravity = Gravity.START | Gravity.CENTER_VERTICAL;
+        leftTab.setLayoutParams(llp);
+        leftTab.setVisibility(View.GONE);
+        leftTab.setOnClickListener(v -> unsnap());
+        overlayRoot.addView(leftTab);
+
+        // Right-side tab (visible when snapped to left edge)
+        rightTab = makeTab(activity, "‹");
+        FrameLayout.LayoutParams rlp = new FrameLayout.LayoutParams(dp(TAB_DP),
+                ViewGroup.LayoutParams.MATCH_PARENT);
+        rlp.gravity = Gravity.END | Gravity.CENTER_VERTICAL;
+        rightTab.setLayoutParams(rlp);
+        rightTab.setVisibility(View.GONE);
+        rightTab.setOnClickListener(v -> unsnap());
+        overlayRoot.addView(rightTab);
+    }
+
+    private View makeTab(android.app.Activity activity, String arrow) {
+        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+        bg.setColor(0xCC1A73E8);
+        bg.setCornerRadius(dp(CORNER_DP));
+        TextView tab = new TextView(activity);
+        tab.setText(arrow);
+        tab.setTextColor(0xFFFFFFFF);
+        tab.setTextSize(22);
+        tab.setGravity(Gravity.CENTER);
+        tab.setBackground(bg);
+        return tab;
+    }
+
+    // ── Edge snap logic ──────────────────────────────────────────────────
+
+    private void checkEdgeSnap() {
+        int leftEdge  = (displayW - overlayW) / 2 + overlayParams.x;
+        int rightEdge = (displayW + overlayW) / 2 + overlayParams.x;
+        int threshold = dp(SNAP_EDGE_DP);
+
+        if (leftEdge < threshold) {
+            snapTo(-1);
+        } else if (rightEdge > displayW - threshold) {
+            snapTo(1);
+        } else {
+            lastFreeX = overlayParams.x;
+            lastFreeY = overlayParams.y;
+        }
+    }
+
+    private void snapTo(int side) {
+        isSnapped = true;
+        snapSide  = side;
+        lastFreeX = overlayParams.x;
+        lastFreeY = overlayParams.y;
+
+        int tabPx   = dp(TAB_DP);
+        int halfSum  = (displayW + overlayW) / 2;
+        int targetX  = (side == -1)
+                ? -(halfSum - tabPx)   // slide left, right tab visible
+                :  (halfSum - tabPx);  // slide right, left tab visible
+
+        animateX(overlayParams.x, targetX, () -> {
+            if (leftTab  != null) leftTab.setVisibility(side == 1 ? View.VISIBLE : View.GONE);
+            if (rightTab != null) rightTab.setVisibility(side == -1 ? View.VISIBLE : View.GONE);
+        });
+    }
+
+    private void unsnap() {
+        if (leftTab  != null) leftTab.setVisibility(View.GONE);
+        if (rightTab != null) rightTab.setVisibility(View.GONE);
+        isSnapped = false;
+        animateX(overlayParams.x, lastFreeX, null);
+    }
+
+    private void animateX(int from, int to, Runnable onEnd) {
+        ValueAnimator anim = ValueAnimator.ofInt(from, to);
+        anim.setDuration(ANIM_MS);
+        anim.setInterpolator(new DecelerateInterpolator());
+        anim.addUpdateListener(a -> {
+            if (overlayRoot == null) return;
+            overlayParams.x = (int) a.getAnimatedValue();
+            try { windowManager.updateViewLayout(overlayRoot, overlayParams); }
+            catch (Exception ignored) {}
+        });
+        if (onEnd != null) anim.addListener(new android.animation.AnimatorListenerAdapter() {
+            @Override public void onAnimationEnd(android.animation.Animator a) { onEnd.run(); }
+        });
+        anim.start();
+    }
+
+    // ── Snapshot / JS ────────────────────────────────────────────────────
+
+    private void snapshotInternal(Consumer<String> cb) {
+        browserWebView.evaluateJavascript(buildSnapshotJs(), raw -> {
+            String url   = browserWebView.getUrl()   != null ? browserWebView.getUrl()   : "";
+            String title = browserWebView.getTitle() != null ? browserWebView.getTitle() : "";
+            String tree  = unquoteJs(raw);
+            cb.accept("{\"url\":\"" + esc(url) + "\",\"title\":\"" + esc(title) +
+                      "\",\"snapshot\":" + (tree != null ? tree : "null") + "}");
+        });
+    }
+
+    private String buildSnapshotJs() {
+        int pid = pageCounter;
+        return "(function(){var uid=1;" +
+            "var TAGS='a,button,input,textarea,select,[role=button],[role=link]," +
+            "[role=checkbox],[role=menuitem],[role=tab],[role=option],[contenteditable=true]';" +
+            "function proc(el,d){" +
+            "if(d>9||!el)return null;" +
+            "if(el.nodeType===3){var t=el.textContent.trim();return t?{t:'txt',v:t.substring(0,200)}:null;}" +
+            "if(el.nodeType!==1)return null;" +
+            "var tag=el.tagName.toLowerCase();" +
+            "if(['script','style','svg','noscript','head','meta','link'].includes(tag))return null;" +
+            "var inter=el.matches&&el.matches(TAGS);" +
+            "var id=null;" +
+            "if(inter){id='" + pid + "_'+(uid++);el.setAttribute('data-ocuid',id);}" +
+            "var r={tag:tag};" +
+            "if(id)r.uid=id;" +
+            "var al=el.getAttribute&&el.getAttribute('aria-label');" +
+            "var ph=el.getAttribute&&el.getAttribute('placeholder');" +
+            "var tp=el.getAttribute&&el.getAttribute('type');" +
+            "var hr=el.getAttribute&&el.getAttribute('href');" +
+            "var rl=el.getAttribute&&el.getAttribute('role');" +
+            "var vl=el.value;" +
+            "if(al)r.label=al.substring(0,100);" +
+            "if(ph)r.placeholder=ph.substring(0,100);" +
+            "if(tp)r.type=tp;" +
+            "if(hr)r.href=hr.substring(0,200);" +
+            "if(rl)r.role=rl;" +
+            "if(vl!==undefined&&vl!=='')r.value=String(vl).substring(0,100);" +
+            "if(inter){var txt=el.innerText?el.innerText.trim().substring(0,200):'';if(txt)r.text=txt;}" +
+            "if(!inter){var kids=[];el.childNodes.forEach(function(c){var n=proc(c,d+1);if(n)kids.push(n);});" +
+            "if(kids.length)r.children=kids.slice(0,50);}" +
+            "return r;}" +
+            "var root=document.body||document.documentElement;" +
+            "return JSON.stringify(proc(root,0));})()";
+    }
+
+    private String jsEval(String script) {
+        if (!isVisible || browserWebView == null) return "error: no browser open";
+        CountDownLatch latch = new CountDownLatch(1);
+        AtomicReference<String> result = new AtomicReference<>("");
+        mainHandler.post(() -> browserWebView.evaluateJavascript(script, raw -> {
+            String v = unquoteJs(raw);
+            result.set(v != null ? v : "");
+            latch.countDown();
+        }));
+        awaitLatch(latch, 10);
+        return result.get();
+    }
+
+    // ── Teardown ─────────────────────────────────────────────────────────
 
     private void destroyOverlay() {
         if (overlayRoot != null) {
@@ -425,9 +554,14 @@ public class BrowserService {
             browserWebView = null;
         }
         headerTitle = null;
-        isVisible = false;
+        leftTab     = null;
+        rightTab    = null;
+        isVisible   = false;
+        isSnapped   = false;
         pageCounter++;
     }
+
+    // ── Helpers ──────────────────────────────────────────────────────────
 
     private android.app.Activity getActivity() { return MainActivity.instance; }
 
@@ -442,8 +576,8 @@ public class BrowserService {
 
     private String unquoteJs(String raw) {
         if (raw == null || raw.equals("null")) return null;
-        if (raw.length() >= 2 && raw.charAt(0) == '"' && raw.charAt(raw.length() - 1) == '"') {
-            return raw.substring(1, raw.length() - 1)
+        if (raw.length() >= 2 && raw.charAt(0) == '"' && raw.charAt(raw.length()-1) == '"') {
+            return raw.substring(1, raw.length()-1)
                 .replace("\\\"", "\"").replace("\\n", "\n")
                 .replace("\\t", "\t").replace("\\\\", "\\");
         }
@@ -451,7 +585,7 @@ public class BrowserService {
     }
 
     private String esc(String s) {
-        return s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "");
+        return s.replace("\\","\\\\").replace("\"","\\\"").replace("\n","\\n").replace("\r","");
     }
 
     private String jsonString(String s) { return "\"" + esc(s) + "\""; }

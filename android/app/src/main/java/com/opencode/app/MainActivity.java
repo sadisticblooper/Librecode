@@ -34,10 +34,6 @@ import java.util.concurrent.TimeUnit;
 
 import com.opencode.app.BrowserService;
 
-import android.animation.ObjectAnimator;
-import android.view.View;
-import android.widget.FrameLayout;
-import android.widget.TextView;
 
 public class MainActivity extends Activity {
 
@@ -45,7 +41,6 @@ public class MainActivity extends Activity {
     private WebView webView;
     private WebView loadingWebView;
     private WebView fetchWebView;
-    private TextView browserPill;
     private static final int FLASK_PORT = 5000;
     private static final String FLASK_URL = "http://localhost:" + FLASK_PORT;
     private static final int MIN_LOADING_MS = 1000;
@@ -106,57 +101,6 @@ public class MainActivity extends Activity {
 
         startFlaskServer();
         waitForFlaskThenLaunch();
-        setupBrowserService();
-    }
-
-    private void setupBrowserService() {
-        FrameLayout root = findViewById(android.R.id.content);
-
-        browserPill = new TextView(this);
-        browserPill.setText("🌐  Browser open  ↑");
-        browserPill.setTextColor(0xFFFFFFFF);
-        browserPill.setTextSize(13f);
-        browserPill.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        browserPill.setPadding(dp(16), dp(10), dp(16), dp(10));
-        browserPill.setBackgroundResource(0);
-
-        android.graphics.drawable.GradientDrawable pill = new android.graphics.drawable.GradientDrawable();
-        pill.setColor(0xFF1A73E8);
-        pill.setCornerRadius(dp(24));
-        browserPill.setBackground(pill);
-
-        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.WRAP_CONTENT,
-            FrameLayout.LayoutParams.WRAP_CONTENT);
-        lp.gravity = android.view.Gravity.BOTTOM | android.view.Gravity.CENTER_HORIZONTAL;
-        lp.bottomMargin = dp(24);
-        browserPill.setLayoutParams(lp);
-        browserPill.setVisibility(View.GONE);
-        browserPill.setElevation(dp(8));
-
-        browserPill.setOnClickListener(v -> BrowserService.getInstance().reshowOverlay());
-
-        root.addView(browserPill);
-
-        BrowserService.getInstance().setStatusListener(new BrowserService.StatusListener() {
-            @Override
-            public void onBrowserOpened() {
-                mainHandler.post(() -> {
-                    browserPill.setVisibility(View.VISIBLE);
-                    browserPill.setAlpha(0f);
-                    browserPill.animate().alpha(1f).setDuration(220).start();
-                });
-            }
-            @Override
-            public void onBrowserClosed() {
-                mainHandler.post(() -> browserPill.animate().alpha(0f).setDuration(180)
-                    .withEndAction(() -> browserPill.setVisibility(View.GONE)).start());
-            }
-        });
-    }
-
-    private int dp(int v) {
-        return (int) (v * getResources().getDisplayMetrics().density);
     }
 
     private void waitForFlaskThenLaunch() {
