@@ -164,7 +164,7 @@ def tool_browser_close() -> str:
 BROWSER_OPEN_SPEC = {
     "type": "function",
     "function": {
-        "name": "browser_open",
+        "name": "spawn_browser",
         "description": (
             "Open a floating browser window and navigate to a URL. "
             "The browser appears as a draggable overlay on screen. "

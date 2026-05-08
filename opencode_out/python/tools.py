@@ -1089,10 +1089,11 @@ def run_tool(name: str, args: dict) -> str:
                 context      = args.get("context", ""),
                 working_dirs = dirs,
             )
-        elif name.startswith("browser_"):
+        elif name.startswith("browser_") or name == "spawn_browser":
             import python.browser_tools as bt
             dispatch = {
                 "browser_open":       lambda: bt.tool_browser_open(args.get("url", "about:blank")),
+                "spawn_browser":      lambda: bt.tool_browser_open(args.get("url", "about:blank")),
                 "browser_snapshot":   lambda: bt.tool_browser_snapshot(),
                 "browser_click":      lambda: bt.tool_browser_click(args.get("uid", "")),
                 "browser_fill":       lambda: bt.tool_browser_fill(args.get("uid", ""), args.get("value", "")),
