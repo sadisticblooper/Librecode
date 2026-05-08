@@ -1104,9 +1104,6 @@ def run_tool(name: str, args: dict) -> str:
                 "browser_cookies":    lambda: bt.tool_browser_cookies(args.get("url", "")),
                 "browser_login_cct":  lambda: bt.tool_browser_login_cct(args.get("url", "")),
                 "browser_close":      lambda: bt.tool_browser_close(),
-                "browser_batch":      lambda: bt.tool_browser_batch(args.get("actions", [])),
-                "browser_rg":         lambda: bt.tool_browser_rg(args.get("pattern", ""), args.get("case_insensitive", False)),
-                "browser_fd":         lambda: bt.tool_browser_fd(args.get("pattern", ""), args.get("extension")),
             }
             fn = dispatch.get(name)
             if fn is None:

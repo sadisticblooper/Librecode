@@ -49,6 +49,8 @@ public class BrowserService {
     private static final int CORNER_DP      = 16;
     private static final int HEADER_DP      = 42;
     private static final int RESIZE_DP      = 32;
+    private static final int TAB_W_DP       = 32;   // wider — fat-finger friendly pull target
+    private static final int TAB_H_DP       = 90;   // taller — fat-finger friendly pull target
     private static final int SNAP_THRESH_DP = 60;
     private static final int MIN_W_DP       = 160;
     private static final int MIN_H_DP       = 140;
@@ -93,15 +95,15 @@ public class BrowserService {
             createOverlay();
             browserWebView.setWebViewClient(new WebViewClient() {
                 @Override public void onPageFinished(WebView v, String u) {
-                    // Flush cookies to disk immediately so they persist across chats
-                    CookieManager.getInstance().flush();
                     injectFocusListeners(v);
                     mainHandler.postDelayed(() -> snapshotInternal(s -> {
                         result.set(s); latch.countDown();
                     }), 900);
                 }
             });
-            // CookieManager already configured in buildWebView; just load the URL.
+            CookieManager cm = CookieManager.getInstance();
+            cm.setAcceptCookie(true);
+            cm.setAcceptThirdPartyCookies(browserWebView, true);
             browserWebView.loadUrl(url != null && !url.isEmpty() ? url : "about:blank");
             isVisible = true;
         });
@@ -166,7 +168,6 @@ public class BrowserService {
         mainHandler.post(() -> {
             browserWebView.setWebViewClient(new WebViewClient() {
                 @Override public void onPageFinished(WebView v, String u) {
-                    CookieManager.getInstance().flush();
                     injectFocusListeners(v);
                     mainHandler.postDelayed(() -> snapshotInternal(s -> {
                         result.set(s); latch.countDown();
@@ -402,18 +403,6 @@ public class BrowserService {
     // ─────────────────────────────────────────────────────────────────────
 
     private void buildWebView(android.app.Activity activity) {
-        // ── Persistent browser data inside opencode/browser_data ────────────────
-        // Cookies, localStorage, cache and WebSQL all live here so logins persist
-        // across chats and app restarts.
-        java.io.File opencodeDir   = new java.io.File(
-                android.os.Environment.getExternalStorageDirectory(), "opencode");
-        java.io.File browserDataDir  = new java.io.File(opencodeDir, "browser_data");
-        browserDataDir.mkdirs();
-
-        // Suffix routes WebView's internal data (localStorage, WebSQL) to a named
-        // subdirectory under the app's data folder so it is stable across launches.
-        android.webkit.WebView.setDataDirectorySuffix("opencode_browser");
-
         browserWebView = new WebView(activity);
         FrameLayout.LayoutParams wlp = new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
@@ -430,11 +419,6 @@ public class BrowserService {
         s.setDisplayZoomControls(false);
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
         s.setUserAgentString("Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36");
-
-        // Accept and persist cookies now — before any page loads
-        CookieManager cm = CookieManager.getInstance();
-        cm.setAcceptCookie(true);
-        cm.setAcceptThirdPartyCookies(browserWebView, true);
 
         browserWebView.setWebChromeClient(new WebChromeClient() {
             @Override public void onReceivedTitle(WebView view, String title) {
@@ -520,47 +504,41 @@ public class BrowserService {
     }
 
     // ─────────────────────────────────────────────────────────────────────
-    // Edge overlays — shown when window is tucked to a screen edge.
-    // A transparent full-window overlay intercepts any touch on the peeking
-    // strip so the user can drag or tap anywhere to unsnap.
+    // Edge tabs — full-height invisible touch strips covering the entire
+    // peeking portion when tucked. No visual button — any touch on the
+    // visible strip pulls the window out.
     // ─────────────────────────────────────────────────────────────────────
 
     private void buildEdgeTabs(android.app.Activity activity) {
-        // Instead of a small pill button, we use a transparent full-size overlay that
-        // sits on top of overlayRoot. When snapped, it is VISIBLE and intercepts ALL
-        // touches anywhere on the peeking strip — shape/size of the window doesn't matter.
-        // When not snapped, it is GONE so all touches reach the WebView normally.
-
-        // rightTab → shown when window is snapped LEFT (user pulls from the right strip)
-        rightTab = new View(activity);
-        rightTab.setBackgroundColor(0x00000000); // fully transparent
-        rightTab.setLayoutParams(new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        // rightTab: covers the right (END) edge → visible when window is snapped LEFT
+        rightTab = makePullStrip(activity);
+        FrameLayout.LayoutParams rlp = new FrameLayout.LayoutParams(dp(TAB_W_DP), ViewGroup.LayoutParams.MATCH_PARENT);
+        rlp.gravity = Gravity.END;
+        rightTab.setLayoutParams(rlp);
         rightTab.setVisibility(View.GONE);
         attachPullListener(rightTab, +1);
         overlayRoot.addView(rightTab);
 
-        // leftTab → shown when window is snapped RIGHT (user pulls from the left strip)
-        leftTab = new View(activity);
-        leftTab.setBackgroundColor(0x00000000);
-        leftTab.setLayoutParams(new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        // leftTab: covers the left (START) edge → visible when window is snapped RIGHT
+        leftTab = makePullStrip(activity);
+        FrameLayout.LayoutParams llp = new FrameLayout.LayoutParams(dp(TAB_W_DP), ViewGroup.LayoutParams.MATCH_PARENT);
+        llp.gravity = Gravity.START;
+        leftTab.setLayoutParams(llp);
         leftTab.setVisibility(View.GONE);
         attachPullListener(leftTab, -1);
         overlayRoot.addView(leftTab);
     }
 
     /**
-     * Attach a touch listener that unsnapps the window when the user taps or
-     * drags anywhere on the transparent overlay that covers the snapped window.
-     * pullDir = +1 → snapped left, drag rightward to unsnap.
-     * pullDir = -1 → snapped right, drag leftward to unsnap.
+     * Attach a touch listener that unsnaps the window when the user taps or
+     * drags anywhere on the pull strip. pullDir = +1 → strip is on right edge
+     * (window snapped left), unsnap rightward; -1 is the mirror case.
      */
     @SuppressLint("ClickableViewAccessibility")
-    private void attachPullListener(View tab, int pullDir) {
+    private void attachPullListener(View strip, int pullDir) {
         final float[] downRawX = {0f};
         final boolean[] didUnsnap = {false};
-        tab.setOnTouchListener((v, ev) -> {
+        strip.setOnTouchListener((v, ev) -> {
             switch (ev.getAction()) {
                 case MotionEvent.ACTION_DOWN:
                     downRawX[0] = ev.getRawX();
@@ -569,7 +547,7 @@ public class BrowserService {
                 case MotionEvent.ACTION_MOVE:
                     if (!didUnsnap[0]) {
                         float dragPx = (ev.getRawX() - downRawX[0]) * pullDir;
-                        if (dragPx > dp(6)) {  // low threshold — any swipe unsnapps
+                        if (dragPx > dp(6)) {
                             didUnsnap[0] = true;
                             unsnap();
                         }
@@ -577,15 +555,18 @@ public class BrowserService {
                     break;
                 case MotionEvent.ACTION_UP:
                 case MotionEvent.ACTION_CANCEL:
-                    if (!didUnsnap[0]) {
-                        // Any tap also unsnapps
-                        float dragPx = Math.abs(ev.getRawX() - downRawX[0]);
-                        if (dragPx < dp(16)) unsnap();
-                    }
+                    if (!didUnsnap[0]) unsnap(); // any tap anywhere on strip = unsnap
                     break;
             }
             return true;
         });
+    }
+
+    /** Fully transparent touch-sink — no visual, covers the whole peeking strip. */
+    private View makePullStrip(android.app.Activity activity) {
+        View strip = new View(activity);
+        strip.setBackgroundColor(0x00000000); // fully transparent
+        return strip;
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -613,16 +594,16 @@ public class BrowserService {
         lastFreeX = overlayParams.x;
         lastFreeY = overlayParams.y;
 
-        int peekPx = dp(32); // dp of the window that remain visible on-screen as a pull handle
-        int w      = overlayParams.width;
+        int tabPx = dp(TAB_W_DP);
+        int w     = overlayParams.width;
 
-        // side=-1 → slide left until only peekPx pixels remain on the right edge
-        // side=+1 → slide right until only peekPx pixels remain on the left edge
-        int targetX = (side == -1) ? -(w - peekPx) : (displayW - peekPx);
+        // side=-1 → slide window left until only right TAB_W_DP pixels remain on screen
+        //   targetX = -(w - tabPx)   →  left edge = -(w-tabPx),  right edge = tabPx ✓
+        // side=+1 → slide window right until only left TAB_W_DP pixels remain on screen
+        //   targetX = displayW - tabPx  →  left edge = displayW-tabPx,  right edge off-screen ✓
+        int targetX = (side == -1) ? -(w - tabPx) : (displayW - tabPx);
 
         animateX(overlayParams.x, targetX, () -> {
-            // Show the transparent full-window overlay so any touch on the peeking
-            // strip (regardless of window shape/size) triggers the unsnap.
             if (rightTab != null) rightTab.setVisibility(side == -1 ? View.VISIBLE : View.GONE);
             if (leftTab  != null)  leftTab.setVisibility(side == +1 ? View.VISIBLE : View.GONE);
         });

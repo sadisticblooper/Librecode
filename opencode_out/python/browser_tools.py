@@ -135,10 +135,8 @@ def tool_browser_click(uid: str) -> str:
     if result.startswith("error"):
         return result
     import time
-    time.sleep(0.5)
-    # Does NOT auto-snapshot — use browser_snapshot explicitly when needed,
-    # or batch multiple actions with browser_batch.
-    return result
+    time.sleep(0.8)
+    return f"{result}\n\n" + tool_browser_snapshot()
 
 
 def tool_browser_fill(uid: str, value: str) -> str:
@@ -148,7 +146,8 @@ def tool_browser_fill(uid: str, value: str) -> str:
     result = str(_svc().fill(uid, value))
     if result.startswith("error"):
         return result
-    return result
+    # Return updated snapshot so AI doesn't need a separate browser_snapshot call
+    return f"{result}\n\n" + tool_browser_snapshot()
 
 
 def tool_browser_navigate(url: str) -> str:
@@ -233,112 +232,6 @@ def tool_browser_close() -> str:
     return result
 
 
-def tool_browser_batch(actions: list) -> str:
-    """
-    Run multiple browser actions in sequence in a single tool call.
-    Each action is a dict: {"action": "click"|"fill"|"eval"|"snapshot", ...params}
-    Returns a list of results joined by newlines. Use this to avoid repeated
-    round-trips for multi-step form fills, multi-click sequences, etc.
-    """
-    err = _check_open()
-    if err:
-        return err
-    results = []
-    import time
-    for step in actions:
-        act = step.get("action", "")
-        if act == "click":
-            r = str(_svc().click(step.get("uid", "")))
-            results.append(f"click({step.get('uid','')}): {r}")
-            time.sleep(0.4)
-        elif act == "fill":
-            r = str(_svc().fill(step.get("uid", ""), step.get("value", "")))
-            results.append(f"fill({step.get('uid','')}): {r}")
-        elif act == "eval":
-            r = str(_svc().evaluate(step.get("script", "")))
-            if r:
-                try:
-                    v = json.loads(r)
-                    r = v if isinstance(v, str) else json.dumps(v, indent=2)
-                except Exception:
-                    pass
-            results.append(f"eval: {r}")
-        elif act == "snapshot":
-            results.append(tool_browser_snapshot())
-        elif act == "navigate":
-            results.append(tool_browser_navigate(step.get("url", "")))
-        elif act == "wait":
-            results.append(tool_browser_wait(step.get("text", ""), step.get("timeout_ms", 10000)))
-        else:
-            results.append(f"unknown action: {act}")
-    return "\n".join(results)
-
-
-def tool_browser_rg(pattern: str, case_insensitive: bool = False) -> str:
-    """Search the current page text using a regex pattern (like rg but on page content)."""
-    err = _check_open()
-    if err:
-        return err
-    import re as _re
-    # Get full page text via JS
-    raw = str(_svc().evaluate("document.body ? document.body.innerText : ''"))
-    try:
-        page_text = json.loads(raw) if raw else ""
-    except Exception:
-        page_text = raw
-    if not page_text:
-        return "No page text available."
-    flags = _re.IGNORECASE if case_insensitive else 0
-    try:
-        matches = []
-        for i, line in enumerate(page_text.splitlines(), 1):
-            if _re.search(pattern, line, flags):
-                matches.append(f"{i}: {line}")
-        if not matches:
-            return f"No matches for pattern: {pattern}"
-        return "\n".join(matches[:200])
-    except _re.error as e:
-        return f"Regex error: {e}"
-
-
-def tool_browser_fd(pattern: str = "", extension: str = None) -> str:
-    """
-    List links/resources on the current page (like fd but for browser assets).
-    Optionally filter by file extension (e.g. 'pdf', 'js') or URL pattern.
-    """
-    err = _check_open()
-    if err:
-        return err
-    script = """(function(){
-        var results = [];
-        document.querySelectorAll('a[href], link[href], script[src], img[src], source[src]').forEach(function(el){
-            var url = el.href || el.src || '';
-            if(url) results.push(url);
-        });
-        return JSON.stringify(results);
-    })()"""
-    raw = str(_svc().evaluate(script))
-    try:
-        urls = json.loads(json.loads(raw)) if raw else []
-    except Exception:
-        try:
-            urls = json.loads(raw)
-        except Exception:
-            return raw or "No resources found."
-    if extension:
-        ext = extension.lstrip(".").lower()
-        urls = [u for u in urls if u.lower().split("?")[0].endswith("." + ext)]
-    if pattern:
-        import re as _re
-        try:
-            urls = [u for u in urls if _re.search(pattern, u)]
-        except _re.error as e:
-            return f"Regex error: {e}"
-    if not urls:
-        return "No matching resources found."
-    return "\n".join(urls[:200])
-
-
 BROWSER_OPEN_SPEC = {
     "type": "function",
     "function": {
@@ -364,12 +257,7 @@ BROWSER_CONTROL_SPECS = [
         "type": "function",
         "function": {
             "name": "browser_snapshot",
-            "description": (
-                "Get the current DOM tree of the open browser with UIDs for all interactive elements. "
-                "Only call this when you need a fresh view of the page. "
-                "Do NOT call it after every single click/fill — use browser_batch to perform multiple "
-                "actions and include a snapshot step at the end instead."
-            ),
+            "description": "Get the current DOM tree of the open browser with UIDs for all interactive elements. Use UIDs to target elements with click/fill.",
             "parameters": {"type": "object", "properties": {}},
         },
     },
@@ -377,11 +265,7 @@ BROWSER_CONTROL_SPECS = [
         "type": "function",
         "function": {
             "name": "browser_click",
-            "description": (
-                "Click an element by UID. Does NOT auto-snapshot after clicking. "
-                "To click several things and then see the result, use browser_batch instead — "
-                "it lets you sequence click/fill/eval/snapshot in one call."
-            ),
+            "description": "Click an element in the browser by its UID from a snapshot. Returns updated snapshot.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -395,7 +279,7 @@ BROWSER_CONTROL_SPECS = [
         "type": "function",
         "function": {
             "name": "browser_fill",
-            "description": "Type a value into an input or textarea by its UID from a snapshot.",
+            "description": "Type a value into an input or textarea by its UID from a snapshot. Returns an updated DOM snapshot — do NOT call browser_snapshot separately after filling.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -487,73 +371,6 @@ BROWSER_CONTROL_SPECS = [
                     "url": {"type": "string", "description": "Login URL (e.g. 'https://accounts.google.com')"},
                 },
                 "required": ["url"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "browser_batch",
-            "description": (
-                "Run multiple browser actions in a single call — avoids repeated snapshot round-trips. "
-                "Use this whenever you need to fill several fields, click a sequence of elements, "
-                "or perform any multi-step interaction. "
-                "Each action is an object with an 'action' key: "
-                "'click' (uid), 'fill' (uid, value), 'eval' (script), "
-                "'snapshot', 'navigate' (url), 'wait' (text, timeout_ms). "
-                "Returns all results joined. Include a snapshot action at the end to see the final state."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "actions": {
-                        "type": "array",
-                        "description": "List of actions to execute in order",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "action":     {"type": "string", "description": "Action type: click, fill, eval, snapshot, navigate, wait"},
-                                "uid":        {"type": "string", "description": "Element UID (for click/fill)"},
-                                "value":      {"type": "string", "description": "Text value (for fill)"},
-                                "script":     {"type": "string", "description": "JavaScript (for eval)"},
-                                "url":        {"type": "string", "description": "URL (for navigate)"},
-                                "text":       {"type": "string", "description": "Text to wait for (for wait)"},
-                                "timeout_ms": {"type": "integer", "description": "Timeout ms (for wait, default 10000)"},
-                            },
-                            "required": ["action"],
-                        },
-                    },
-                },
-                "required": ["actions"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "browser_rg",
-            "description": "Search the current page text using a regex pattern (like ripgrep but on page content). Returns matching lines with line numbers.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "pattern":          {"type": "string",  "description": "Regex pattern to search for in page text"},
-                    "case_insensitive": {"type": "boolean", "description": "Case-insensitive search", "default": False},
-                },
-                "required": ["pattern"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "browser_fd",
-            "description": "List links and resources on the current page (like fd but for browser assets: anchors, scripts, images, etc). Filter by extension or URL pattern.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "pattern":   {"type": "string", "description": "Optional URL pattern/regex to filter results"},
-                    "extension": {"type": "string", "description": "Optional file extension filter, e.g. 'pdf', 'js', 'png'"},
-                },
             },
         },
     },
