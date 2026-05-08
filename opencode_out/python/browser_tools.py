@@ -146,7 +146,8 @@ def tool_browser_fill(uid: str, value: str) -> str:
     result = str(_svc().fill(uid, value))
     if result.startswith("error"):
         return result
-    return result
+    # Return updated snapshot so AI doesn't need a separate browser_snapshot call
+    return f"{result}\n\n" + tool_browser_snapshot()
 
 
 def tool_browser_navigate(url: str) -> str:
@@ -278,7 +279,7 @@ BROWSER_CONTROL_SPECS = [
         "type": "function",
         "function": {
             "name": "browser_fill",
-            "description": "Type a value into an input or textarea by its UID from a snapshot.",
+            "description": "Type a value into an input or textarea by its UID from a snapshot. Returns an updated DOM snapshot — do NOT call browser_snapshot separately after filling.",
             "parameters": {
                 "type": "object",
                 "properties": {

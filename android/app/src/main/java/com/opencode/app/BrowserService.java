@@ -504,41 +504,41 @@ public class BrowserService {
     }
 
     // ─────────────────────────────────────────────────────────────────────
-    // Edge tabs — shown when window is tucked to a screen edge.
-    // No arrow label — the whole visible pill is the drag/tap target.
+    // Edge tabs — full-height invisible touch strips covering the entire
+    // peeking portion when tucked. No visual button — any touch on the
+    // visible strip pulls the window out.
     // ─────────────────────────────────────────────────────────────────────
 
     private void buildEdgeTabs(android.app.Activity activity) {
-        // rightTab: at END (right) of FrameLayout → visible when window is snapped LEFT
-        rightTab = makeTab(activity);
-        FrameLayout.LayoutParams rlp = new FrameLayout.LayoutParams(dp(TAB_W_DP), dp(TAB_H_DP));
-        rlp.gravity = Gravity.END | Gravity.CENTER_VERTICAL;
+        // rightTab: covers the right (END) edge → visible when window is snapped LEFT
+        rightTab = makePullStrip(activity);
+        FrameLayout.LayoutParams rlp = new FrameLayout.LayoutParams(dp(TAB_W_DP), ViewGroup.LayoutParams.MATCH_PARENT);
+        rlp.gravity = Gravity.END;
         rightTab.setLayoutParams(rlp);
         rightTab.setVisibility(View.GONE);
-        attachPullListener(rightTab, +1);  // pull rightward to unsnap
+        attachPullListener(rightTab, +1);
         overlayRoot.addView(rightTab);
 
-        // leftTab: at START (left) of FrameLayout → visible when window is snapped RIGHT
-        leftTab = makeTab(activity);
-        FrameLayout.LayoutParams llp = new FrameLayout.LayoutParams(dp(TAB_W_DP), dp(TAB_H_DP));
-        llp.gravity = Gravity.START | Gravity.CENTER_VERTICAL;
+        // leftTab: covers the left (START) edge → visible when window is snapped RIGHT
+        leftTab = makePullStrip(activity);
+        FrameLayout.LayoutParams llp = new FrameLayout.LayoutParams(dp(TAB_W_DP), ViewGroup.LayoutParams.MATCH_PARENT);
+        llp.gravity = Gravity.START;
         leftTab.setLayoutParams(llp);
         leftTab.setVisibility(View.GONE);
-        attachPullListener(leftTab, -1);  // pull leftward to unsnap
+        attachPullListener(leftTab, -1);
         overlayRoot.addView(leftTab);
     }
 
     /**
-     * Attach a touch listener that unsnapps the window when the user taps or
-     * drags the edge-tab pill.  pullDir = +1 means the tab is on the right
-     * edge (window snapped left) and the unsnap direction is rightward; -1 is
-     * the mirror case.
+     * Attach a touch listener that unsnaps the window when the user taps or
+     * drags anywhere on the pull strip. pullDir = +1 → strip is on right edge
+     * (window snapped left), unsnap rightward; -1 is the mirror case.
      */
     @SuppressLint("ClickableViewAccessibility")
-    private void attachPullListener(View tab, int pullDir) {
+    private void attachPullListener(View strip, int pullDir) {
         final float[] downRawX = {0f};
         final boolean[] didUnsnap = {false};
-        tab.setOnTouchListener((v, ev) -> {
+        strip.setOnTouchListener((v, ev) -> {
             switch (ev.getAction()) {
                 case MotionEvent.ACTION_DOWN:
                     downRawX[0] = ev.getRawX();
@@ -547,7 +547,7 @@ public class BrowserService {
                 case MotionEvent.ACTION_MOVE:
                     if (!didUnsnap[0]) {
                         float dragPx = (ev.getRawX() - downRawX[0]) * pullDir;
-                        if (dragPx > dp(8)) {          // ~8 dp threshold — any flick unsnapps
+                        if (dragPx > dp(6)) {
                             didUnsnap[0] = true;
                             unsnap();
                         }
@@ -555,26 +555,18 @@ public class BrowserService {
                     break;
                 case MotionEvent.ACTION_UP:
                 case MotionEvent.ACTION_CANCEL:
-                    if (!didUnsnap[0]) {
-                        // treat a tap (no meaningful drag) as an unsnap too
-                        float dragPx = Math.abs(ev.getRawX() - downRawX[0]);
-                        if (dragPx < dp(12)) unsnap();
-                    }
+                    if (!didUnsnap[0]) unsnap(); // any tap anywhere on strip = unsnap
                     break;
             }
             return true;
         });
     }
 
-    /** Plain dark pill — no text, just a subtle grab handle. */
-    private View makeTab(android.app.Activity activity) {
-        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
-        bg.setColor(0xDD1E1E20);
-        bg.setCornerRadius(dp(10));
-        bg.setStroke(1, 0x33FFFFFF);
-        View tab = new View(activity);
-        tab.setBackground(bg);
-        return tab;
+    /** Fully transparent touch-sink — no visual, covers the whole peeking strip. */
+    private View makePullStrip(android.app.Activity activity) {
+        View strip = new View(activity);
+        strip.setBackgroundColor(0x00000000); // fully transparent
+        return strip;
     }
 
     // ─────────────────────────────────────────────────────────────────────
