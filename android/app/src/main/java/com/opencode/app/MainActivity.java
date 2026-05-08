@@ -14,12 +14,18 @@ import android.provider.Settings;
 import android.view.View;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
+import android.graphics.Bitmap;
+import android.util.Base64;
+import android.view.Gravity;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.widget.FrameLayout;
 import android.widget.Toast;
+
+import java.io.ByteArrayOutputStream;
 
 import com.chaquo.python.Python;
 import com.chaquo.python.android.AndroidPlatform;
@@ -38,6 +44,8 @@ public class MainActivity extends Activity {
     private WebView webView;
     private WebView loadingWebView;
     private WebView fetchWebView;
+    private WebView      browserWebView;
+    private FrameLayout  browserPanel;
     private static final int FLASK_PORT = 5000;
     private static final String FLASK_URL = "http://localhost:" + FLASK_PORT;
     private static final int MIN_LOADING_MS = 1000;
@@ -92,6 +100,7 @@ public class MainActivity extends Activity {
         setupWebView();
         setupLoadingWebView();
         setupFetchWebView();
+        setupBrowserWebView();
 
         loadingWebView.loadDataWithBaseURL(null, LOADING_HTML, "text/html", "UTF-8", null);
 
@@ -276,6 +285,150 @@ public class MainActivity extends Activity {
             "Chrome/120.0.0.0 Mobile Safari/537.36");
     }
 
+    // ── Browser PiP WebView ───────────────────────────────────────────────────
+
+    @SuppressLint("SetJavaScriptEnabled")
+    private void setupBrowserWebView() {
+        float density = getResources().getDisplayMetrics().density;
+
+        browserPanel = new FrameLayout(this);
+        browserPanel.setBackgroundColor(0xFF111111);
+        browserPanel.setVisibility(View.GONE);
+
+        int panelW = (int)(360 * density);
+        int panelH = (int)(300 * density);
+
+        FrameLayout.LayoutParams panelParams = new FrameLayout.LayoutParams(panelW, panelH);
+        panelParams.gravity     = Gravity.TOP | Gravity.END;
+        panelParams.topMargin   = (int)(20 * density);
+        panelParams.rightMargin = (int)(12 * density);
+
+        browserWebView = new WebView(this);
+        WebSettings bs = browserWebView.getSettings();
+        bs.setJavaScriptEnabled(true);
+        bs.setDomStorageEnabled(true);
+        bs.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+        bs.setUserAgentString(
+            "Mozilla/5.0 (Linux; Android 13; Pixel 7) " +
+            "AppleWebKit/537.36 (KHTML, like Gecko) " +
+            "Chrome/120.0.0.0 Mobile Safari/537.36");
+        WebView.setWebContentsDebuggingEnabled(true);
+
+        // Offset the WebView below the JS handle strip (36 dp)
+        int handleH = (int)(36 * density);
+        FrameLayout.LayoutParams wvParams = new FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.MATCH_PARENT);
+        wvParams.topMargin = handleH;
+
+        browserWebView.setWebViewClient(new WebViewClient() {
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                super.onPageFinished(view, url);
+                // Inject page-event forwarding script on every load
+                view.evaluateJavascript(
+                    "(function(){" +
+                    "  if(window.__aiEventsAttached) return;" +
+                    "  window.__aiEventsAttached=true;" +
+                    "  function post(t,d){fetch('/browser_event',{method:'POST'," +
+                    "    headers:{'Content-Type':'application/json'}," +
+                    "    body:JSON.stringify({type:t,data:d,ts:Date.now()})}).catch(function(){});}" +
+                    "  window.addEventListener('load',function(){" +
+                    "    post('load',{url:location.href,title:document.title});});" +
+                    "  var st;window.addEventListener('scroll',function(){" +
+                    "    clearTimeout(st);st=setTimeout(function(){" +
+                    "      post('scroll',{x:scrollX,y:scrollY});},300);});" +
+                    "})()", null);
+                // Sync URL bar in the chat WebView
+                final String safeUrl = url.replace("'", "\\'");
+                mainHandler.post(() -> webView.evaluateJavascript(
+                    "if(typeof browserPanelSetUrl==='function') browserPanelSetUrl('" + safeUrl + "')", null));
+            }
+        });
+
+        browserPanel.addView(browserWebView, wvParams);
+        addContentView(browserPanel, panelParams);
+    }
+
+    /** Evaluate JS in the browser page and return the result (blocking). */
+    public String browserEvalSync(final String js) {
+        final CountDownLatch latch = new CountDownLatch(1);
+        final String[] out = {""};
+        mainHandler.post(() -> {
+            if (browserWebView == null) { latch.countDown(); return; }
+            browserWebView.evaluateJavascript(js, value -> {
+                out[0] = value != null ? value : "null";
+                latch.countDown();
+            });
+        });
+        try { latch.await(10, TimeUnit.SECONDS); }
+        catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+        // Unwrap JS string quotes added by evaluateJavascript
+        String result = out[0];
+        if (result.startsWith("\"") && result.endsWith("\"")) {
+            try { result = new org.json.JSONArray("[" + result + "]").getString(0); }
+            catch (Exception ignored) {}
+        }
+        return result;
+    }
+
+    /** Capture DOM summary + screenshot from the browser page (blocking). */
+    public String browserSnapshotSync() {
+        final CountDownLatch latch = new CountDownLatch(1);
+        final String[] out = {""};
+        final String domJs =
+            "(function(){" +
+            "  var res=[];var els=Array.from(document.querySelectorAll(" +
+            "    'h1,h2,h3,h4,a,button,input,textarea,select,p,li')).slice(0,120);" +
+            "  els.forEach(function(el,i){" +
+            "    var tag=el.tagName.toLowerCase();" +
+            "    var text=(el.innerText||el.value||el.placeholder||'').trim().slice(0,100);" +
+            "    var sel=tag;" +
+            "    if(el.id) sel+='#'+el.id;" +
+            "    else if(el.name) sel+='[name=\"'+el.name+'\"]';" +
+            "    else if(el.type) sel+='[type='+el.type+']';" +
+            "    res.push('['+i+'] <'+sel+'>'+(text?' '+text:''));});" +
+            "  return JSON.stringify({url:location.href,title:document.title," +
+            "    domSummary:res.join('\\n')});})()";
+
+        mainHandler.post(() -> {
+            if (browserWebView == null) { latch.countDown(); return; }
+            browserWebView.evaluateJavascript(domJs, domJson -> {
+                // Capture bitmap screenshot
+                String b64 = "";
+                try {
+                    browserWebView.setDrawingCacheEnabled(true);
+                    Bitmap bmp = Bitmap.createBitmap(browserWebView.getDrawingCache());
+                    browserWebView.setDrawingCacheEnabled(false);
+                    if (bmp != null) {
+                        Bitmap scaled = Bitmap.createScaledBitmap(bmp, 360, 264, true);
+                        bmp.recycle();
+                        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                        scaled.compress(Bitmap.CompressFormat.PNG, 85, baos);
+                        scaled.recycle();
+                        b64 = Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP);
+                    }
+                } catch (Exception ignored) {}
+                // Merge into result JSON
+                try {
+                    String raw = domJson;
+                    if (raw != null && raw.startsWith("\"") && raw.endsWith("\"")) {
+                        raw = new org.json.JSONArray("[" + raw + "]").getString(0);
+                    }
+                    org.json.JSONObject obj = new org.json.JSONObject(raw != null ? raw : "{}");
+                    obj.put("screenshot", b64);
+                    out[0] = obj.toString();
+                } catch (Exception e) {
+                    out[0] = "{\"error\":\"" + e.getMessage() + "\"}";
+                }
+                latch.countDown();
+            });
+        });
+        try { latch.await(15, TimeUnit.SECONDS); }
+        catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+        return out[0];
+    }
+
     public String fetchUrlSync(final String url) {
         final CountDownLatch latch = new CountDownLatch(1);
         final String[] result = {""};
@@ -367,6 +520,62 @@ public class MainActivity extends Activity {
                 }
             }
             return files.toString();
+        }
+
+        // ── Browser PiP bridge methods ─────────────────────────────────────
+
+        @JavascriptInterface
+        public void browserOpen(String url) {
+            mainHandler.post(() -> {
+                if (browserPanel == null) return;
+                browserPanel.setVisibility(View.VISIBLE);
+                if (browserWebView != null) browserWebView.loadUrl(url);
+                final String safeUrl = url.replace("'", "\\'");
+                webView.evaluateJavascript(
+                    "if(typeof browserPanelOpen==='function') browserPanelOpen('" + safeUrl + "')", null);
+            });
+        }
+
+        @JavascriptInterface
+        public void browserClose() {
+            mainHandler.post(() -> {
+                if (browserPanel != null) browserPanel.setVisibility(View.GONE);
+                if (browserWebView != null) browserWebView.loadUrl("about:blank");
+                webView.evaluateJavascript(
+                    "if(typeof browserPanelClose==='function') browserPanelClose()", null);
+            });
+        }
+
+        @JavascriptInterface
+        public void browserLoadUrl(String url) {
+            mainHandler.post(() -> {
+                if (browserWebView != null) browserWebView.loadUrl(url);
+            });
+        }
+
+        @JavascriptInterface
+        public void browserMove(int xPx, int yPx) {
+            mainHandler.post(() -> {
+                if (browserPanel == null) return;
+                FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) browserPanel.getLayoutParams();
+                lp.gravity      = Gravity.TOP | Gravity.START;
+                lp.leftMargin   = xPx;
+                lp.topMargin    = yPx;
+                lp.rightMargin  = 0;
+                lp.bottomMargin = 0;
+                browserPanel.setLayoutParams(lp);
+            });
+        }
+
+        @JavascriptInterface
+        public void browserResize(int wPx, int hPx) {
+            mainHandler.post(() -> {
+                if (browserPanel == null) return;
+                android.view.ViewGroup.LayoutParams lp = browserPanel.getLayoutParams();
+                lp.width  = wPx;
+                lp.height = hPx;
+                browserPanel.setLayoutParams(lp);
+            });
         }
     }
 
