@@ -2,14 +2,11 @@
 Free provider — Grok via smanx proxy (grok-4.20-fast).
 Endpoint: https://openai.good.hidns.vip/v1/chat/completions
 
-Tool calling is text-based: model appends a <tool_calls> JSON block.
+Tool calling uses text-based scheme (like qwen provider):
+model outputs <tool_calls>[...]</tool_calls> at end of response.
 
-FIXES vs previous version:
-- _preprocess_messages() converts role:tool → role:user so Grok sees results.
-- _build_tool_system() uses a compact, directive prompt optimised for
-  reasoning models: short instructions so the model stops over-thinking,
-  explicit note to emit the block in RESPONSE TEXT (not in reasoning stream).
-- Fixed single-newline join bug in tool_specs (was squashing tool list).
+Usage:
+    from grok_provider import stream_chat, chat, MODELS, PROVIDER_NAME
 """
 
 import json
@@ -21,140 +18,62 @@ MODELS = [
     {"id": "grok-4.20-fast", "label": "Grok 4.20 Fast", "ctx": 128000},
 ]
 
-API_KEY  = "https://github.com/smanx/free-api"
+API_KEY = "https://github.com/smanx/free-api"
 BASE_URL = "https://openai.good.hidns.vip"
 
-_TOOL_CALL_OPEN  = "<tool_calls>"
+_TOOL_CALL_OPEN = "<tool_calls>"
 _TOOL_CALL_CLOSE = "</tool_calls>"
-_MARKER_LEN      = len(_TOOL_CALL_OPEN)
 
-
-# ── Tool prompt ────────────────────────────────────────────────────────
 
 def _build_tool_system(tools: list) -> str:
-    """
-    Compact tool instructions tuned for reasoning/thinking models.
-
-    Key insight: Grok reasons extensively in its reasoning_content stream
-    but may produce empty content. We explicitly say: put the block in
-    your response text, not in your thinking. Keep it short so the model
-    doesn't over-deliberate before outputting the block.
-    """
+    """Build tool instructions for text-based tool calling."""
     tool_specs = []
     for t in tools:
-        fn       = t.get("function", t)
-        name     = fn.get("name", "")
-        desc     = fn.get("description", "")
-        params   = fn.get("parameters", {})
-        props    = params.get("properties", {})
+        fn = t.get("function", t)
+        name = fn.get("name", "")
+        desc = fn.get("description", "")
+        params = fn.get("parameters", {})
+        props = params.get("properties", {})
         required = params.get("required", [])
         args_doc = []
         for k, v in props.items():
-            req   = " (required)" if k in required else ""
-            typ   = v.get("type", "any")
+            req = " (required)" if k in required else ""
+            typ = v.get("type", "any")
             pdesc = v.get("description", "")
-            args_doc.append(f"  {k} ({typ}){req}: {pdesc}")
+            args_doc.append(f"  - {k} ({typ}){req}: {pdesc}")
         tool_specs.append(
-            f"Tool: {name}\n"
-            f"Description: {desc}\n"
-            "Arguments:\n" + ("\n".join(args_doc) if args_doc else "  (none)")
+            f"### {name}\n{desc}\nArguments:\n" + ("\n".join(args_doc) if args_doc else "  (none)")
         )
 
     return (
         "\n\n---\n"
-        "## TOOL USE — READ THIS CAREFULLY\n\n"
-        "You have tools. When you need one, output the <tool_calls> block "
-        "DIRECTLY IN YOUR RESPONSE TEXT — not inside your reasoning/thinking.\n\n"
-        "FORMAT (copy exactly — valid JSON, double quotes, end of message):\n"
+        "## Tool Calling\n\n"
+        "You have access to tools. If you need to call one or more tools, "
+        "output your full response text first, then append a tool call block "
+        "as the VERY LAST thing in your message.\n\n"
+        "Format:\n"
         "<tool_calls>\n"
-        '[{"name": "TOOL_NAME", "args": {"key": "value"}}]\n'
+        '[{"name": "tool_name", "args": {"arg1": "val1"}}, ...]\n'
         "</tool_calls>\n\n"
-        "CRITICAL RULES:\n"
-        "1. Output the block in RESPONSE text. Your inner reasoning is discarded.\n"
-        "2. Do NOT reason about whether to call a tool — just call it.\n"
-        "3. After results arrive (as [Tool Result] messages), continue.\n"
-        "4. One block per turn; put multiple calls in the JSON array.\n"
-        "5. NEVER simulate results or pretend to call tools.\n\n"
-        "EXAMPLE:\n"
-        "User: show me the contents of config.py\n"
-        "Your response text (NOT reasoning):\n"
-        "<tool_calls>\n"
-        '[{"name": "read_file", "args": {"path": "config.py"}}]\n'
-        "</tool_calls>\n\n"
-        "AVAILABLE TOOLS:\n\n"
-        + "\n\n".join(tool_specs)
+        "Rules:\n"
+        "- Only include the block if you are actually calling a tool.\n"
+        "- All tool calls for a single turn go in one block as a JSON array.\n"
+        "- After you receive tool results continue your response.\n\n"
+        "Available tools:\n\n" + "\n".join(tool_specs)
     )
 
 
-# ── Message preprocessing ──────────────────────────────────────────────
-
-def _preprocess_messages(messages: list) -> list:
-    """
-    Convert OpenAI tool-call history to text-based conversation.
-
-    routes.py uses role:tool for results and role:assistant with tool_calls
-    list. Neither is understood by the Grok proxy. Convert so the model
-    sees a coherent chat history it can actually follow.
-    """
-    out = []
-    i = 0
-    while i < len(messages):
-        msg  = messages[i]
-        role = msg.get("role", "")
-
-        if role == "assistant" and msg.get("tool_calls"):
-            content = msg.get("content", "") or ""
-            tcs = msg["tool_calls"]
-            tc_array = []
-            for tc in tcs:
-                fn   = tc.get("function", {})
-                name = fn.get("name", "")
-                try:
-                    args = json.loads(fn.get("arguments", "{}"))
-                except Exception:
-                    args = {}
-                tc_array.append({"name": name, "args": args})
-            tc_block = (
-                "\n<tool_calls>\n"
-                + json.dumps(tc_array, ensure_ascii=False)
-                + "\n</tool_calls>"
-            )
-            out.append({"role": "assistant", "content": content + tc_block})
-
-        elif role == "tool":
-            results = []
-            while i < len(messages) and messages[i].get("role") == "tool":
-                results.append(messages[i].get("content", ""))
-                i += 1
-            if len(results) == 1:
-                body = f"[Tool Result]\n{results[0]}"
-            else:
-                body = "\n\n".join(
-                    f"[Tool Result {j + 1}]\n{r}" for j, r in enumerate(results)
-                )
-            out.append({"role": "user", "content": body})
-            continue
-
-        else:
-            out.append(msg)
-
-        i += 1
-
-    return out
-
-
 def _inject_tool_system(messages: list, tools: list) -> list:
+    """Inject tool instructions into messages."""
     tool_instructions = _build_tool_system(tools)
     msgs = list(messages)
     if msgs and msgs[0].get("role") == "system":
         msgs[0] = dict(msgs[0])
-        msgs[0]["content"] = msgs[0].get("content", "") + tool_instructions
+        msgs[0]["content"] = msgs[0].get("content", "") + "\n" + tool_instructions
     else:
         msgs.insert(0, {"role": "system", "content": tool_instructions.strip()})
     return msgs
 
-
-# ── API call ───────────────────────────────────────────────────────────
 
 def stream_chat(
     model_id: str,
@@ -162,21 +81,22 @@ def stream_chat(
     tools: list | None = None,
     max_tokens: int | None = None,
 ) -> Generator[dict, None, None]:
+    """Stream chat via Grok with text-based tool calling."""
     url = f"{BASE_URL}/v1/chat/completions"
 
-    messages = _preprocess_messages(messages)
+    # Inject tool instructions if tools provided
     if tools:
         messages = _inject_tool_system(messages, tools)
 
     payload = {
-        "model":      model_id,
-        "messages":   messages,
-        "stream":     True,
+        "model": model_id,
+        "messages": messages,
+        "stream": True,
         "max_tokens": max_tokens or 4096,
     }
 
     headers = {
-        "Content-Type":  "application/json",
+        "Content-Type": "application/json",
         "Authorization": f"Bearer {API_KEY}",
     }
 
@@ -187,7 +107,7 @@ def stream_chat(
         yield {"type": "error", "text": str(e)}
         return
 
-    pending     = ""
+    pending = ""
     tool_buffer = None
 
     for raw in response.iter_lines():
@@ -206,7 +126,7 @@ def stream_chat(
             continue
 
         choice = (chunk.get("choices") or [{}])[0]
-        delta  = choice.get("delta", {})
+        delta = choice.get("delta", {})
 
         thinking = delta.get("reasoning_content") or delta.get("reasoning") or ""
         if thinking:
@@ -227,9 +147,11 @@ def stream_chat(
             if before:
                 yield {"type": "text", "text": before}
             tool_buffer = after
-            pending     = ""
+            pending = ""
         else:
-            safe_len = max(0, len(pending) - (_MARKER_LEN - 1))
+            # Yield all except potential marker end
+            marker_len = len(_TOOL_CALL_OPEN)
+            safe_len = max(0, len(pending) - (marker_len - 1))
             if safe_len > 0:
                 yield {"type": "text", "text": pending[:safe_len]}
                 pending = pending[safe_len:]
@@ -240,6 +162,7 @@ def stream_chat(
         yield {"type": "done"}
         return
 
+    # Parse tool_calls block
     raw_block = (tool_buffer + pending).split(_TOOL_CALL_CLOSE)[0].strip()
     try:
         tool_calls = json.loads(raw_block)
@@ -254,10 +177,10 @@ def stream_chat(
         name = tc.get("name", "")
         args = tc.get("args", tc.get("arguments", {}))
         yield {
-            "type":      "tool_delta",
-            "index":     i,
-            "id":        "",
-            "name":      name,
+            "type": "tool_delta",
+            "index": i,
+            "id": "",
+            "name": name,
             "arguments": json.dumps(args) if not isinstance(args, str) else args,
         }
 
@@ -270,21 +193,22 @@ def chat(
     tools: list | None = None,
     max_tokens: int | None = None,
 ) -> dict:
+    """Non-streaming chat via Grok with text-based tool calling."""
     url = f"{BASE_URL}/v1/chat/completions"
 
-    messages = _preprocess_messages(messages)
+    # Inject tool instructions if tools provided
     if tools:
         messages = _inject_tool_system(messages, tools)
 
     payload = {
-        "model":      model_id,
-        "messages":   messages,
-        "stream":     False,
+        "model": model_id,
+        "messages": messages,
+        "stream": False,
         "max_tokens": max_tokens or 4096,
     }
 
     headers = {
-        "Content-Type":  "application/json",
+        "Content-Type": "application/json",
         "Authorization": f"Bearer {API_KEY}",
     }
 
@@ -299,14 +223,15 @@ def chat(
     except json.JSONDecodeError:
         return {"type": "error", "text": "Failed to parse response"}
 
-    choice  = (data.get("choices") or [{}])[0]
+    choice = (data.get("choices") or [{}])[0]
     message = choice.get("message", {})
     content = message.get("content", "")
 
+    # Parse tool_calls from response
     tool_calls = []
     if _TOOL_CALL_OPEN in content:
         before, _, after = content.partition(_TOOL_CALL_OPEN)
-        content   = before.strip()
+        content = before.strip()
         raw_block = after.split(_TOOL_CALL_CLOSE)[0].strip()
         try:
             parsed = json.loads(raw_block)
@@ -316,8 +241,8 @@ def chat(
             pass
 
     return {
-        "type":       "text",
-        "text":       content,
-        "thinking":   message.get("reasoning_content", ""),
+        "type": "text",
+        "text": content,
+        "thinking": message.get("reasoning_content", ""),
         "tool_calls": tool_calls,
     }

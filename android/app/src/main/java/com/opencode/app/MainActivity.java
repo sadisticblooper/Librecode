@@ -32,18 +32,27 @@ import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
+import com.opencode.app.BrowserService;
+
+import android.animation.ObjectAnimator;
+import android.view.View;
+import android.widget.FrameLayout;
+import android.widget.TextView;
+
 public class MainActivity extends Activity {
 
     public static MainActivity instance;
     private WebView webView;
     private WebView loadingWebView;
     private WebView fetchWebView;
+    private TextView browserPill;
     private static final int FLASK_PORT = 5000;
     private static final String FLASK_URL = "http://localhost:" + FLASK_PORT;
     private static final int MIN_LOADING_MS = 1000;
     private static final int POLL_INTERVAL_MS = 100;
     private static final int POLL_TIMEOUT_MS = 15000;
     private static final int REQUEST_FOLDER_PICKER = 100;
+    private static final int REQUEST_OVERLAY_PERMISSION = 101;
 
     private boolean returningFromSettings = false;
     private SharedPreferences prefs;
@@ -97,6 +106,57 @@ public class MainActivity extends Activity {
 
         startFlaskServer();
         waitForFlaskThenLaunch();
+        setupBrowserService();
+    }
+
+    private void setupBrowserService() {
+        FrameLayout root = findViewById(android.R.id.content);
+
+        browserPill = new TextView(this);
+        browserPill.setText("🌐  Browser open  ↑");
+        browserPill.setTextColor(0xFFFFFFFF);
+        browserPill.setTextSize(13f);
+        browserPill.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        browserPill.setPadding(dp(16), dp(10), dp(16), dp(10));
+        browserPill.setBackgroundResource(0);
+
+        android.graphics.drawable.GradientDrawable pill = new android.graphics.drawable.GradientDrawable();
+        pill.setColor(0xFF1A73E8);
+        pill.setCornerRadius(dp(24));
+        browserPill.setBackground(pill);
+
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT);
+        lp.gravity = android.view.Gravity.BOTTOM | android.view.Gravity.CENTER_HORIZONTAL;
+        lp.bottomMargin = dp(24);
+        browserPill.setLayoutParams(lp);
+        browserPill.setVisibility(View.GONE);
+        browserPill.setElevation(dp(8));
+
+        browserPill.setOnClickListener(v -> BrowserService.getInstance().reshowOverlay());
+
+        root.addView(browserPill);
+
+        BrowserService.getInstance().setStatusListener(new BrowserService.StatusListener() {
+            @Override
+            public void onBrowserOpened() {
+                mainHandler.post(() -> {
+                    browserPill.setVisibility(View.VISIBLE);
+                    browserPill.setAlpha(0f);
+                    browserPill.animate().alpha(1f).setDuration(220).start();
+                });
+            }
+            @Override
+            public void onBrowserClosed() {
+                mainHandler.post(() -> browserPill.animate().alpha(0f).setDuration(180)
+                    .withEndAction(() -> browserPill.setVisibility(View.GONE)).start());
+            }
+        });
+    }
+
+    private int dp(int v) {
+        return (int) (v * getResources().getDisplayMetrics().density);
     }
 
     private void waitForFlaskThenLaunch() {
@@ -348,6 +408,86 @@ public class MainActivity extends Activity {
         public void openFolderPicker() {
             Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
             startActivityForResult(intent, REQUEST_FOLDER_PICKER);
+        }
+
+        @JavascriptInterface
+        public String browserOpen(String url) {
+            return BrowserService.getInstance().open(url);
+        }
+
+        @JavascriptInterface
+        public String browserSnapshot() {
+            return BrowserService.getInstance().snapshot();
+        }
+
+        @JavascriptInterface
+        public String browserClick(String uid) {
+            return BrowserService.getInstance().click(uid);
+        }
+
+        @JavascriptInterface
+        public String browserFill(String uid, String value) {
+            return BrowserService.getInstance().fill(uid, value);
+        }
+
+        @JavascriptInterface
+        public String browserNavigate(String url) {
+            return BrowserService.getInstance().navigate(url);
+        }
+
+        @JavascriptInterface
+        public String browserEval(String script) {
+            return BrowserService.getInstance().evaluate(script);
+        }
+
+        @JavascriptInterface
+        public String browserWait(String text, int timeoutMs) {
+            return BrowserService.getInstance().waitForText(text, timeoutMs);
+        }
+
+        @JavascriptInterface
+        public String browserScreenshot() {
+            return BrowserService.getInstance().screenshot();
+        }
+
+        @JavascriptInterface
+        public String browserGetCookies(String url) {
+            return BrowserService.getInstance().getCookies(url);
+        }
+
+        @JavascriptInterface
+        public void browserLoginCCT(String url) {
+            BrowserService.getInstance().openCCT(url);
+        }
+
+        @JavascriptInterface
+        public String browserClose() {
+            return BrowserService.getInstance().close();
+        }
+
+        @JavascriptInterface
+        public boolean browserIsOpen() {
+            return BrowserService.getInstance().isOpen();
+        }
+
+        @JavascriptInterface
+        public String browserCurrentUrl() {
+            return BrowserService.getInstance().getCurrentUrl();
+        }
+
+        @JavascriptInterface
+        public boolean browserHasOverlayPermission() {
+            return BrowserService.getInstance().hasOverlayPermission();
+        }
+
+        @JavascriptInterface
+        public void browserRequestOverlayPermission() {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                Intent intent = new Intent(
+                    android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    android.net.Uri.parse("package:" + getPackageName()));
+                startActivityForResult(intent, REQUEST_OVERLAY_PERMISSION);
+            }
         }
 
         @JavascriptInterface

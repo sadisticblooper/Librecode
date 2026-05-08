@@ -3,14 +3,12 @@ Free provider — qwen2api (chat.qwen.ai) via smanx's public proxy.
 Proxy: https://github.com/smanx/qwen2api
 Endpoint: https://qwen2api-n.smanx.xx.kg/v1/chat/completions
 
-Tool calling is text-based: model appends a <tool_calls> JSON block at end
-of any message that needs tools.
-
-FIXES vs previous version:
-- _preprocess_messages() converts role:tool results → role:user so Qwen
-  can actually SEE the results and stop re-calling the same tool.
-- _build_tool_system() rewritten to be more imperative: call immediately,
-  no preamble, concrete example included.
+Tool calling is not natively supported by the proxy, so we use a
+text-based scheme: the model is instructed to append a <tool_calls>
+JSON block at the very end of any response that needs tools.
+The stream is monitored for this marker; everything before it is
+forwarded as normal text, everything from it onwards is buffered and
+parsed into tool_delta events after [DONE].
 """
 
 import json
@@ -25,7 +23,7 @@ MODELS = [
     {"id": "qwen3.6-27b",                "label": "Qwen 3.6 27B",         "ctx": 262144},
     {"id": "qwen3.5-plus",               "label": "Qwen 3.5 Plus",        "ctx": 128000},
     {"id": "qwen3.5-flash",              "label": "Qwen 3.5 Flash",       "ctx": 128000},
-    {"id": "qwen3.5-turbo",              "label": "Qwen 3.5 Turbo",       "ctx": 128000},
+    {"id": "qwen3.5-turbo",             "label": "Qwen 3.5 Turbo",       "ctx": 128000},
     {"id": "qwen2.5-coder-32b-instruct", "label": "Qwen 2.5 Coder 32B",  "ctx": 128000},
 ]
 
@@ -36,136 +34,56 @@ _TOOL_CALL_CLOSE = "</tool_calls>"
 _MARKER_LEN      = len(_TOOL_CALL_OPEN)
 
 
-# ── Tool prompt ────────────────────────────────────────────────────────
-
 def _build_tool_system(tools: list) -> str:
-    """
-    Build tool instructions. Imperative tone: call immediately, no preamble.
-    Includes a concrete example so the model can pattern-match.
-    """
     tool_specs = []
     for t in tools:
-        fn       = t.get("function", t)
-        name     = fn.get("name", "")
-        desc     = fn.get("description", "")
-        params   = fn.get("parameters", {})
-        props    = params.get("properties", {})
+        fn   = t.get("function", t)
+        name = fn.get("name", "")
+        desc = fn.get("description", "")
+        params = fn.get("parameters", {})
+        props  = params.get("properties", {})
         required = params.get("required", [])
         args_doc = []
         for k, v in props.items():
-            req   = " (required)" if k in required else ""
-            typ   = v.get("type", "any")
+            req  = " (required)" if k in required else ""
+            typ  = v.get("type", "any")
             pdesc = v.get("description", "")
-            args_doc.append(f"  {k} ({typ}){req}: {pdesc}")
+            args_doc.append(f"  - {k} ({typ}){req}: {pdesc}")
         tool_specs.append(
-            f"Tool: {name}\n"
-            f"Description: {desc}\n"
-            "Arguments:\n" + ("\n".join(args_doc) if args_doc else "  (none)")
+            f"### {name}\n{desc}\nArguments:\n" + ("\n".join(args_doc) if args_doc else "  (none)")
         )
 
     return (
         "\n\n---\n"
-        "## TOOL USE\n\n"
-        "You have tools. When a task requires information from a file, terminal, "
-        "or any tool — call it IMMEDIATELY. Do NOT say 'I will read...' or describe "
-        "what you plan to do. Just output the <tool_calls> block.\n\n"
-        "FORMAT (valid JSON, double quotes, at the VERY END of your message):\n"
+        "## Tool Calling\n\n"
+        "You have access to tools. If you need to call one or more tools, "
+        "output your full response text first, then append a tool call block "
+        "as the VERY LAST thing in your message — no text after it.\n\n"
+        "Format (strict — no markdown fences, no extra whitespace before the tag):\n"
         "<tool_calls>\n"
-        '[{"name": "TOOL_NAME", "args": {"key": "value"}}]\n'
+        '[{"name": "tool_name", "args": {"arg1": "val1"}}, ...]\n'
         "</tool_calls>\n\n"
-        "RULES:\n"
-        "1. Output the block immediately — no explanatory text before it.\n"
-        "2. One block per turn; put multiple calls in the JSON array.\n"
-        "3. After you receive results (they arrive as a [Tool Result] message), "
-        "continue your work — call more tools or write your final answer.\n"
-        "4. NEVER simulate or guess tool results.\n\n"
-        "EXAMPLE — user says: edit main.py to add a logger\n"
-        "  CORRECT response:\n"
-        "  <tool_calls>\n"
-        '  [{"name": "read_file", "args": {"path": "main.py"}}]\n'
-        "  </tool_calls>\n"
-        "  WRONG response:\n"
-        "  \"Let me first read main.py to understand its structure.\"\n\n"
-        "AVAILABLE TOOLS:\n\n"
+        "Rules:\n"
+        "- Only include the block if you are actually calling a tool.\n"
+        "- All tool calls for a single turn go in one block as a JSON array.\n"
+        "- args values must match the expected types exactly.\n"
+        "- After you receive tool results they will appear as user messages; "
+        "continue your response naturally.\n\n"
+        "Available tools:\n\n"
         + "\n\n".join(tool_specs)
     )
 
 
-# ── Message preprocessing ──────────────────────────────────────────────
-
-def _preprocess_messages(messages: list) -> list:
-    """
-    Convert OpenAI tool-call history to text-based conversation.
-
-    routes.py stores tool results as role:tool messages and assistant
-    tool_calls as a list. The Qwen proxy doesn't understand either.
-    This function converts them so the model sees a coherent history:
-
-      assistant (with tool_calls)  →  assistant with <tool_calls> in content
-      role:tool                    →  role:user [Tool Result]
-    """
-    out = []
-    i = 0
-    while i < len(messages):
-        msg  = messages[i]
-        role = msg.get("role", "")
-
-        if role == "assistant" and msg.get("tool_calls"):
-            # Rebuild assistant message with embedded <tool_calls> block
-            content = msg.get("content", "") or ""
-            tcs = msg["tool_calls"]
-            tc_array = []
-            for tc in tcs:
-                fn   = tc.get("function", {})
-                name = fn.get("name", "")
-                try:
-                    args = json.loads(fn.get("arguments", "{}"))
-                except Exception:
-                    args = {}
-                tc_array.append({"name": name, "args": args})
-            tc_block = (
-                "\n<tool_calls>\n"
-                + json.dumps(tc_array, ensure_ascii=False)
-                + "\n</tool_calls>"
-            )
-            out.append({"role": "assistant", "content": content + tc_block})
-
-        elif role == "tool":
-            # Collect consecutive tool results → single user message
-            results = []
-            while i < len(messages) and messages[i].get("role") == "tool":
-                results.append(messages[i].get("content", ""))
-                i += 1
-            if len(results) == 1:
-                body = f"[Tool Result]\n{results[0]}"
-            else:
-                body = "\n\n".join(
-                    f"[Tool Result {j + 1}]\n{r}" for j, r in enumerate(results)
-                )
-            out.append({"role": "user", "content": body})
-            continue  # i already advanced
-
-        else:
-            out.append(msg)
-
-        i += 1
-
-    return out
-
-
 def _inject_tool_system(messages: list, tools: list) -> list:
-    """Append tool instructions to the system message."""
     tool_instructions = _build_tool_system(tools)
     msgs = list(messages)
     if msgs and msgs[0].get("role") == "system":
         msgs[0] = dict(msgs[0])
-        msgs[0]["content"] = msgs[0].get("content", "") + tool_instructions
+        msgs[0]["content"] = msgs[0]["content"] + tool_instructions
     else:
         msgs.insert(0, {"role": "system", "content": tool_instructions.strip()})
     return msgs
 
-
-# ── API call ───────────────────────────────────────────────────────────
 
 def stream_chat(
     model_id: str,
@@ -175,8 +93,6 @@ def stream_chat(
 ) -> Generator[dict, None, None]:
     url = f"{BASE_URL}/v1/chat/completions"
 
-    # Always preprocess: converts role:tool → role:user so model sees results
-    messages = _preprocess_messages(messages)
     if tools:
         messages = _inject_tool_system(messages, tools)
 
@@ -262,7 +178,7 @@ def stream_chat(
         if not isinstance(tool_calls, list):
             raise ValueError("expected JSON array")
     except Exception as e:
-        yield {"type": "error", "text": f"Failed to parse tool_calls: {e}\nRaw: {raw_block}"}
+        yield {"type": "error", "text": f"Failed to parse tool_calls block: {e}\nRaw: {raw_block}"}
         yield {"type": "done"}
         return
 
@@ -288,7 +204,6 @@ def chat(
 ) -> dict:
     url = f"{BASE_URL}/v1/chat/completions"
 
-    messages = _preprocess_messages(messages)
     if tools:
         messages = _inject_tool_system(messages, tools)
 
@@ -309,7 +224,7 @@ def chat(
 
         tool_calls = []
         if tools and _TOOL_CALL_OPEN in content:
-            before, _, after = content.partition(_TOOL_CALL_OPEN)
+            before, _, after  = content.partition(_TOOL_CALL_OPEN)
             raw_block = after.split(_TOOL_CALL_CLOSE)[0].strip()
             content   = before.strip()
             try:

@@ -1,251 +1,85 @@
-"""
-DeepAI provider — api.deepai.org free tier.
-
-Tool calling is text-based (model appends a <tool_calls> JSON block).
-
-FIXES vs previous version:
-- _preprocess_messages() converts role:tool → role:user. Without this,
-  multi-turn tool calls are broken: models see unknown message roles.
-- _build_tool_system() rewritten with:
-    * Much more explicit instructions for smaller/weaker models
-    * Bigger worked example showing a full back-and-forth
-    * Explicit schema for each tool rather than just a description list
-    * Two-variant prompt: compact for thinking/big models,
-      extra-verbose for small models that need hand-holding
-- PROVIDER_NAME corrected to "deepai" (was "deepmind").
-"""
-
-import json
-import requests
+import json, requests
 from typing import Generator
 
-PROVIDER_NAME = "deepai"
+PROVIDER_NAME = "deepmind"
 MODELS = [
-    {"id": "standard",              "label": "Standard",                 "ctx": 128000},
-    {"id": "gpt-4.1-nano",          "label": "GPT 4.1 Nano",            "ctx": 128000},
-    {"id": "gpt-5-nano",            "label": "GPT 5 Nano",              "ctx": 128000},
-    {"id": "gpt-oss-120b",          "label": "GPT OSS 120B (Thinking)", "ctx": 128000},
-    {"id": "gemini-2.5-flash-lite", "label": "Gemini 2.5 Flash Lite",   "ctx": 128000},
-    {"id": "gemma-4",               "label": "Gemma 4",                  "ctx": 128000},
-    {"id": "llama-3.3-70b-instruct","label": "Llama 3.3 70B Instruct",  "ctx": 128000},
-    {"id": "llama-3.1-8b-instant",  "label": "Llama 3.1 8B Instant",   "ctx": 128000},
-    {"id": "llama-4-scout",         "label": "Llama 4 Scout",            "ctx": 128000},
-    {"id": "qwen3-30b",             "label": "Qwen3 30B (Thinking)",    "ctx": 128000},
-    {"id": "deepseek-v3.2",         "label": "DeepSeek V3.2",           "ctx": 128000},
+    {"id": "standard",             "label": "Standard",              "ctx": 128000},
+    {"id": "gpt-4.1-nano",         "label": "GPT 4.1 Nano",         "ctx": 128000},
+    {"id": "gpt-5-nano",           "label": "GPT 5 Nano",           "ctx": 128000},
+    {"id": "gpt-oss-120b",         "label": "GPT OSS 120B (Thinking)", "ctx": 128000},
+    {"id": "gemini-2.5-flash-lite","label": "Gemini 2.5 Flash Lite", "ctx": 128000},
+    {"id": "gemma-4",              "label": "Gemma 4",               "ctx": 128000},
+    {"id": "llama-3.3-70b-instruct","label": "Llama 3.3 70B Instruct","ctx": 128000},
+    {"id": "llama-3.1-8b-instant", "label": "Llama 3.1 8B Instant", "ctx": 128000},
+    {"id": "llama-4-scout",        "label": "Llama 4 Scout",         "ctx": 128000},
+    {"id": "qwen3-30b",            "label": "Qwen3 30B (Thinking)",  "ctx": 128000},
+    {"id": "deepseek-v3.2",        "label": "DeepSeek V3.2",         "ctx": 128000},
 ]
 
-# Models that benefit from the reasoning-model-aware compact prompt
-_REASONING_MODELS = {"gpt-oss-120b", "qwen3-30b"}
-
 API_KEY = "tryit-73813154312-355d5cb436707b667d59c19a5fed7e20"
-URL     = "https://api.deepai.org/hacking_is_a_serious_crime"
-
-_TOOL_CALL_OPEN  = "<tool_calls>"
+URL = "https://api.deepai.org/hacking_is_a_serious_crime"
+_TOOL_CALL_OPEN = "<tool_calls>"
 _TOOL_CALL_CLOSE = "</tool_calls>"
 
 
-# ── Tool prompts ───────────────────────────────────────────────────────
-
-def _build_tool_system_small(tools: list) -> str:
-    """
-    Extra-verbose prompt for small/weaker models.
-    Shows the full expected input/output sequence step by step.
-    """
+def _build_tool_system(tools: list) -> str:
     tool_specs = []
     for t in tools:
-        fn       = t.get("function", t)
-        name     = fn.get("name", "")
-        desc     = fn.get("description", "")
-        params   = fn.get("parameters", {})
-        props    = params.get("properties", {})
-        required = params.get("required", [])
-        arg_lines = []
-        for k, v in props.items():
-            req   = " (REQUIRED)" if k in required else " (optional)"
-            typ   = v.get("type", "string")
-            pdesc = v.get("description", "")
-            arg_lines.append(f'    "{k}": <{typ}>{req}  // {pdesc}')
-        schema = (
-            "{\n"
-            + ",\n".join(arg_lines)
-            + "\n  }"
-        ) if arg_lines else "{}"
-        tool_specs.append(f"Tool name: {name}\nWhat it does: {desc}\nArgument schema:\n  {schema}")
-
-    first_tool = tools[0].get("function", tools[0]).get("name", "some_tool") if tools else "some_tool"
-
-    return (
-        "\n\n---\n"
-        "## HOW TO USE TOOLS\n\n"
-        "You have tools available. A tool lets you read files, run commands, write code, etc.\n\n"
-        "STEP 1 — When you need to use a tool, output ONLY this at the end of your message:\n\n"
-        "<tool_calls>\n"
-        '[{"name": "TOOL_NAME", "args": {"ARGUMENT": "VALUE"}}]\n'
-        "</tool_calls>\n\n"
-        "STEP 2 — You will receive a [Tool Result] message with the output.\n\n"
-        "STEP 3 — Use the result to continue. Call more tools or give your final answer.\n\n"
-        "═══ RULES ═══\n"
-        "• Put <tool_calls> at the VERY END of your message — nothing after it.\n"
-        "• Use ONLY the tools listed below. Do not invent tool names.\n"
-        "• Arguments must be a JSON object with double-quoted keys and values.\n"
-        "• Do NOT write fake results like 'The file contains...' — actually call the tool.\n"
-        "• Do NOT say 'I will call...' or 'Let me use...' — just output the block.\n\n"
-        f"═══ EXAMPLE ═══\n"
-        f"User: Read the file app.py\n"
-        f"You output:\n"
-        f"<tool_calls>\n"
-        f'[{{"name": "{first_tool}", "args": {{"path": "app.py"}}}}]\n'
-        f"</tool_calls>\n\n"
-        f"Then you receive:\n"
-        f"[Tool Result]\n"
-        f"# app.py\n"
-        f"print('hello')\n\n"
-        f"Then you reply: The file contains a single print statement.\n\n"
-        "═══ AVAILABLE TOOLS ═══\n\n"
-        + "\n\n".join(tool_specs)
-    )
-
-
-def _build_tool_system_reasoning(tools: list) -> str:
-    """
-    Compact prompt for reasoning/thinking models (gpt-oss-120b, qwen3-30b).
-    Short so the model doesn't over-deliberate; explicit note to emit the
-    block in response text, not in internal reasoning.
-    """
-    tool_specs = []
-    for t in tools:
-        fn       = t.get("function", t)
-        name     = fn.get("name", "")
-        desc     = fn.get("description", "")
-        params   = fn.get("parameters", {})
-        props    = params.get("properties", {})
+        fn = t.get("function", t)
+        name = fn.get("name", "")
+        desc = fn.get("description", "")
+        params = fn.get("parameters", {})
+        props = params.get("properties", {})
         required = params.get("required", [])
         args_doc = []
         for k, v in props.items():
-            req   = " (required)" if k in required else ""
-            typ   = v.get("type", "any")
+            req = " (required)" if k in required else ""
+            typ = v.get("type", "any")
             pdesc = v.get("description", "")
-            args_doc.append(f"  {k} ({typ}){req}: {pdesc}")
-        tool_specs.append(
-            f"Tool: {name}\n"
-            f"Description: {desc}\n"
-            "Arguments:\n" + ("\n".join(args_doc) if args_doc else "  (none)")
-        )
-
+            args_doc.append(f"  - {k} ({typ}){req}: {pdesc}")
+        tool_specs.append(f"### {name}\n{desc}\nArguments:\n" + ("\n".join(args_doc) if args_doc else "  (none)"))
     return (
-        "\n\n---\n"
-        "## TOOLS — EMIT IN RESPONSE TEXT (not in thinking)\n\n"
-        "To call a tool, your RESPONSE TEXT must end with:\n"
-        "<tool_calls>\n"
-        '[{"name": "TOOL_NAME", "args": {"key": "value"}}]\n'
-        "</tool_calls>\n\n"
-        "RULES: Call immediately — no preamble. One block per turn. "
-        "Multiple calls = JSON array. After [Tool Result] continues work.\n\n"
-        "AVAILABLE TOOLS:\n\n"
-        + "\n\n".join(tool_specs)
+        "\n\n---\n## Tool Calling\n\n"
+        "You have access to tools. If you need to call one or more tools, "
+        "output your full response text first, then append a tool call block "
+        "as the VERY LAST thing in your message.\n\n"
+        "Format:\n<tool_calls>\n"
+        '[{"name": "tool_name", "args": {"arg1": "val1"}}, ...]\n'
+        "</tool_calls>\n\nRules:\n"
+        "- Only include the block if you are actually calling a tool.\n"
+        "- All tool calls for a single turn go in one block as a JSON array.\n"
+        "- After you receive tool results continue your response.\n\n"
+        "Available tools:\n\n" + "\n\n".join(tool_specs)
     )
 
 
-def _build_tool_system(model_id: str, tools: list) -> str:
-    if model_id in _REASONING_MODELS:
-        return _build_tool_system_reasoning(tools)
-    return _build_tool_system_small(tools)
-
-
-# ── Message preprocessing ──────────────────────────────────────────────
-
-def _preprocess_messages(messages: list) -> list:
-    """
-    Convert OpenAI tool-call history to text-based conversation.
-
-    DeepAI models don't understand role:tool or assistant tool_calls.
-    Convert them so the model sees a plain user/assistant chat.
-    """
-    out = []
-    i = 0
-    while i < len(messages):
-        msg  = messages[i]
-        role = msg.get("role", "")
-
-        if role == "assistant" and msg.get("tool_calls"):
-            content = msg.get("content", "") or ""
-            tcs = msg["tool_calls"]
-            tc_array = []
-            for tc in tcs:
-                fn   = tc.get("function", {})
-                name = fn.get("name", "")
-                try:
-                    args = json.loads(fn.get("arguments", "{}"))
-                except Exception:
-                    args = {}
-                tc_array.append({"name": name, "args": args})
-            tc_block = (
-                "\n<tool_calls>\n"
-                + json.dumps(tc_array, ensure_ascii=False)
-                + "\n</tool_calls>"
-            )
-            out.append({"role": "assistant", "content": content + tc_block})
-
-        elif role == "tool":
-            results = []
-            while i < len(messages) and messages[i].get("role") == "tool":
-                results.append(messages[i].get("content", ""))
-                i += 1
-            if len(results) == 1:
-                body = f"[Tool Result]\n{results[0]}"
-            else:
-                body = "\n\n".join(
-                    f"[Tool Result {j + 1}]\n{r}" for j, r in enumerate(results)
-                )
-            out.append({"role": "user", "content": body})
-            continue
-
-        else:
-            out.append(msg)
-
-        i += 1
-
-    return out
-
-
-def _inject_tool_system(model_id: str, messages: list, tools: list) -> list:
-    ti   = _build_tool_system(model_id, tools)
+def _inject_tool_system(messages: list, tools: list) -> list:
+    ti = _build_tool_system(tools)
     msgs = list(messages)
     if msgs and msgs[0].get("role") == "system":
         msgs[0] = dict(msgs[0])
-        msgs[0]["content"] = msgs[0].get("content", "") + ti
+        msgs[0]["content"] = msgs[0].get("content", "") + "\n" + ti
     else:
         msgs.insert(0, {"role": "system", "content": ti.strip()})
     return msgs
 
 
-# ── API call ───────────────────────────────────────────────────────────
-
 def _call(model_id: str, messages: list[dict]) -> tuple[int, str]:
     ch = json.dumps([{"role": m["role"], "content": m.get("content", "")} for m in messages])
     try:
-        r = requests.post(
-            URL,
-            data={"chat_style": "chat", "chatHistory": ch, "model": model_id, "enabled_tools": "[]"},
-            headers={"api-key": API_KEY},
-            timeout=120,
-        )
+        r = requests.post(URL, data={"chat_style": "chat", "chatHistory": ch, "model": model_id, "enabled_tools": "[]"}, headers={"api-key": API_KEY}, timeout=120)
         return r.status_code, r.text
     except Exception as e:
         return 0, str(e)
 
 
-def _parse_tool_calls(text: str) -> tuple[str, list]:
-    """Extract <tool_calls> block from response text."""
+def _parse_tc(text: str) -> tuple[str, list]:
     if _TOOL_CALL_OPEN not in text:
         return text, []
     before, _, after = text.partition(_TOOL_CALL_OPEN)
     raw = after.split(_TOOL_CALL_CLOSE)[0].strip()
     try:
         tc = json.loads(raw)
-        # Handle single object (model forgot the array wrapper)
-        if isinstance(tc, dict):
-            tc = [tc]
         if not isinstance(tc, list):
             tc = []
     except json.JSONDecodeError:
@@ -253,63 +87,31 @@ def _parse_tool_calls(text: str) -> tuple[str, list]:
     return before.strip(), tc
 
 
-def stream_chat(
-    model_id: str,
-    messages: list[dict],
-    tools: list | None = None,
-    max_tokens: int | None = None,
-) -> Generator[dict, None, None]:
-    messages = _preprocess_messages(messages)
+def stream_chat(model_id, messages, tools=None, max_tokens=None):
     if tools:
-        messages = _inject_tool_system(model_id, messages, tools)
-
+        messages = _inject_tool_system(messages, tools)
     status, text = _call(model_id, messages)
-
     if status == 401:
-        yield {"type": "error", "text": "Pro model — not available on free tier"}
+        yield {"type": "error", "text": "Pro model"}
         return
     if status != 200:
-        yield {"type": "error", "text": f"HTTP {status}: {text[:200]}"}
+        yield {"type": "error", "text": f"HTTP {status}"}
         return
-
-    text, tcs = _parse_tool_calls(text)
-
-    # Stream text in chunks
-    chunk_size = 20
-    for i in range(0, len(text), chunk_size):
-        yield {"type": "text", "text": text[i:i + chunk_size]}
-
-    # Emit tool_delta events
+    text, tcs = _parse_tc(text)
+    for i in range(0, len(text), 20):
+        yield {"type": "text", "text": text[i:i+20]}
     for i, tc in enumerate(tcs):
-        name = tc.get("name", "")
-        args = tc.get("args", tc.get("arguments", {}))
-        yield {
-            "type":      "tool_delta",
-            "index":     i,
-            "id":        "",
-            "name":      name,
-            "arguments": json.dumps(args) if not isinstance(args, str) else args,
-        }
-
+        yield {"type": "tool_delta", "index": i, "id": "", "name": tc.get("name", ""), "arguments": json.dumps(tc.get("args", tc.get("arguments", {})))}
     yield {"type": "done"}
 
 
-def chat(
-    model_id: str,
-    messages: list[dict],
-    tools: list | None = None,
-    max_tokens: int | None = None,
-) -> dict:
-    messages = _preprocess_messages(messages)
+def chat(model_id, messages, tools=None, max_tokens=None):
     if tools:
-        messages = _inject_tool_system(model_id, messages, tools)
-
+        messages = _inject_tool_system(messages, tools)
     status, text = _call(model_id, messages)
-
     if status == 401:
-        return {"type": "error", "text": "Pro model — not available on free tier"}
+        return {"type": "error", "text": "Pro model"}
     if status != 200:
-        return {"type": "error", "text": f"HTTP {status}: {text[:200]}"}
-
-    text, tcs = _parse_tool_calls(text)
+        return {"type": "error", "text": f"HTTP {status}"}
+    text, tcs = _parse_tc(text)
     return {"type": "text", "text": text, "tool_calls": tcs}
