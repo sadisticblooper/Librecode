@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DSL Demo Site</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: system-ui, sans-serif;
+      background: #0f0f0f;
+      color: #e8e8e8;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+    .chat-box {
+      width: 100%;
+      max-width: 640px;
+      display: flex;
+      flex-direction: column;
+      height: 90vh;
+      padding: 16px;
+      gap: 12px;
+    }
+    h2 { font-size: 1rem; color: #888; text-align: center; }
+    .messages {
+      flex: 1;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding: 8px 0;
+    }
+    .bubble {
+      padding: 10px 14px;
+      border-radius: 12px;
+      max-width: 85%;
+      line-height: 1.5;
+      font-size: 0.95rem;
+      white-space: pre-wrap;
+    }
+    .bubble.user {
+      background: #2563eb;
+      color: #fff;
+      align-self: flex-end;
+    }
+    /* This is what the DSL extracts — role="assistant" */
+    .bubble[role="assistant"] {
+      background: #1e1e1e;
+      border: 1px solid #333;
+      align-self: flex-start;
+    }
+    .input-row {
+      display: flex;
+      gap: 8px;
+    }
+    /* placeholder: match — DSL types into this */
+    input[placeholder="Type your message"] {
+      flex: 1;
+      padding: 10px 14px;
+      border-radius: 8px;
+      border: 1px solid #333;
+      background: #1a1a1a;
+      color: #e8e8e8;
+      font-size: 0.95rem;
+      outline: none;
+    }
+    input[placeholder="Type your message"]:focus {
+      border-color: #2563eb;
+    }
+    /* aria-label="Send message" — DSL clicks this */
+    button[aria-label="Send message"] {
+      padding: 10px 18px;
+      border-radius: 8px;
+      border: none;
+      background: #2563eb;
+      color: #fff;
+      font-size: 0.9rem;
+      cursor: pointer;
+    }
+    button[aria-label="Send message"]:hover { background: #1d4ed8; }
+
+    /* aria-label="Stop generating" — DSL waits while this is visible */
+    #stop-btn {
+      display: none;
+      padding: 6px 12px;
+      border-radius: 8px;
+      border: 1px solid #555;
+      background: transparent;
+      color: #aaa;
+      font-size: 0.85rem;
+      cursor: pointer;
+      align-self: center;
+    }
+    #stop-btn.visible { display: inline-block; }
+  </style>
+</head>
+<body>
+  <div class="chat-box">
+    <h2>DSL Demo Site</h2>
+
+    <div class="messages" id="messages"></div>
+
+    <!-- DSL: WAIT_WHILE aria:Stop generating -->
+    <button id="stop-btn" aria-label="Stop generating">⏹ Stop generating</button>
+
+    <div class="input-row">
+      <!-- DSL: TYPE placeholder:Type your message  WITH $INPUT -->
+      <input placeholder="Type your message" id="msg-input" autocomplete="off" />
+
+      <!-- DSL: CLICK aria:Send message -->
+      <button aria-label="Send message" id="send-btn">Send</button>
+    </div>
+  </div>
+
+  <script>
+    const input   = document.getElementById('msg-input');
+    const sendBtn = document.getElementById('send-btn');
+    const stopBtn = document.getElementById('stop-btn');
+    const msgs    = document.getElementById('messages');
+
+    // Append a bubble to the chat
+    function addBubble(text, isUser) {
+      const div = document.createElement('div');
+      div.className = 'bubble ' + (isUser ? 'user' : '');
+      if (!isUser) div.setAttribute('role', 'assistant');  // ← DSL: EXTRACT last role:assistant
+      div.textContent = text;
+      msgs.appendChild(div);
+      msgs.scrollTop = msgs.scrollHeight;
+      return div;
+    }
+
+    function respond(userText) {
+      sendBtn.disabled = true;
+      input.value = '';
+
+      // Show stop button while "generating"
+      stopBtn.classList.add('visible');
+
+      // Simulate a 1.5s response delay
+      setTimeout(() => {
+        stopBtn.classList.remove('visible');  // DSL stops waiting here
+        addBubble('Echo: ' + userText, false); // new role="assistant" div
+        sendBtn.disabled = false;
+        input.focus();
+      }, 1500);
+    }
+
+    sendBtn.addEventListener('click', () => {
+      const text = input.value.trim();
+      if (!text) return;
+      addBubble(text, true);
+      respond(text);
+    });
+
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendBtn.click(); }
+    });
+
+    stopBtn.addEventListener('click', () => {
+      stopBtn.classList.remove('visible');
+      sendBtn.disabled = false;
+    });
+  </script>
+</body>
+</html>

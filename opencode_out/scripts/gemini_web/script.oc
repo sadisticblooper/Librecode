@@ -1,0 +1,14 @@
+LOAD https://gemini.google.com
+
+ON SEND
+  WAIT_FOR     aria:Enter a prompt here
+  IF_VISIBLE   aria:New chat THEN CLICK aria:New chat
+  WAIT_FOR     aria:Enter a prompt here
+  TYPE         aria:Enter a prompt here  WITH $INPUT
+  CLICK        aria:Send message
+  WAIT_WHILE   aria:Stop generating
+END
+
+ON READ
+  EXTRACT      last css:.response-content
+END

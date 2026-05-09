@@ -40,6 +40,9 @@ def init_app(app, root: str) -> None:
     _flask_app = app
     ROOT       = root
     _register(app)
+    # Mediator scripting engine routes
+    from python.mediator import register_mediator_routes
+    register_mediator_routes(app)
 
 
 # ── ID generation ──────────────────────────────────────────────────────

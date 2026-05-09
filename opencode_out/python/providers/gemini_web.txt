@@ -1,0 +1,71 @@
+"""
+gemini_web.py — Provider that drives Gemini web UI via the DSL scripting engine.
+"""
+
+import json
+import requests
+from typing import Generator
+
+PROVIDER_NAME = "gemini_web"
+SCRIPT_ID     = "gemini_web"
+
+MODELS = [
+    {"id": "gemini_web",      "label": "Gemini (Web)",   "ctx": 32000},
+]
+
+_INTERNAL_BASE = "http://localhost:5000"
+
+
+def _ensure_session():
+    try:
+        resp = requests.get(f"{_INTERNAL_BASE}/mediator/sessions", timeout=5)
+        sessions  = resp.json().get("sessions", [])
+        active_ids = {s["id"] for s in sessions if s.get("loaded")}
+        if SCRIPT_ID not in active_ids:
+            requests.post(f"{_INTERNAL_BASE}/mediator/start/{SCRIPT_ID}", timeout=5)
+    except Exception:
+        pass
+
+
+def stream_chat(
+    model_id: str,
+    messages: list[dict],
+    tools: list | None = None,
+    max_tokens: int | None = None,
+) -> Generator[dict, None, None]:
+    _ensure_session()
+
+    payload = {"model": SCRIPT_ID, "messages": messages}
+    if tools:
+        payload["tools"] = tools
+
+    try:
+        resp = requests.post(
+            f"{_INTERNAL_BASE}/v1/chat/completions/{SCRIPT_ID}",
+            json=payload,
+            timeout=180,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as e:
+        yield {"type": "error", "text": str(e)}
+        return
+
+    choice = (data.get("choices") or [{}])[0]
+    msg    = choice.get("message", {})
+
+    text = msg.get("content") or ""
+    if text:
+        yield {"type": "text", "text": text}
+
+    for tc in msg.get("tool_calls") or []:
+        fn = tc.get("function", {})
+        yield {
+            "type":      "tool_delta",
+            "index":     0,
+            "id":        tc.get("id", ""),
+            "name":      fn.get("name", ""),
+            "arguments": fn.get("arguments", "{}"),
+        }
+
+    yield {"type": "done"}

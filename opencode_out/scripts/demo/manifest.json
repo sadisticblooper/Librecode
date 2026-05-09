@@ -1,0 +1,15 @@
+{
+  "id": "demo",
+  "label": "Demo Site (test)",
+  "url": "https://sadisticblooper.github.io/Sjdjd/",
+  "port": 11440,
+  "supports_tools": false,
+  "timeouts": {
+    "ready_ms": 5000,
+    "send_ms": 5000,
+    "response_ms": 15000,
+    "stable_ms": 1000,
+    "poll_interval_ms": 300
+  },
+  "script": "script.oc"
+}

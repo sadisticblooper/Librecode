@@ -13,4 +13,11 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
+    <!-- Hidden container for mediator WebViews (1×1px, GONE) -->
+    <FrameLayout
+        android:id="@+id/mediator_container"
+        android:layout_width="1px"
+        android:layout_height="1px"
+        android:visibility="gone" />
+
 </FrameLayout>

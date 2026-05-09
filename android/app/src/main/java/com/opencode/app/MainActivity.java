@@ -24,6 +24,9 @@ import android.widget.Toast;
 import com.chaquo.python.Python;
 import com.chaquo.python.android.AndroidPlatform;
 
+import com.opencode.app.mediator.MediatorBridgePoller;
+import com.opencode.app.mediator.MediatorWebView;
+
 import java.io.File;
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -41,6 +44,10 @@ public class MainActivity extends Activity {
     private WebView webView;
     private WebView loadingWebView;
     private WebView fetchWebView;
+
+    // Mediator WebView + poller (one per active DSL script session)
+    private final java.util.concurrent.ConcurrentHashMap<String, MediatorWebView> mediatorWebViews =
+        new java.util.concurrent.ConcurrentHashMap<>();
     private static final int FLASK_PORT = 5000;
     private static final String FLASK_URL = "http://localhost:" + FLASK_PORT;
     private static final int MIN_LOADING_MS = 1000;
@@ -425,6 +432,28 @@ public class MainActivity extends Activity {
             return BrowserService.getInstance().isOpen();
         }
 
+        // ── Mediator DSL bridge ────────────────────────────────────────────
+
+        @JavascriptInterface
+        public void startMediatorScript(String scriptId) {
+            // Create a hidden WebView for this script if not already running
+            if (mediatorWebViews.containsKey(scriptId)) return;
+
+            android.widget.FrameLayout container =
+                (android.widget.FrameLayout) findViewById(R.id.mediator_container);
+
+            MediatorWebView mv = new MediatorWebView(MainActivity.this, container);
+            mediatorWebViews.put(scriptId, mv);
+            MediatorBridgePoller.start(scriptId, mv);
+        }
+
+        @JavascriptInterface
+        public void stopMediatorScript(String scriptId) {
+            MediatorBridgePoller.stop(scriptId);
+            MediatorWebView mv = mediatorWebViews.remove(scriptId);
+            if (mv != null) mv.destroy();
+        }
+
         @JavascriptInterface
         public String browserCurrentUrl() {
             return BrowserService.getInstance().getCurrentUrl();
@@ -473,6 +502,8 @@ public class MainActivity extends Activity {
             BrowserService bs = BrowserService.getInstance();
             if (bs.isOpen()) bs.close();
         } catch (Exception ignored) {}
+        // Stop all mediator bridge pollers
+        MediatorBridgePoller.stopAll();
     }
 
     @Override

@@ -85,6 +85,65 @@
                     </div>
                 </div>
             </div>
+            <button id="scripts-btn" class="scripts-btn" title="DSL Scripts">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+                <span>scripts</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- Scripts Manager Modal -->
+    <div id="scripts-modal" class="modal-overlay hidden">
+        <div class="modal scripts-modal">
+            <div class="modal-title">
+                DSL Scripts
+                <span class="scripts-dir-hint" id="scripts-dir-hint"></span>
+            </div>
+            <div class="scripts-layout">
+                <div class="scripts-list-panel">
+                    <div class="scripts-list-header">
+                        <span>Providers</span>
+                        <button id="new-script-btn" class="scripts-new-btn" title="New script">+</button>
+                    </div>
+                    <div id="scripts-list" class="scripts-list"></div>
+                </div>
+                <div class="scripts-editor-panel">
+                    <div id="scripts-editor-empty" class="scripts-empty">Select a script to edit</div>
+                    <div id="scripts-editor-form" class="hidden">
+                        <div class="scripts-meta-row">
+                            <span id="script-label-display" class="scripts-label"></span>
+                            <span id="script-url-display" class="scripts-url"></span>
+                        </div>
+                        <div class="scripts-session-row">
+                            <span id="script-session-status" class="session-status"></span>
+                            <button id="script-start-btn" class="scripts-action-btn">Start</button>
+                            <button id="script-stop-btn" class="scripts-action-btn danger">Stop</button>
+                        </div>
+                        <textarea id="script-content" class="scripts-textarea" spellcheck="false" placeholder="# script.oc"></textarea>
+                        <div class="scripts-save-row">
+                            <button id="script-save-btn" class="scripts-action-btn primary">Save</button>
+                            <span id="script-save-status" class="scripts-save-status"></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-actions">
+                <button class="modal-btn cancel" id="scripts-close-btn">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- New Script Modal -->
+    <div id="new-script-modal" class="modal-overlay hidden">
+        <div class="modal">
+            <div class="modal-title">New Script</div>
+            <input id="new-script-id" class="modal-input" type="text" placeholder="script_id (e.g. claude_web)" />
+            <input id="new-script-label" class="modal-input" type="text" placeholder="Label (e.g. Claude Web)" style="margin-top:8px"/>
+            <input id="new-script-url" class="modal-input" type="text" placeholder="URL (e.g. https://claude.ai)" style="margin-top:8px"/>
+            <div class="modal-actions">
+                <button class="modal-btn cancel" id="new-script-cancel">Cancel</button>
+                <button class="modal-btn confirm" id="new-script-confirm">Create</button>
+            </div>
         </div>
     </div>
 

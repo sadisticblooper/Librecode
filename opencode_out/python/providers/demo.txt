@@ -1,0 +1,65 @@
+"""
+demo.py — Provider for the bundled demo site (http://localhost:5000/demo).
+Use this to test the full DSL bridge end-to-end without needing a real AI site.
+
+The demo site just echoes your message back: "Echo: <message>"
+"""
+
+import json
+import requests
+
+PROVIDER_NAME = "demo"
+SCRIPT_ID     = "demo"
+
+MODELS = [
+    {"id": "demo", "label": "Demo Site (test)", "ctx": 4000, "script_id": SCRIPT_ID},
+]
+
+_INTERNAL_BASE = "http://localhost:5000"
+
+
+def _ensure_session():
+    try:
+        resp     = requests.get(f"{_INTERNAL_BASE}/mediator/sessions", timeout=5)
+        sessions = resp.json().get("sessions", [])
+        if not any(s["id"] == SCRIPT_ID and s.get("loaded") for s in sessions):
+            requests.post(f"{_INTERNAL_BASE}/mediator/start/{SCRIPT_ID}", timeout=5)
+    except Exception:
+        pass
+
+
+def stream_chat(model_id, messages, tools=None, max_tokens=None):
+    _ensure_session()
+
+    payload = {"model": SCRIPT_ID, "messages": messages}
+    if tools:
+        payload["tools"] = tools
+
+    try:
+        resp = requests.post(
+            f"{_INTERNAL_BASE}/v1/chat/completions/{SCRIPT_ID}",
+            json=payload,
+            timeout=30,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as e:
+        yield {"type": "error", "text": str(e)}
+        return
+
+    msg  = (data.get("choices") or [{}])[0].get("message", {})
+    text = msg.get("content") or ""
+    if text:
+        yield {"type": "text", "text": text}
+
+    for tc in msg.get("tool_calls") or []:
+        fn = tc.get("function", {})
+        yield {
+            "type":      "tool_delta",
+            "index":     0,
+            "id":        tc.get("id", ""),
+            "name":      fn.get("name", ""),
+            "arguments": fn.get("arguments", "{}"),
+        }
+
+    yield {"type": "done"}

@@ -43,6 +43,7 @@ import {
     addThinkingStatic, addToolGroupStatic, addSubagentStatic,
     showStatusBanner, highlightCodeBlocks,
 } from './render.js';
+import { initScripts } from './scripts.js';
 
 // Auto-save every 500 ms
 setInterval(saveChats, 500);
@@ -404,6 +405,10 @@ function bindModelOptions() {
             modelDropdown.classList.add('hidden');
             modelBtn.classList.remove('open');
             updateContextBadge();
+            // Boot the mediator WebView + bridge poller for DSL-based models
+            if (btn.dataset.scriptId && window.Android?.startMediatorScript) {
+                Android.startMediatorScript(btn.dataset.scriptId);
+            }
         };
     });
 }
@@ -443,9 +448,10 @@ function _buildProviderSection(provider, models) {
         models.forEach(model => {
             const btn = document.createElement('button');
             btn.className = 'model-option' + (model.id === selectedModel ? ' active' : '');
-            btn.dataset.model  = model.id;
-            btn.dataset.label  = model.label;
-            btn.dataset.ctx    = model.ctx;
+            btn.dataset.model    = model.id;
+            btn.dataset.label    = model.label;
+            btn.dataset.ctx      = model.ctx;
+            if (model.script_id) btn.dataset.scriptId = model.script_id;
             btn.textContent    = model.label;
             body.appendChild(btn);
         });
@@ -885,6 +891,7 @@ async function init() {
     renderChatList();
     renderFolderBar();
     updateSendButton();
+    initScripts();
     input.focus();
 }
 
