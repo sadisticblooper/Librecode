@@ -222,16 +222,81 @@ class DslExecutor:
     # ── Helpers ────────────────────────────────────────────────────────────────
 
     def _poll(self, js: str, expected: str, timeout_ms: int):
-        interval_ms = self.timeouts["poll_interval_ms"]
-        deadline    = time.time() + timeout_ms / 1000
+        """Poll until JS returns expected value, or raise a detailed DslError."""
+        interval_ms  = self.timeouts["poll_interval_ms"]
+        deadline     = time.time() + timeout_ms / 1000
+        bridge_alive = False   # did we ever get ANY non-None from Android?
+        last_result  = "<no response>"
+
         while time.time() < deadline:
-            result = self._eval_raw(js)
-            if result == expected:
+            raw = self._eval(js)               # None = bridge timeout, str = bridge alive
+            if raw is not None:
+                bridge_alive = True
+                last_result  = repr(raw)
+            if raw == expected:
                 return
             time.sleep(interval_ms / 1000)
-        raise DslError(f"Timeout waiting for '{expected}' — JS: {js[:80]}")
+
+        # Timeout — figure out exactly why
+        if not bridge_alive:
+            raise DslError(
+                f"Bridge timeout ({timeout_ms}ms): Android never responded to JS eval. "
+                f"MediatorBridgePoller is not running or not polling "
+                f"/mediator/eval for this script."
+            )
+
+        # Bridge alive but element never appeared — run diagnostics
+        diag = self._diagnostics(js)
+        raise DslError(
+            f"Selector not found after {timeout_ms}ms "
+            f"(last eval: {last_result}). {diag}"
+        )
+
+    def _diagnostics(self, failing_js: str) -> str:
+        """Run quick JS diagnostics and return a human-readable summary."""
+        lines = []
+
+        url   = self._eval("window.location.href")
+        title = self._eval("document.title")
+        lines.append(f"URL={url or 'null'}")
+        lines.append(f"title={title or 'empty'}")
+
+        # Extract CSS from the compiled WAIT_FOR snippet and report matches
+        import re as _re
+        css_match = _re.search(r'const css="([^"]+)"', failing_js)
+        if css_match:
+            css = css_match.group(1)
+            count = self._eval(
+                f"(function(){{"
+                f"try{{return String(document.querySelectorAll({repr(css)}).length);}}"
+                f"catch(e){{return 'err:'+e.message;}}"
+                f"}})()"
+            )
+            lines.append(f"matches for '{css}'={count or '0'}")
+
+            # Dump all placeholder values so user can see what's actually there
+            ph = self._eval(
+                "(function(){"
+                "var els=document.querySelectorAll('[placeholder]');"
+                "return Array.from(els).map(function(e){return e.placeholder;}).join(' | ')||'none';"
+                "})()"
+            )
+            lines.append(f"placeholders on page=[{ph or 'none'}]")
+
+            # Dump aria-labels so user can spot mismatches
+            aria = self._eval(
+                "(function(){"
+                "var els=document.querySelectorAll('[aria-label]');"
+                "var ls=Array.from(els).map(function(e){return e.getAttribute('aria-label');}).filter(Boolean);"
+                "return ls.slice(0,15).join(' | ')||'none';"
+                "})()"
+            )
+            lines.append(f"aria-labels=[{aria or 'none'}]")
+
+        return " | ".join(lines)
 
     def _eval_raw(self, js: str) -> Optional[str]:
+        """Eval JS, returning None on bridge timeout or JS null. Never raises."""
         try:
             return self._eval(js)
         except Exception as e:

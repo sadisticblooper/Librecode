@@ -50,8 +50,14 @@ _eval_requests: dict[str, list[dict]] = {}  # script_id → [{id, js}, ...]
 _eval_req_lock = _Lock()
 
 
-def _build_evaluator(script_id: str, timeout_sec: float = 30.0):
-    """Returns an evaluator function wired to the Android bridge."""
+def _build_evaluator(script_id: str, timeout_sec: float = 10.0):
+    """Returns an evaluator function wired to the Android bridge.
+
+    Return values:
+      str   → bridge responded, JS returned that string
+      None  → bridge responded, JS returned null/undefined
+      raises BridgeTimeoutError → Android never picked up the request
+    """
     def evaluator(js: str) -> Optional[str]:
         req_id = str(uuid.uuid4())
         evt    = _Event()
@@ -71,8 +77,20 @@ def _build_evaluator(script_id: str, timeout_sec: float = 30.0):
             _eval_pending.pop(req_id, None)
 
         if not got:
-            logger.warning("[eval] TIMEOUT for req %s (%.0fs)", req_id[:8], timeout_sec)
-            return None
+            logger.warning("[eval] BRIDGE TIMEOUT for req %s (%.0fs) — Android did not poll /mediator/eval/%s",
+                           req_id[:8], timeout_sec, script_id)
+            # Return a sentinel string so _poll can distinguish "bridge dead"
+            # from "element not found (null)".
+            # _poll checks for None == bridge alive but JS returned null.
+            # We raise here so the DslExecutor._eval() catches it and returns None,
+            # but we need _poll to know the bridge is dead, not just null.
+            # Solution: raise so _poll's raw = self._eval(js) stays None → bridge_alive stays False.
+            raise RuntimeError(
+                f"Android bridge did not respond within {timeout_sec:.0f}s "
+                f"for script '{script_id}'. "
+                f"MediatorBridgePoller may not be running."
+            )
+
         logger.info("[eval] got result for %s: %s", req_id[:8], str(result)[:60])
         return result
 
@@ -349,6 +367,67 @@ END
                 _eval_results[req_id] = result
                 evt.set()
         return jsonify({"status": "ok"})
+
+    # ── Live debug endpoint ────────────────────────────────────────────────────
+
+    @app.route("/mediator/debug/<script_id>", methods=["GET"])
+    def debug_script(script_id: str):
+        """
+        Run quick diagnostics against the live WebView for a script.
+        Hit this from the browser while the app is running to see exactly
+        what state the WebView is in.
+        """
+        executor = _get_executor(script_id)
+        if not executor:
+            return jsonify({"error": f"No executor for '{script_id}'"}), 404
+
+        timeout_sec = executor.timeouts.get("eval_bridge_ms", 10_000) / 1000
+
+        def quick_eval(js):
+            try:
+                return executor._eval(js)
+            except Exception as e:
+                return f"ERROR: {e}"
+
+        result = {
+            "script_id":     script_id,
+            "session_loaded": session_manager.is_loaded(script_id),
+            "pending_evals":  len(_eval_requests.get(script_id, [])),
+            "bridge_timeout_sec": timeout_sec,
+        }
+
+        # Try a trivial eval to test if the bridge is alive
+        ping = quick_eval("'pong'")
+        result["bridge_alive"] = (ping == "pong")
+        result["bridge_ping"]  = ping
+
+        if result["bridge_alive"]:
+            result["webview_url"]   = quick_eval("window.location.href")
+            result["page_title"]    = quick_eval("document.title")
+            result["placeholders"]  = quick_eval(
+                "(function(){"
+                "var els=document.querySelectorAll('[placeholder]');"
+                "return Array.from(els).map(function(e){return e.placeholder;}).join(' | ')||'none';"
+                "})()"
+            )
+            result["aria_labels"] = quick_eval(
+                "(function(){"
+                "var els=document.querySelectorAll('[aria-label]');"
+                "var ls=Array.from(els).map(function(e){return e.getAttribute('aria-label');}).filter(Boolean);"
+                "return ls.slice(0,20).join(' | ')||'none';"
+                "})()"
+            )
+            result["input_elements"] = quick_eval(
+                "(function(){"
+                "var els=document.querySelectorAll('input,textarea');"
+                "return Array.from(els).map(function(e){"
+                "  return (e.tagName+' type='+e.type+' placeholder='+e.placeholder+"
+                "         ' aria-label='+e.getAttribute('aria-label'));"
+                "}).join(' || ')||'none';"
+                "})()"
+            )
+
+        return jsonify(result)
 
     # ── OpenAI-compatible chat endpoint ────────────────────────────────────────
 
