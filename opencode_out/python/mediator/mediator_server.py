@@ -129,14 +129,23 @@ def _invalidate_executor(script_id: str):
 # ── Seed default scripts if missing ───────────────────────────────────────────
 
 def seed_default_scripts():
-    """Copy bundled scripts/ folder into opencode/scripts/ if not already present."""
-    import shutil
+    """Copy bundled scripts/ into the user-accessible opencode/scripts/ dir on first run."""
+    import shutil, sys
     scripts_dir = _get_scripts_dir()
-    # Bundled scripts live next to this file's package root: opencode_out/scripts/
-    bundle_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "scripts")
-    bundle_dir = os.path.normpath(bundle_dir)
-    if not os.path.isdir(bundle_dir):
+
+    # Under Chaquopy, __file__ is inside the APK zip so os.path.isdir fails.
+    # Instead, walk sys.path entries to find the real extracted root that
+    # contains our bundled scripts/ folder.
+    bundle_dir = None
+    for root in sys.path:
+        candidate = os.path.join(root, "scripts")
+        if os.path.isdir(candidate):
+            bundle_dir = candidate
+            break
+
+    if not bundle_dir:
         return
+
     for name in os.listdir(bundle_dir):
         src = os.path.join(bundle_dir, name)
         dst = os.path.join(scripts_dir, name)
@@ -401,7 +410,7 @@ def _handle_chat(script_id: str, req) -> Response:
             gevent.spawn(_do_load)
         except ImportError:
             threading.Thread(target=_do_load, daemon=True).start()
-        load_timeout = manifest.get("timeouts", {}).get("response_ms", 30000) / 1000
+        load_timeout = manifest.get("timeouts", {}).get("response_ms", 30000) / 1000 + 5
         if not load_done.wait(timeout=load_timeout):
             pending = list(_eval_requests.get(script_id, []))
             return jsonify({"error": "BANANA"}), 504
