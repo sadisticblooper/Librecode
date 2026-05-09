@@ -32,7 +32,7 @@ def _inject_tools():
         if _browser_active:
             return
         existing = {t["function"]["name"] for t in tools_mod.TOOLS}
-        for spec in BROWSER_CONTROL_SPECS + [BROWSER_OPEN_FILE_SPEC]:
+        for spec in BROWSER_CONTROL_SPECS + [BROWSER_OPEN_FILE_SPEC] + BROWSER_DEVTOOLS_SPECS:
             if spec["function"]["name"] not in existing:
                 tools_mod.TOOLS.append(spec)
         _browser_active = True
@@ -44,7 +44,7 @@ def _eject_tools():
     with _browser_lock:
         if not _browser_active:
             return
-        control_names = {s["function"]["name"] for s in BROWSER_CONTROL_SPECS + [BROWSER_OPEN_FILE_SPEC]}
+        control_names = {s["function"]["name"] for s in BROWSER_CONTROL_SPECS + [BROWSER_OPEN_FILE_SPEC] + BROWSER_DEVTOOLS_SPECS}
         tools_mod.TOOLS[:] = [t for t in tools_mod.TOOLS if t["function"]["name"] not in control_names]
         _browser_active = False
 
@@ -76,7 +76,7 @@ def _parse_snapshot_result(result: str, fallback_url: str = "") -> str:
         return result
 
 
-def tool_browser_open(url: str = "about:blank") -> str:
+def tool_browser_open(url: str = "about:blank", on_load: str = "") -> str:
     svc = _svc()
     if not svc.hasOverlayPermission():
         activity = _activity()
@@ -98,7 +98,7 @@ def tool_browser_open(url: str = "about:blank") -> str:
         title = data.get("title", "")
         snapshot = data.get("snapshot")
         snap_str = json.dumps(snapshot, indent=2) if snapshot else "(no snapshot)"
-        return (
+        out = (
             f"Browser opened: {current_url}\n"
             f"Title: {title}\n\n"
             f"DOM snapshot:\n{snap_str}\n\n"
@@ -115,8 +115,16 @@ def tool_browser_open(url: str = "about:blank") -> str:
             f"  browser_close      - close the browser\n\n"
             f"Use UIDs from the snapshot to interact with elements."
         )
+        if on_load.strip():
+            js_result = tool_browser_eval(on_load)
+            out += f"\n\non_load result:\n{js_result}"
+        return out
     except Exception:
-        return f"Browser opened.\n\nRaw result:\n{result}"
+        base = f"Browser opened.\n\nRaw result:\n{result}"
+        if on_load.strip():
+            js_result = tool_browser_eval(on_load)
+            base += f"\n\non_load result:\n{js_result}"
+        return base
 
 
 def tool_browser_snapshot() -> str:
@@ -240,12 +248,15 @@ BROWSER_OPEN_SPEC = {
             "Open a floating browser window and navigate to a URL. "
             "The browser appears as a draggable overlay on screen. "
             "Returns a DOM snapshot with UIDs you can use to click/fill elements. "
-            "After calling this, additional browser control tools become available."
+            "After calling this, additional browser control tools become available. "
+            "Optionally pass on_load JS that runs immediately after the page loads — "
+            "its result is returned alongside the snapshot."
         ),
         "parameters": {
             "type": "object",
             "properties": {
                 "url": {"type": "string", "description": "URL to open (e.g. 'https://google.com')"},
+                "on_load": {"type": "string", "description": "Optional JavaScript to run immediately after page load. Result is returned with the snapshot. E.g. 'document.title' or a multi-line script."},
             },
             "required": ["url"],
         },
@@ -416,3 +427,286 @@ BROWSER_OPEN_FILE_SPEC = {
         },
     },
 }
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DevTools-style tools — all implemented via browser_eval (no new Java needed)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# JS snippet injected once per page to intercept network + console.
+_DEVTOOLS_INJECT_JS = """
+(function() {
+  if (window.__ocdvt) return 'already_injected';
+  window.__ocdvt = { net: [], con: [] };
+
+  // --- Console capture ---
+  ['log','warn','error','info','debug'].forEach(function(m) {
+    var orig = console[m];
+    console[m] = function() {
+      var args = Array.prototype.slice.call(arguments).map(function(a) {
+        try { return typeof a === 'object' ? JSON.stringify(a) : String(a); } catch(e) { return String(a); }
+      });
+      window.__ocdvt.con.push({level: m, msg: args.join(' '), t: Date.now()});
+      orig.apply(console, arguments);
+    };
+  });
+
+  // --- XHR capture ---
+  var OrigXHR = window.XMLHttpRequest;
+  window.XMLHttpRequest = function() {
+    var xhr = new OrigXHR();
+    var entry = {type:'xhr', method:'', url:'', status:null, req:null, res:null, t:null};
+    var origOpen = xhr.open.bind(xhr);
+    xhr.open = function(m, u) { entry.method = m; entry.url = u; origOpen(m, u); };
+    var origSend = xhr.send.bind(xhr);
+    xhr.send = function(body) {
+      try { entry.req = body ? String(body).slice(0,2000) : null; } catch(e){}
+      entry.t = Date.now();
+      xhr.addEventListener('loadend', function() {
+        entry.status = xhr.status;
+        try { entry.res = xhr.responseText ? xhr.responseText.slice(0,4000) : null; } catch(e){}
+        window.__ocdvt.net.push(JSON.parse(JSON.stringify(entry)));
+      });
+      origSend(body);
+    };
+    return xhr;
+  };
+
+  // --- fetch capture ---
+  var origFetch = window.fetch.bind(window);
+  window.fetch = function(input, init) {
+    var entry = {type:'fetch', method:(init&&init.method)||'GET', url:String(input&&input.url||input), status:null, req:null, res:null, t:Date.now()};
+    try { entry.req = init && init.body ? String(init.body).slice(0,2000) : null; } catch(e){}
+    return origFetch(input, init).then(function(resp) {
+      entry.status = resp.status;
+      var clone = resp.clone();
+      clone.text().then(function(txt) {
+        entry.res = txt ? txt.slice(0,4000) : null;
+        window.__ocdvt.net.push(JSON.parse(JSON.stringify(entry)));
+      });
+      return resp;
+    });
+  };
+
+  return 'injected';
+})()
+"""
+
+
+def _ensure_devtools_injected() -> str:
+    """Inject the network/console interceptor if not already on this page."""
+    return tool_browser_eval(_DEVTOOLS_INJECT_JS)
+
+
+def tool_browser_html() -> str:
+    """Get the full outer HTML of the current page."""
+    err = _check_open()
+    if err:
+        return err
+    return tool_browser_eval("document.documentElement.outerHTML")
+
+
+def tool_browser_console() -> str:
+    """Get captured console logs (log/warn/error/info) since last inject."""
+    err = _check_open()
+    if err:
+        return err
+    _ensure_devtools_injected()
+    raw = tool_browser_eval("JSON.stringify(window.__ocdvt ? window.__ocdvt.con : [])")
+    try:
+        logs = json.loads(raw) if isinstance(raw, str) else raw
+        if not logs:
+            return "No console output captured yet."
+        lines = [f"[{e.get('level','?').upper()}] {e.get('msg','')}" for e in logs]
+        return "\n".join(lines)
+    except Exception:
+        return raw
+
+
+def tool_browser_network() -> str:
+    """Get captured XHR/fetch requests and responses since last inject."""
+    err = _check_open()
+    if err:
+        return err
+    _ensure_devtools_injected()
+    raw = tool_browser_eval("JSON.stringify(window.__ocdvt ? window.__ocdvt.net : [])")
+    try:
+        entries = json.loads(raw) if isinstance(raw, str) else raw
+        if not entries:
+            return "No network requests captured yet. Make sure to call browser_network_start first, then trigger the requests."
+        return json.dumps(entries, indent=2)
+    except Exception:
+        return raw
+
+
+def tool_browser_network_start() -> str:
+    """Inject the network/console interceptor on the current page so future XHR/fetch calls are captured."""
+    err = _check_open()
+    if err:
+        return err
+    result = _ensure_devtools_injected()
+    return f"Network + console interception active ({result}). Now trigger the requests you want to capture, then call browser_network."
+
+
+def tool_browser_local_storage(domain: str = "") -> str:
+    """Get all localStorage keys and values for the current page."""
+    err = _check_open()
+    if err:
+        return err
+    raw = tool_browser_eval(
+        "JSON.stringify(Object.fromEntries(Object.keys(localStorage).map(k => [k, localStorage.getItem(k)])))"
+    )
+    try:
+        data = json.loads(raw) if isinstance(raw, str) else raw
+        if not data:
+            return "localStorage is empty."
+        return json.dumps(data, indent=2)
+    except Exception:
+        return raw
+
+
+def tool_browser_session_storage() -> str:
+    """Get all sessionStorage keys and values for the current page."""
+    err = _check_open()
+    if err:
+        return err
+    raw = tool_browser_eval(
+        "JSON.stringify(Object.fromEntries(Object.keys(sessionStorage).map(k => [k, sessionStorage.getItem(k)])))"
+    )
+    try:
+        data = json.loads(raw) if isinstance(raw, str) else raw
+        if not data:
+            return "sessionStorage is empty."
+        return json.dumps(data, indent=2)
+    except Exception:
+        return raw
+
+
+def tool_browser_dom_query(selector: str) -> str:
+    """Run document.querySelectorAll and return matching elements' outerHTML and text."""
+    err = _check_open()
+    if err:
+        return err
+    script = (
+        "JSON.stringify(Array.from(document.querySelectorAll(" + json.dumps(selector) + "))"
+        ".map(function(el){return {tag:el.tagName,id:el.id,classes:el.className,"
+        "text:el.innerText&&el.innerText.slice(0,500),html:el.outerHTML&&el.outerHTML.slice(0,1000)}}))"
+    )
+    raw = tool_browser_eval(script)
+    try:
+        results = json.loads(raw) if isinstance(raw, str) else raw
+        if not results:
+            return f"No elements matched selector: {selector}"
+        return json.dumps(results, indent=2)
+    except Exception:
+        return raw
+
+
+def tool_browser_set_cookie(name: str, value: str, domain: str = "", path: str = "/") -> str:
+    """Set a cookie on the current page via JavaScript."""
+    err = _check_open()
+    if err:
+        return err
+    cookie_str = f"{name}={value}; path={path}"
+    if domain:
+        cookie_str += f"; domain={domain}"
+    script = f"document.cookie = {json.dumps(cookie_str)}; 'ok'"
+    return tool_browser_eval(script)
+
+
+def tool_browser_clear_network() -> str:
+    """Clear the captured network log."""
+    err = _check_open()
+    if err:
+        return err
+    return tool_browser_eval("if(window.__ocdvt){window.__ocdvt.net=[];window.__ocdvt.con=[];} 'cleared'")
+
+
+BROWSER_DEVTOOLS_SPECS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "browser_html",
+            "description": "Get the full outer HTML source of the current page.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "browser_console",
+            "description": "Get captured console.log/warn/error/info output from the current page.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "browser_network_start",
+            "description": "Inject network interceptor on the current page. Must be called before the requests you want to capture. Then call browser_network to read results.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "browser_network",
+            "description": "Get all captured XHR and fetch requests/responses since browser_network_start was called. Returns URL, method, status, request body and response body for each request.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "browser_network_clear",
+            "description": "Clear the captured network and console log.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "browser_local_storage",
+            "description": "Get all localStorage entries for the current page.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "browser_session_storage",
+            "description": "Get all sessionStorage entries for the current page.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "browser_dom_query",
+            "description": "Run a CSS selector (querySelectorAll) and return matching elements with their tag, id, classes, text and outerHTML.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "selector": {"type": "string", "description": "CSS selector, e.g. 'input[type=email]' or '.nav-link'"},
+                },
+                "required": ["selector"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "browser_set_cookie",
+            "description": "Set a cookie on the current page.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name":   {"type": "string", "description": "Cookie name"},
+                    "value":  {"type": "string", "description": "Cookie value"},
+                    "domain": {"type": "string", "description": "Cookie domain (optional)"},
+                    "path":   {"type": "string", "description": "Cookie path (default '/')"},
+                },
+                "required": ["name", "value"],
+            },
+        },
+    },
+]

@@ -1094,7 +1094,7 @@ def run_tool(name: str, args: dict) -> str:
             import python.browser_tools as bt
             dispatch = {
                 "browser_open":       lambda: bt.tool_browser_open(args.get("url", "about:blank")),
-                "spawn_browser":      lambda: bt.tool_browser_open(args.get("url", "about:blank")),
+                "spawn_browser":      lambda: bt.tool_browser_open(args.get("url", "about:blank"), args.get("on_load", "")),
                 "browser_snapshot":   lambda: bt.tool_browser_snapshot(),
                 "browser_click":      lambda: bt.tool_browser_click(args.get("uid", "")),
                 "browser_fill":       lambda: bt.tool_browser_fill(args.get("uid", ""), args.get("value", "")),
@@ -1122,3 +1122,23 @@ def run_tool(name: str, args: dict) -> str:
     if not result:
         return f"No results: tool '{name}' completed but returned empty output. The search/operation found nothing matching the given parameters."
     return result
+
+# devtools dispatch patch — appended
+_orig_run_tool = run_tool
+def run_tool(name, args):
+    import python.browser_tools as bt
+    _devtools_dispatch = {
+        "browser_html":            lambda: bt.tool_browser_html(),
+        "browser_console":         lambda: bt.tool_browser_console(),
+        "browser_network_start":   lambda: bt.tool_browser_network_start(),
+        "browser_network":         lambda: bt.tool_browser_network(),
+        "browser_network_clear":   lambda: bt.tool_browser_clear_network(),
+        "browser_local_storage":   lambda: bt.tool_browser_local_storage(),
+        "browser_session_storage": lambda: bt.tool_browser_session_storage(),
+        "browser_dom_query":       lambda: bt.tool_browser_dom_query(args.get("selector", "")),
+        "browser_set_cookie":      lambda: bt.tool_browser_set_cookie(args.get("name",""), args.get("value",""), args.get("domain",""), args.get("path","/")),
+        "browser_open_file":       lambda: bt.tool_browser_open_file(args.get("path", "")),
+    }
+    if name in _devtools_dispatch:
+        return _devtools_dispatch[name]()
+    return _orig_run_tool(name, args)

@@ -110,7 +110,7 @@ public class BrowserService {
                     injectFocusListeners(v);
                     mainHandler.postDelayed(() -> snapshotInternal(s -> {
                         result.set(s); latch.countDown();
-                    }), 900);
+                    }), 2000);
                 }
             });
             CookieManager cm = CookieManager.getInstance();
@@ -183,7 +183,7 @@ public class BrowserService {
                     injectFocusListeners(v);
                     mainHandler.postDelayed(() -> snapshotInternal(s -> {
                         result.set(s); latch.countDown();
-                    }), 900);
+                    }), 2000);
                 }
             });
             browserWebView.loadUrl(url);
