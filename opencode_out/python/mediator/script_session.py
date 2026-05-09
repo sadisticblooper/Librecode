@@ -43,6 +43,11 @@ class ScriptSessionManager:
             self._sessions[script_id] = s
             return s
 
+    def is_loaded(self, script_id: str) -> bool:
+        with self._lock:
+            s = self._sessions.get(script_id)
+            return bool(s and s.loaded)
+
     def mark_loaded(self, script_id: str):
         with self._lock:
             s = self._sessions.get(script_id)

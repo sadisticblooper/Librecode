@@ -18,18 +18,7 @@ MODELS = [
 _INTERNAL_BASE = "http://localhost:5000"
 
 
-def _ensure_session():
-    try:
-        resp     = requests.get(f"{_INTERNAL_BASE}/mediator/sessions", timeout=5)
-        sessions = resp.json().get("sessions", [])
-        if not any(s["id"] == SCRIPT_ID and s.get("loaded") for s in sessions):
-            requests.post(f"{_INTERNAL_BASE}/mediator/start/{SCRIPT_ID}", timeout=5)
-    except Exception:
-        pass
-
-
 def stream_chat(model_id, messages, tools=None, max_tokens=None):
-    _ensure_session()
 
     payload = {"model": SCRIPT_ID, "messages": messages}
     if tools:

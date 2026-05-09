@@ -43,7 +43,7 @@ import {
     addThinkingStatic, addToolGroupStatic, addSubagentStatic,
     showStatusBanner, highlightCodeBlocks,
 } from './render.js';
-import { initScripts } from './scripts.js';
+
 
 // Auto-save every 500 ms
 setInterval(saveChats, 500);
@@ -405,10 +405,6 @@ function bindModelOptions() {
             modelDropdown.classList.add('hidden');
             modelBtn.classList.remove('open');
             updateContextBadge();
-            // Boot the mediator WebView + bridge poller for DSL-based models
-            if (btn.dataset.scriptId && window.Android?.startMediatorScript) {
-                Android.startMediatorScript(btn.dataset.scriptId);
-            }
         };
     });
 }
@@ -891,7 +887,6 @@ async function init() {
     renderChatList();
     renderFolderBar();
     updateSendButton();
-    initScripts();
     input.focus();
 }
 

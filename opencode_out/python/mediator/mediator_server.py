@@ -356,6 +356,24 @@ def _handle_chat(script_id: str, req) -> Response:
     if not executor:
         return jsonify({"error": "Executor load failed"}), 500
 
+    # Auto-start the session on first request — no manual button needed.
+    if not session_manager.is_loaded(script_id):
+        session_manager.get_or_create(
+            script_id=script_id,
+            url=manifest.get("url", ""),
+            port=manifest.get("port", 0),
+        )
+        def _do_load():
+            try:
+                executor.load()
+                session_manager.mark_loaded(script_id)
+            except Exception as e:
+                logger.error("auto-load error for %s: %s", script_id, e)
+        threading.Thread(target=_do_load, daemon=True).start()
+        # Wait for LOAD to complete before sending the first message
+        ready_ms = manifest.get("timeouts", {}).get("ready_ms", 8000)
+        time.sleep(ready_ms / 1000)
+
     # Flatten conversation → single user string
     user_parts = []
     for m in messages:
