@@ -319,11 +319,19 @@ BROWSER_CONTROL_SPECS = [
         "type": "function",
         "function": {
             "name": "browser_eval",
-            "description": "Execute JavaScript in the open browser and return the result.",
+            "description": (
+                "Execute JavaScript in the open browser and return the result. "
+                "CRITICAL: Your script is wrapped in an IIFE — it MUST end with a `return` statement "
+                "or be a single expression, otherwise you get '(no return value)'. "
+                "CORRECT: `return document.title` or just `document.title`. "
+                "WRONG: `let x = document.title` (no return = undefined). "
+                "For async work, return a Promise — it is awaited automatically. "
+                "Do NOT use this for Python — use python_exec for that."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "script": {"type": "string", "description": "JavaScript expression or statement to run"},
+                    "script": {"type": "string", "description": "JavaScript ending with explicit `return`, e.g. `return document.title` or single expression `document.title`"},
                 },
                 "required": ["script"],
             },
@@ -450,19 +458,28 @@ _DEVTOOLS_INJECT_JS = """
     };
   });
 
-  // --- XHR capture ---
+  // --- XHR capture (with request + response headers) ---
   var OrigXHR = window.XMLHttpRequest;
   window.XMLHttpRequest = function() {
     var xhr = new OrigXHR();
-    var entry = {type:'xhr', method:'', url:'', status:null, req:null, res:null, t:null};
+    var entry = {type:'xhr', method:'', url:'', status:null, reqHeaders:{}, req:null, res:null, resHeaders:{}, t:null};
     var origOpen = xhr.open.bind(xhr);
     xhr.open = function(m, u) { entry.method = m; entry.url = u; origOpen(m, u); };
+    var origSetHeader = xhr.setRequestHeader.bind(xhr);
+    xhr.setRequestHeader = function(k, v) { entry.reqHeaders[k] = v; origSetHeader(k, v); };
     var origSend = xhr.send.bind(xhr);
     xhr.send = function(body) {
       try { entry.req = body ? String(body).slice(0,2000) : null; } catch(e){}
       entry.t = Date.now();
       xhr.addEventListener('loadend', function() {
         entry.status = xhr.status;
+        try {
+          var rh = {};
+          xhr.getAllResponseHeaders().trim().split('\r\n').forEach(function(l) {
+            var i = l.indexOf(':'); if (i > 0) rh[l.slice(0,i).trim()] = l.slice(i+1).trim();
+          });
+          entry.resHeaders = rh;
+        } catch(e) {}
         try { entry.res = xhr.responseText ? xhr.responseText.slice(0,4000) : null; } catch(e){}
         window.__ocdvt.net.push(JSON.parse(JSON.stringify(entry)));
       });
@@ -471,13 +488,15 @@ _DEVTOOLS_INJECT_JS = """
     return xhr;
   };
 
-  // --- fetch capture ---
+  // --- fetch capture (with request + response headers) ---
   var origFetch = window.fetch.bind(window);
   window.fetch = function(input, init) {
-    var entry = {type:'fetch', method:(init&&init.method)||'GET', url:String(input&&input.url||input), status:null, req:null, res:null, t:Date.now()};
+    var url = String(input && input.url || input);
+    var entry = {type:'fetch', method:(init&&init.method)||'GET', url:url, status:null, reqHeaders:(init&&init.headers)||{}, req:null, res:null, resHeaders:{}, t:Date.now()};
     try { entry.req = init && init.body ? String(init.body).slice(0,2000) : null; } catch(e){}
     return origFetch(input, init).then(function(resp) {
       entry.status = resp.status;
+      try { var rh = {}; resp.headers.forEach(function(v, k) { rh[k] = v; }); entry.resHeaders = rh; } catch(e) {}
       var clone = resp.clone();
       clone.text().then(function(txt) {
         entry.res = txt ? txt.slice(0,4000) : null;
@@ -532,7 +551,7 @@ def tool_browser_network() -> str:
     try:
         entries = json.loads(raw) if isinstance(raw, str) else raw
         if not entries:
-            return "No network requests captured yet. Make sure to call browser_network_start first, then trigger the requests."
+            return "No network requests captured yet. Network capture starts automatically on page load — try reloading or navigating to the page first."
         return json.dumps(entries, indent=2)
     except Exception:
         return raw
@@ -642,7 +661,7 @@ BROWSER_DEVTOOLS_SPECS = [
         "type": "function",
         "function": {
             "name": "browser_network_start",
-            "description": "Inject network interceptor on the current page. Must be called before the requests you want to capture. Then call browser_network to read results.",
+            "description": "Re-inject network interceptor on the current page to reset/clear captures (e.g. after a dynamic in-page navigation). Normally not needed — capture starts automatically on every page load. Use this only if you navigated via JS (pushState) without a full reload.",
             "parameters": {"type": "object", "properties": {}},
         },
     },
@@ -650,7 +669,7 @@ BROWSER_DEVTOOLS_SPECS = [
         "type": "function",
         "function": {
             "name": "browser_network",
-            "description": "Get all captured XHR and fetch requests/responses since browser_network_start was called. Returns URL, method, status, request body and response body for each request.",
+            "description": "Get all captured XHR and fetch requests/responses since page load. Network capture starts automatically on every page/navigate load — no need to call browser_network_start first. Returns URL, method, status, request headers, request body, response headers, and response body for each request.",
             "parameters": {"type": "object", "properties": {}},
         },
     },

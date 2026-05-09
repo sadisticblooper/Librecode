@@ -108,6 +108,7 @@ public class BrowserService {
             browserWebView.setWebViewClient(new WebViewClient() {
                 @Override public void onPageFinished(WebView v, String u) {
                     injectFocusListeners(v);
+                    injectNetworkInterceptor(v);
                     mainHandler.postDelayed(() -> snapshotInternal(s -> {
                         result.set(s); latch.countDown();
                     }), 2000);
@@ -181,6 +182,7 @@ public class BrowserService {
             browserWebView.setWebViewClient(new WebViewClient() {
                 @Override public void onPageFinished(WebView v, String u) {
                     injectFocusListeners(v);
+                    injectNetworkInterceptor(v);
                     mainHandler.postDelayed(() -> snapshotInternal(s -> {
                         result.set(s); latch.countDown();
                     }), 2000);
@@ -668,6 +670,77 @@ public class BrowserService {
             @Override public void onAnimationEnd(Animator a) { onEnd.run(); }
         });
         anim.start();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Network / console interceptor — injected automatically on every page
+    // load so the AI can always call browser_network without needing to
+    // call browser_network_start first.
+    // ─────────────────────────────────────────────────────────────────────
+
+    private static final String DEVTOOLS_JS =
+        "(function(){" +
+        "if(window.__ocdvt)return 'already_injected';" +
+        "window.__ocdvt={net:[],con:[]};" +
+        // Console capture
+        "['log','warn','error','info','debug'].forEach(function(m){" +
+        "var orig=console[m];" +
+        "console[m]=function(){" +
+        "var args=Array.prototype.slice.call(arguments).map(function(a){" +
+        "try{return typeof a==='object'?JSON.stringify(a):String(a);}catch(e){return String(a);}" +
+        "});" +
+        "window.__ocdvt.con.push({level:m,msg:args.join(' '),t:Date.now()});" +
+        "orig.apply(console,arguments);" +
+        "};" +
+        "});" +
+        // XHR capture
+        "var OrigXHR=window.XMLHttpRequest;" +
+        "window.XMLHttpRequest=function(){" +
+        "var xhr=new OrigXHR();" +
+        "var entry={type:'xhr',method:'',url:'',status:null,reqHeaders:{},req:null,res:null,resHeaders:{},t:null};" +
+        "var origOpen=xhr.open.bind(xhr);" +
+        "xhr.open=function(m,u){entry.method=m;entry.url=u;origOpen(m,u);};" +
+        "var origSetHeader=xhr.setRequestHeader.bind(xhr);" +
+        "xhr.setRequestHeader=function(k,v){entry.reqHeaders[k]=v;origSetHeader(k,v);};" +
+        "var origSend=xhr.send.bind(xhr);" +
+        "xhr.send=function(body){" +
+        "try{entry.req=body?String(body).slice(0,2000):null;}catch(e){}" +
+        "entry.t=Date.now();" +
+        "xhr.addEventListener('loadend',function(){" +
+        "entry.status=xhr.status;" +
+        "try{" +
+        "var rh={};xhr.getAllResponseHeaders().trim().split('\\r\\n').forEach(function(l){var i=l.indexOf(':');if(i>0)rh[l.slice(0,i).trim()]=l.slice(i+1).trim();});" +
+        "entry.resHeaders=rh;" +
+        "}catch(e){}" +
+        "try{entry.res=xhr.responseText?xhr.responseText.slice(0,4000):null;}catch(e){}" +
+        "window.__ocdvt.net.push(JSON.parse(JSON.stringify(entry)));" +
+        "});" +
+        "origSend(body);" +
+        "};" +
+        "return xhr;" +
+        "};" +
+        // fetch capture
+        "var origFetch=window.fetch.bind(window);" +
+        "window.fetch=function(input,init){" +
+        "var url=String(input&&input.url||input);" +
+        "var entry={type:'fetch',method:(init&&init.method)||'GET',url:url,status:null,reqHeaders:(init&&init.headers)||{},req:null,res:null,resHeaders:{},t:Date.now()};" +
+        "try{entry.req=init&&init.body?String(init.body).slice(0,2000):null;}catch(e){}" +
+        "return origFetch(input,init).then(function(resp){" +
+        "entry.status=resp.status;" +
+        "try{var rh={};resp.headers.forEach(function(v,k){rh[k]=v;});entry.resHeaders=rh;}catch(e){}" +
+        "var clone=resp.clone();" +
+        "clone.text().then(function(txt){" +
+        "entry.res=txt?txt.slice(0,4000):null;" +
+        "window.__ocdvt.net.push(JSON.parse(JSON.stringify(entry)));" +
+        "});" +
+        "return resp;" +
+        "});" +
+        "};" +
+        "return 'injected';" +
+        "})()";
+
+    private void injectNetworkInterceptor(WebView v) {
+        v.evaluateJavascript(DEVTOOLS_JS, null);
     }
 
     // ─────────────────────────────────────────────────────────────────────
