@@ -32,7 +32,7 @@ def _inject_tools():
         if _browser_active:
             return
         existing = {t["function"]["name"] for t in tools_mod.TOOLS}
-        for spec in BROWSER_CONTROL_SPECS:
+        for spec in BROWSER_CONTROL_SPECS + [BROWSER_OPEN_FILE_SPEC]:
             if spec["function"]["name"] not in existing:
                 tools_mod.TOOLS.append(spec)
         _browser_active = True
@@ -44,7 +44,7 @@ def _eject_tools():
     with _browser_lock:
         if not _browser_active:
             return
-        control_names = {s["function"]["name"] for s in BROWSER_CONTROL_SPECS}
+        control_names = {s["function"]["name"] for s in BROWSER_CONTROL_SPECS + [BROWSER_OPEN_FILE_SPEC]}
         tools_mod.TOOLS[:] = [t for t in tools_mod.TOOLS if t["function"]["name"] not in control_names]
         _browser_active = False
 
@@ -383,3 +383,36 @@ BROWSER_CONTROL_SPECS = [
         },
     },
 ]
+
+
+def tool_browser_open_file(path: str) -> str:
+    err = _check_open()
+    if err:
+        return err
+    result = str(_svc().openFile(path))
+    return _parse_open_result(result)
+
+
+BROWSER_OPEN_FILE_SPEC = {
+    "type": "function",
+    "function": {
+        "name": "browser_open_file",
+        "description": (
+            "Load a local HTML file into the open browser by absolute path. "
+            "JS, CSS, images and other files the HTML imports are resolved relative "
+            "to the file's directory automatically. "
+            "The browser must already be open (call spawn_browser first). "
+            "Returns a DOM snapshot."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Absolute path to the HTML file, e.g. '/sdcard/opencode/myapp/index.html'",
+                },
+            },
+            "required": ["path"],
+        },
+    },
+}

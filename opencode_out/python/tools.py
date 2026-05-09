@@ -991,6 +991,7 @@ TOOLS: list = [
 ]
 
 from python.browser_tools import BROWSER_OPEN_SPEC as _BROWSER_OPEN_SPEC
+from python.browser_tools import BROWSER_OPEN_FILE_SPEC as _BROWSER_OPEN_FILE_SPEC
 TOOLS.append(_BROWSER_OPEN_SPEC)
 
 
@@ -1104,6 +1105,7 @@ def run_tool(name: str, args: dict) -> str:
                 "browser_cookies":    lambda: bt.tool_browser_cookies(args.get("url", "")),
                 "browser_login_cct":  lambda: bt.tool_browser_login_cct(args.get("url", "")),
                 "browser_close":      lambda: bt.tool_browser_close(),
+                "browser_open_file":  lambda: bt.tool_browser_open_file(args.get("path", "")),
             }
             fn = dispatch.get(name)
             if fn is None:

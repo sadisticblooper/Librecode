@@ -85,6 +85,18 @@ public class BrowserService {
                 || Settings.canDrawOverlays(getActivity());
     }
 
+    public String openFile(String path) {
+        if (!hasOverlayPermission())
+            return "{\"error\":\"OVERLAY_PERMISSION_REQUIRED\"}";
+        java.io.File f = new java.io.File(path);
+        if (!f.exists())
+            return "{\"error\":\"File not found: " + path + "\"}";
+        // Convert to file:// URI so WebView resolves relative imports (JS, CSS, images)
+        // against the file's parent directory automatically.
+        String fileUrl = android.net.Uri.fromFile(f).toString();
+        return open(fileUrl);
+    }
+
     public String open(String url) {
         if (!hasOverlayPermission())
             return "{\"error\":\"OVERLAY_PERMISSION_REQUIRED\"}";
@@ -266,6 +278,30 @@ public class BrowserService {
     // Overlay creation
     // ─────────────────────────────────────────────────────────────────────
 
+    // ─────────────────────────────────────────────────────────────────────
+    // Persistent browser data directory (inside opencode folder)
+    // ─────────────────────────────────────────────────────────────────────
+
+    private static String getBrowserDataDir(android.app.Activity activity) {
+        // Read storage_dir.txt that MainActivity writes on startup
+        try {
+            java.io.File f = new java.io.File(activity.getFilesDir(), "storage_dir.txt");
+            if (f.exists()) {
+                java.io.BufferedReader r = new java.io.BufferedReader(new java.io.FileReader(f));
+                String line = r.readLine(); r.close();
+                if (line != null && !line.isEmpty()) {
+                    java.io.File dir = new java.io.File(line, "browser_data");
+                    dir.mkdirs();
+                    return dir.getAbsolutePath();
+                }
+            }
+        } catch (Exception ignored) {}
+        // Fallback: app-internal files
+        java.io.File dir = new java.io.File(activity.getFilesDir(), "browser_data");
+        dir.mkdirs();
+        return dir.getAbsolutePath();
+    }
+
     @SuppressLint({"SetJavaScriptEnabled", "ClickableViewAccessibility"})
     private void createOverlay() {
         android.app.Activity activity = getActivity();
@@ -403,6 +439,10 @@ public class BrowserService {
     // ─────────────────────────────────────────────────────────────────────
 
     private void buildWebView(android.app.Activity activity) {
+        // Point WebView at a persistent directory so cookies/storage survive restarts
+        String dataDir = getBrowserDataDir(activity);
+        android.webkit.WebView.setDataDirectorySuffix("opencode_browser");
+
         browserWebView = new WebView(activity);
         FrameLayout.LayoutParams wlp = new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
@@ -414,6 +454,8 @@ public class BrowserService {
         s.setDomStorageEnabled(true);
         s.setDatabaseEnabled(true);
         s.setAllowFileAccess(true);
+        s.setAllowFileAccessFromFileURLs(true);
+        s.setAllowUniversalAccessFromFileURLs(true);
         s.setSupportZoom(true);
         s.setBuiltInZoomControls(true);
         s.setDisplayZoomControls(false);
@@ -725,6 +767,8 @@ public class BrowserService {
     // ─────────────────────────────────────────────────────────────────────
 
     private void destroyOverlay() {
+        // Persist cookies to disk before tearing down
+        CookieManager.getInstance().flush();
         if (overlayRoot != null) {
             try { windowManager.removeView(overlayRoot); } catch (Exception ignored) {}
             overlayRoot = null;
