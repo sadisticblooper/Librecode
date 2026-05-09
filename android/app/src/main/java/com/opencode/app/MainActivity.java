@@ -152,6 +152,9 @@ public class MainActivity extends Activity {
     }
 
     private void autoStartMediatorPollers() {
+        // Network fetch must be off the main thread.
+        // WebView creation MUST be on the main thread.
+        // So: fetch script list on background thread, then hand each id to mainHandler.
         new Thread(() -> {
             try {
                 java.net.URL url = new java.net.URL("http://localhost:" + FLASK_PORT + "/mediator/scripts");
@@ -168,21 +171,37 @@ public class MainActivity extends Activity {
                 org.json.JSONArray scripts = json.optJSONArray("scripts");
                 if (scripts == null) return;
                 for (int i = 0; i < scripts.length(); i++) {
-                    String scriptId = scripts.getJSONObject(i).optString("id");
+                    final String scriptId = scripts.getJSONObject(i).optString("id");
                     if (scriptId.isEmpty()) continue;
-                    android.util.Log.i("Mediator", "Auto-starting poller for: " + scriptId);
-                    android.widget.FrameLayout container =
-                        (android.widget.FrameLayout) findViewById(R.id.mediator_container);
-                    if (!mediatorWebViews.containsKey(scriptId)) {
-                        MediatorWebView mv = new MediatorWebView(MainActivity.this, container);
-                        mediatorWebViews.put(scriptId, mv);
-                        MediatorBridgePoller.start(scriptId, mv);
-                    }
+                    android.util.Log.i("Mediator", "Scheduling poller for: " + scriptId);
+                    // WebView must be created on the main thread
+                    mainHandler.post(() -> startPollerForScript(scriptId));
                 }
             } catch (Exception e) {
-                android.util.Log.w("Mediator", "autoStartMediatorPollers failed: " + e.getMessage());
+                android.util.Log.e("Mediator", "autoStartMediatorPollers failed: " + e.getMessage(), e);
             }
         }).start();
+    }
+
+    /** Must be called on the main thread — WebView creation requires it. */
+    private void startPollerForScript(String scriptId) {
+        if (mediatorWebViews.containsKey(scriptId)) return;
+        try {
+            android.widget.FrameLayout container =
+                (android.widget.FrameLayout) findViewById(R.id.mediator_container);
+            if (container == null) {
+                android.util.Log.e("Mediator",
+                    "mediator_container not found in layout — cannot start poller for " + scriptId);
+                return;
+            }
+            MediatorWebView mv = new MediatorWebView(MainActivity.this, container);
+            mediatorWebViews.put(scriptId, mv);
+            MediatorBridgePoller.start(scriptId, mv);
+            android.util.Log.i("Mediator", "Poller started for: " + scriptId);
+        } catch (Exception e) {
+            android.util.Log.e("Mediator",
+                "startPollerForScript failed for " + scriptId + ": " + e.getMessage(), e);
+        }
     }
 
     private boolean isPingReachable() {
@@ -472,15 +491,9 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public void startMediatorScript(String scriptId) {
-            // Create a hidden WebView for this script if not already running
-            if (mediatorWebViews.containsKey(scriptId)) return;
-
-            android.widget.FrameLayout container =
-                (android.widget.FrameLayout) findViewById(R.id.mediator_container);
-
-            MediatorWebView mv = new MediatorWebView(MainActivity.this, container);
-            mediatorWebViews.put(scriptId, mv);
-            MediatorBridgePoller.start(scriptId, mv);
+            // JavascriptInterface callbacks run on a background thread — must
+            // post WebView creation to the main thread.
+            mainHandler.post(() -> startPollerForScript(scriptId));
         }
 
         @JavascriptInterface
