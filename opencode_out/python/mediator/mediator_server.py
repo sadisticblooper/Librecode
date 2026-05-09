@@ -18,6 +18,16 @@ import os
 import uuid
 import threading
 import time
+
+# Use gevent primitives if gevent is running (monkey-patched), otherwise stdlib.
+try:
+    import gevent.event
+    import gevent.lock
+    _Event = gevent.event.Event
+    _Lock  = gevent.lock.RLock
+except ImportError:
+    _Event = threading.Event
+    _Lock  = threading.Lock
 import logging
 from typing import Optional
 
@@ -33,18 +43,18 @@ logger = logging.getLogger(__name__)
 # Android WebView posts results here; Python side blocks waiting for them.
 _eval_pending: dict[str, threading.Event]   = {}   # req_id → Event
 _eval_results: dict[str, Optional[str]]     = {}   # req_id → result string
-_eval_lock = threading.Lock()
+_eval_lock = _Lock()
 
 # Per-script_id queue of pending JS eval requests for the Android side to pick up
 _eval_requests: dict[str, list[dict]] = {}  # script_id → [{id, js}, ...]
-_eval_req_lock = threading.Lock()
+_eval_req_lock = _Lock()
 
 
 def _build_evaluator(script_id: str, timeout_sec: float = 30.0):
     """Returns an evaluator function wired to the Android bridge."""
     def evaluator(js: str) -> Optional[str]:
         req_id = str(uuid.uuid4())
-        evt    = threading.Event()
+        evt    = _Event()
 
         with _eval_lock:
             _eval_pending[req_id] = evt
@@ -69,7 +79,7 @@ def _build_evaluator(script_id: str, timeout_sec: float = 30.0):
 
 # ── Loaded executors cache ─────────────────────────────────────────────────────
 _executors: dict[str, DslExecutor] = {}
-_exec_lock = threading.Lock()
+_exec_lock = _Lock()
 
 
 def _get_scripts_dir() -> str:
@@ -363,7 +373,7 @@ def _handle_chat(script_id: str, req) -> Response:
             url=manifest.get("url", ""),
             port=manifest.get("port", 0),
         )
-        load_done = threading.Event()
+        load_done = _Event()
         def _do_load():
             try:
                 executor.load()
