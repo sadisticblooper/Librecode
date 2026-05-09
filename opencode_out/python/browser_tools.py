@@ -276,11 +276,9 @@ BROWSER_OPEN_SPEC = {
         "name": "spawn_browser",
         "description": (
             "Open a floating browser window and navigate to a URL. "
-            "The browser appears as a draggable overlay on screen. "
+            "ONLY use this to open or restart the browser — do NOT call this to click things or interact with an already-open page. "
+            "If the browser is already open, use browser_click, browser_fill, browser_navigate instead. "
             "Returns a DOM snapshot with UIDs you can use to click/fill elements. "
-            "After calling this, additional browser control tools become available. "
-            "Optionally pass on_load JS that runs immediately after the page loads — "
-            "its result is returned alongside the snapshot. "
             "WARNING: Google login never works in this browser — use browser_login_cct instead."
         ),
         "parameters": {
@@ -320,7 +318,7 @@ BROWSER_CONTROL_SPECS = [
         "type": "function",
         "function": {
             "name": "browser_click",
-            "description": "Click an element in the browser by its UID from a snapshot. Returns updated snapshot.",
+            "description": "Click an element in the open browser by its UID from a snapshot. THIS is the correct tool to click anything — never call spawn_browser to click. Use the UID from the most recent snapshot.",
             "parameters": {
                 "type": "object",
                 "properties": {

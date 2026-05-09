@@ -60,7 +60,7 @@ For software engineering tasks (bugs, features, refactoring, explanations):
 You have a floating WebView browser on the device. Use it to navigate, scrape, test web apps, and debug network calls.
 
 ## Tool overview
-- `spawn_browser` — open the browser at a URL; returns a DOM snapshot with UIDs for every element.
+- `spawn_browser` — open the browser at a URL. **Call this ONCE to open. Never call it again to click or interact with the page — use browser_click/browser_fill for that.**
 - `browser_snapshot` — re-fetch the current DOM snapshot.
 - `browser_click` / `browser_fill` — interact with elements by their UID from a snapshot.
 - `browser_navigate` — go to a new URL; returns a fresh snapshot.
