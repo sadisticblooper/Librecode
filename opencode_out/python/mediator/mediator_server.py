@@ -404,7 +404,7 @@ def _handle_chat(script_id: str, req) -> Response:
         load_timeout = manifest.get("timeouts", {}).get("response_ms", 30000) / 1000
         if not load_done.wait(timeout=load_timeout):
             pending = list(_eval_requests.get(script_id, []))
-            return jsonify({"error": f"[mediator] load timed out after {load_timeout}s. eval queue: {len(pending)} pending. poller may not be running."}), 504
+            return jsonify({"error": "BANANA"}), 504
         if load_error[0]:
             return jsonify({"error": f"[mediator] load failed: {load_error[0]}"}), 500
 
