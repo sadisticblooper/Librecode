@@ -51,8 +51,14 @@ _eval_req_lock = _Lock()
 
 
 def _build_evaluator(script_id: str, timeout_sec: float = 30.0):
-    """Returns an evaluator function wired to the Android bridge."""
-    def evaluator(js: str) -> Optional[str]:
+    """Returns an evaluator function wired to the Android bridge.
+
+    The returned evaluator accepts an optional ``timeout_sec`` keyword arg
+    that overrides the default for that specific call.  _poll() uses this to
+    pass a short per-call timeout so it can retry within its own deadline
+    instead of blocking for the full response_ms on every iteration.
+    """
+    def evaluator(js: str, timeout_sec: float = timeout_sec) -> Optional[str]:
         req_id = str(uuid.uuid4())
         evt    = _Event()
 

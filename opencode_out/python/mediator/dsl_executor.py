@@ -200,15 +200,25 @@ class DslExecutor:
     def _poll(self, js: str, expected: str, timeout_ms: int):
         interval_ms = self.timeouts["poll_interval_ms"]
         deadline    = time.time() + timeout_ms / 1000
+        # Per-call eval timeout: short so we can actually retry within the
+        # overall deadline instead of blocking for the full response_ms each
+        # iteration.  Use 4× poll_interval but at least 2 s, capped to
+        # remaining time so we never block past the deadline.
+        poll_eval_timeout = max(self.timeouts["poll_interval_ms"] * 4 / 1000, 2.0)
         while time.time() < deadline:
-            result = self._eval_raw(js)
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                break
+            result = self._eval_raw(js, timeout_sec=min(poll_eval_timeout, remaining))
             if result == expected:
                 return
             time.sleep(interval_ms / 1000)
         raise DslError(f"Timeout waiting for '{expected}' — JS: {js[:80]}")
 
-    def _eval_raw(self, js: str) -> Optional[str]:
+    def _eval_raw(self, js: str, timeout_sec: float = None) -> Optional[str]:
         try:
+            if timeout_sec is not None:
+                return self._eval(js, timeout_sec=timeout_sec)
             return self._eval(js)
         except Exception as e:
             logger.error("eval error: %s", e)
