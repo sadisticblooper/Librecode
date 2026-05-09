@@ -148,28 +148,16 @@ def type_js(selector: str, value: str) -> str:
 }})()"""
 
 
-def _is_visible_js(finder: str) -> str:
-    """JS snippet: returns true if element exists AND is visible (not display:none etc)."""
-    return (
-        f"(function(){{"
-        f"  const el={finder};"
-        f"  if(!el)return false;"
-        f"  const s=window.getComputedStyle(el);"
-        f"  return s.display!=='none'&&s.visibility!=='hidden'&&s.opacity!=='0';"
-        f"}})()"
-    )
-
-
 def wait_for_js(selector: str) -> str:
-    """Returns a JS polling expression: resolves to 'FOUND' when element is visible."""
+    """Returns a JS polling expression: resolves to 'FOUND' when element appears."""
     finder = selector_to_js_finder(selector)
-    return f"{_is_visible_js(finder)} ? 'FOUND' : null"
+    return f"({finder})!=null ? 'FOUND' : null"
 
 
 def wait_while_js(selector: str) -> str:
-    """Returns a JS polling expression: resolves to 'GONE' when element is no longer visible."""
+    """Returns a JS polling expression: resolves to 'GONE' when element disappears."""
     finder = selector_to_js_finder(selector)
-    return f"{_is_visible_js(finder)} ? null : 'GONE'"
+    return f"({finder})==null ? 'GONE' : null"
 
 
 def extract_js(strategy: str) -> str:
