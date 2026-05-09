@@ -124,16 +124,18 @@ def tool_browser_open(url: str = "about:blank", on_load: str = "") -> str:
             f"DOM snapshot:\n{snap_str}\n"
             f"{remaining_note}\n\n"
             f"Browser control tools are now available:\n"
-            f"  browser_snapshot   - get current DOM tree with UIDs (supports offset= for pagination)\n"
+            f"  browser_snapshot   - get interactive elements with UIDs (paginate with offset=; use browser_html/browser_dom_query if element not found)\n"
             f"  browser_click      - click element by UID\n"
             f"  browser_fill       - type into input by UID\n"
             f"  browser_navigate   - go to a URL (returns new snapshot)\n"
-            f"  browser_eval       - run JavaScript (MUST end with return or be single expression)\n"
+            f"  browser_eval       - run JavaScript — MUST end with `return <value>` or be a single expression\n"
+            f"  browser_html       - get full page outerHTML (use when snapshot misses elements)\n"
+            f"  browser_dom_query  - find elements by CSS selector (e.g. 'input[type=password]')\n"
             f"  browser_network    - get all XHR/fetch calls captured since page load\n"
             f"  browser_wait       - wait for text to appear\n"
             f"  browser_screenshot - capture screenshot as base64\n"
             f"  browser_cookies    - get cookies for a domain\n"
-            f"  browser_login_cct  - open Chrome tab for login (Google, GitHub, etc)\n"
+            f"  browser_login_cct  - REQUIRED for Google/GitHub/OAuth login (WebView is always blocked)\n"
             f"  browser_close      - close the browser\n\n"
             f"Use UIDs from the snapshot to interact with elements."
         )
@@ -278,7 +280,8 @@ BROWSER_OPEN_SPEC = {
             "Returns a DOM snapshot with UIDs you can use to click/fill elements. "
             "After calling this, additional browser control tools become available. "
             "Optionally pass on_load JS that runs immediately after the page loads — "
-            "its result is returned alongside the snapshot."
+            "its result is returned alongside the snapshot. "
+            "WARNING: Google login never works in this browser — use browser_login_cct instead."
         ),
         "parameters": {
             "type": "object",
@@ -299,8 +302,11 @@ BROWSER_CONTROL_SPECS = [
             "description": (
                 "Get the current DOM tree of the open browser with UIDs for all interactive elements. "
                 "Returns up to 50 interactive elements per call. "
-                "If the page has more, the response ends with a warning showing how many remain and the next offset to use. "
-                "Pass offset to page through elements, e.g. offset=50 for the next 50."
+                "If the page has more, the response ends with a warning — call again with offset=50, offset=100 etc to page through. "
+                "IMPORTANT: snapshot only shows INTERACTIVE elements (buttons, inputs, links) — NOT all text or page structure. "
+                "If you can't find an element: (1) page through with higher offsets, (2) use browser_dom_query with a CSS selector "
+                "like 'input[type=password]' or '[name=email]', (3) use browser_html for full HTML, "
+                "(4) use browser_screenshot to visually see the page. Never give up after one snapshot."
             ),
             "parameters": {
                 "type": "object",
@@ -359,12 +365,16 @@ BROWSER_CONTROL_SPECS = [
             "name": "browser_eval",
             "description": (
                 "Execute JavaScript in the open browser and return the result. "
-                "CRITICAL: Your script is wrapped in an IIFE — it MUST end with a `return` statement "
-                "or be a single expression, otherwise you get '(no return value)'. "
-                "CORRECT: `return document.title` or just `document.title`. "
-                "WRONG: `let x = document.title` (no return = undefined). "
-                "For async work, return a Promise — it is awaited automatically. "
-                "Do NOT use this for Python — use python_exec for that."
+                "CRITICAL: Your script runs inside (function(){ YOUR_SCRIPT })() — "
+                "it MUST end with `return <value>` or be a single expression. "
+                "Without return, you ALWAYS get '(no return value — script completed but returned undefined)'. "
+                "CORRECT examples: `return document.title` | `return document.querySelector('input').value` | "
+                "`var el = document.querySelector('input[type=email]'); return el ? el.value : 'not found'`. "
+                "WRONG (no return = silent undefined): `let x = document.title` | `console.log(x)` | "
+                "`document.querySelector('input')` as a statement. "
+                "For multi-line scripts, always end with return. "
+                "For async: `return fetch('/api').then(r => r.json())`. "
+                "Do NOT use for Python — use python_exec for that."
             ),
             "parameters": {
                 "type": "object",
@@ -417,10 +427,13 @@ BROWSER_CONTROL_SPECS = [
         "function": {
             "name": "browser_login_cct",
             "description": (
-                "Open a Chrome Custom Tab for the user to log in to a service (Google, GitHub, etc). "
-                "Use this when a site blocks WebView login. "
-                "The user logs in manually; session cookies carry over to the browser automatically. "
-                "After the user closes the login tab, call browser_navigate to continue."
+                "Open a real Chrome tab for the user to log in manually (Google, GitHub, OAuth, etc). "
+                "USE THIS IMMEDIATELY for any Google login — Google ALWAYS blocks WebView with bot detection. "
+                "Signs of bot detection: CAPTCHA, 'couldn't sign you in', challenge screen, "
+                "or DOM with no email/password fields when you expect them. "
+                "The user logs in manually in the Chrome tab; session cookies carry over automatically. "
+                "After the user says they're done, call browser_navigate to continue. "
+                "Do NOT keep retrying Google login in WebView — it will never work."
             ),
             "parameters": {
                 "type": "object",

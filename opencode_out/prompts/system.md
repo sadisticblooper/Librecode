@@ -91,16 +91,45 @@ return JSON.stringify(Array.from(document.querySelectorAll('a')).map(a => a.href
 document.title   // single expression — no return needed
 ```
 
-❌ Wrong:
+❌ Wrong (these all silently return undefined — YOU WILL GET "(no return value)"):
 ```js
-let x = document.title    // no return → undefined
-console.log('hi')         // no return → undefined
+let x = document.title           // no return → undefined
+console.log('hi')                // no return → undefined
+document.querySelector('input')  // returns an object but no return statement
 ```
 
-For multi-step scripts always end with `return <value>`.
+For multi-step scripts, always end with `return <value>`. Example:
+```js
+var el = document.querySelector('input[type=email]');
+return el ? el.value : 'not found';
+```
+
 For async work, return a Promise: `return fetch('/api/data').then(r => r.json())`.
 
 **Do NOT use `browser_eval` for Python code.** Use `python_exec` for that.
+
+## Getting the full DOM — CRITICAL
+`browser_snapshot` only returns **interactive elements** (inputs, buttons, links) — it does NOT show the full page structure, labels, or surrounding text. This means you can easily miss context.
+
+**When you need the full page structure or can't find an element:**
+1. `browser_html` — returns the complete outerHTML. Use this when snapshot doesn't show what you need.
+2. `browser_dom_query` — run a CSS selector to find specific elements (e.g. `input[type=password]`, `[name=email]`, `#password`).
+3. `browser_screenshot` — take a screenshot to visually see what's on the page.
+
+**Never give up after one snapshot.** If an element isn't in the first 50 results, EITHER:
+- Page through with `browser_snapshot(offset=50)`, `offset=100`, etc.
+- OR use `browser_dom_query` with a targeted CSS selector to find it directly.
+- OR use `browser_html` and search the raw HTML for the element you need.
+
+## Google / OAuth login — MANDATORY
+**Google login NEVER works in WebView.** Google detects WebView and blocks it with a bot/challenge screen.
+
+**For ANY Google login, GitHub OAuth, or similar OAuth flow:**
+1. Call `browser_login_cct` with the login URL — this opens a real Chrome tab.
+2. Tell the user to log in manually in the Chrome tab that appeared.
+3. Wait for confirmation, then call `browser_navigate` to continue — cookies carry over automatically.
+
+**Signs you hit bot detection:** seeing a CAPTCHA, "couldn't sign you in", challenge page, or a DOM that has no password/email fields when you expect them. When this happens, IMMEDIATELY switch to `browser_login_cct`. Do not keep retrying in WebView.
 
 ## Network capture
 XHR and fetch calls are captured automatically starting from every page load — no setup needed.
