@@ -55,6 +55,27 @@ class DslError(RuntimeError):
     pass
 
 
+class _BridgeTimeout:
+    """Sentinel returned by _eval_raw when the Android bridge did not respond.
+
+    This is distinct from ``None``, which means the bridge *did* respond but
+    the JS expression evaluated to null/undefined.  Keeping these two states
+    separate is what lets ``_poll`` fire the correct error message.
+    """
+    _instance = None
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
+    def __repr__(self):
+        return "<BridgeTimeout>"
+
+
+BRIDGE_TIMEOUT = _BridgeTimeout()
+
+
 class DslExecutor:
     """
     Loads and executes a .oc script file.
@@ -172,7 +193,9 @@ class DslExecutor:
             sel = line[6:].strip()
             js  = click_js(sel)
             res = self._eval_raw(js)
-            if res == "NOT_FOUND":
+            if res is BRIDGE_TIMEOUT:
+                logger.warning("CLICK: bridge timeout — %s", sel)
+            elif res == "NOT_FOUND":
                 logger.warning("CLICK: element not found — %s", sel)
 
         # TYPE <selector> WITH <value>
@@ -183,7 +206,9 @@ class DslExecutor:
                 # val may still contain $INPUT substituted already
                 js  = type_js(sel, val)
                 res = self._eval_raw(js)
-                if res == "NOT_FOUND":
+                if res is BRIDGE_TIMEOUT:
+                    logger.warning("TYPE: bridge timeout — %s", sel)
+                elif res == "NOT_FOUND":
                     logger.warning("TYPE: element not found — %s", sel)
 
         # EXTRACT <strategy>
@@ -209,7 +234,7 @@ class DslExecutor:
                 sel, cmd = m.group(1).strip(), m.group(2).strip()
                 vis_js   = if_visible_finder_js(sel)
                 vis      = self._eval_raw(vis_js)
-                if vis == "VISIBLE":
+                if vis is not BRIDGE_TIMEOUT and vis == "VISIBLE":
                     return self._run_line(cmd, input_val, timeout_ms)
 
         # RETURN ERROR:<reason>
@@ -225,16 +250,21 @@ class DslExecutor:
         """Poll until JS returns expected value, or raise a detailed DslError."""
         interval_ms  = self.timeouts["poll_interval_ms"]
         deadline     = time.time() + timeout_ms / 1000
-        bridge_alive = False   # did we ever get ANY non-None from Android?
+        bridge_alive = False   # did Android ever respond (even with null)?
         last_result  = "<no response>"
 
         while time.time() < deadline:
-            raw = self._eval(js)               # None = bridge timeout, str = bridge alive
-            if raw is not None:
+            raw = self._eval_raw(js)
+            if raw is BRIDGE_TIMEOUT:
+                # Android never picked up this request; keep waiting but don't
+                # mark the bridge as alive.
+                pass
+            else:
+                # Bridge responded — even None (JS null) proves it's running.
                 bridge_alive = True
                 last_result  = repr(raw)
-            if raw == expected:
-                return
+                if raw == expected:
+                    return
             time.sleep(interval_ms / 1000)
 
         # Timeout — figure out exactly why
@@ -295,10 +325,20 @@ class DslExecutor:
 
         return " | ".join(lines)
 
-    def _eval_raw(self, js: str) -> Optional[str]:
-        """Eval JS, returning None on bridge timeout or JS null. Never raises."""
+    def _eval_raw(self, js: str):
+        """Eval JS and return the result.  Never raises.
+
+        Return values
+        -------------
+        str           Bridge responded; JS returned that string.
+        None          Bridge responded; JS returned null/undefined.
+        BRIDGE_TIMEOUT  Bridge did not respond (Android-side timeout or
+                        exception).  Callers must check with
+                        ``result is BRIDGE_TIMEOUT`` before treating the
+                        value as a JS result.
+        """
         try:
             return self._eval(js)
         except Exception as e:
-            logger.error("eval error: %s", e)
-            return None
+            logger.error("eval error (bridge timeout?): %s", e)
+            return BRIDGE_TIMEOUT
