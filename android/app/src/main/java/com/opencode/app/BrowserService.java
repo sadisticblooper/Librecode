@@ -439,10 +439,6 @@ public class BrowserService {
     // ─────────────────────────────────────────────────────────────────────
 
     private void buildWebView(android.app.Activity activity) {
-        // Point WebView at a persistent directory so cookies/storage survive restarts
-        String dataDir = getBrowserDataDir(activity);
-        android.webkit.WebView.setDataDirectorySuffix("opencode_browser");
-
         browserWebView = new WebView(activity);
         FrameLayout.LayoutParams wlp = new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
