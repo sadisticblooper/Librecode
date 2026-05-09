@@ -1,11 +1,8 @@
 """
-demo.py — Provider for the bundled demo site (http://localhost:5000/demo).
-Use this to test the full DSL bridge end-to-end without needing a real AI site.
-
-The demo site just echoes your message back: "Echo: <message>"
+demo.py — Provider for the bundled demo site.
+Calls the DSL executor directly instead of HTTP self-calling.
 """
 
-import json
 import requests
 
 PROVIDER_NAME = "demo"
@@ -15,40 +12,55 @@ MODELS = [
     {"id": "demo", "label": "Demo Site (test)", "ctx": 4000, "script_id": SCRIPT_ID},
 ]
 
-_INTERNAL_BASE = "http://localhost:5000"
-
 
 def stream_chat(model_id, messages, tools=None, max_tokens=None):
+    from python.mediator.mediator_server import _get_executor, _load_manifest
+    from python.mediator.script_session import session_manager
+    from python.mediator.dsl_executor import DslError
 
-    payload = {"model": SCRIPT_ID, "messages": messages}
-    if tools:
-        payload["tools"] = tools
-
-    try:
-        resp = requests.post(
-            f"{_INTERNAL_BASE}/v1/chat/completions/{SCRIPT_ID}",
-            json=payload,
-            timeout=30,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-    except Exception as e:
-        yield {"type": "error", "text": str(e)}
+    manifest = _load_manifest(SCRIPT_ID)
+    if not manifest:
+        yield {"type": "error", "text": "No manifest found for demo script"}
         return
 
-    msg  = (data.get("choices") or [{}])[0].get("message", {})
-    text = msg.get("content") or ""
-    if text:
-        yield {"type": "text", "text": text}
+    executor = _get_executor(SCRIPT_ID)
+    if not executor:
+        yield {"type": "error", "text": "Failed to load demo executor"}
+        return
 
-    for tc in msg.get("tool_calls") or []:
-        fn = tc.get("function", {})
-        yield {
-            "type":      "tool_delta",
-            "index":     0,
-            "id":        tc.get("id", ""),
-            "name":      fn.get("name", ""),
-            "arguments": fn.get("arguments", "{}"),
-        }
+    # Flatten messages to a single string
+    parts = []
+    for m in messages:
+        role    = m.get("role", "")
+        content = m.get("content", "") or ""
+        if role == "user":
+            parts.append(content)
+        elif role == "system":
+            parts.append(f"[System]: {content}")
+        elif role == "assistant":
+            parts.append(f"[Assistant]: {content}")
+    user_input = "\n".join(parts).strip()
 
+    try:
+        if not session_manager.is_loaded(SCRIPT_ID):
+            session_manager.get_or_create(
+                script_id=SCRIPT_ID,
+                url=manifest.get("url", ""),
+                port=manifest.get("port", 0),
+            )
+            executor.load()
+            session_manager.mark_loaded(SCRIPT_ID)
+
+        executor.send(user_input)
+        reply = executor.read()
+        session_manager.reset_errors(SCRIPT_ID)
+    except DslError as e:
+        yield {"type": "error", "text": f"DSL error: {e}"}
+        return
+    except Exception as e:
+        yield {"type": "error", "text": f"Executor error: {e}"}
+        return
+
+    if reply:
+        yield {"type": "text", "text": reply}
     yield {"type": "done"}
