@@ -1,5 +1,9 @@
 LOAD https://chatgpt.com
 
+ON LOAD
+  WAIT_FOR     placeholder:Message ChatGPT
+END
+
 ON SEND
   WAIT_FOR     placeholder:Message ChatGPT
   IF_VISIBLE   aria:New chat THEN CLICK aria:New chat

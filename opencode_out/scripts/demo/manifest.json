@@ -1,11 +1,11 @@
 {
   "id": "demo",
   "label": "Demo Site (test)",
-  "url": "https://sadisticblooper.github.io/Sjdjd/",
+  "url": "https://sadisticblooder.github.io/Sjdjd/",
   "port": 11440,
   "supports_tools": false,
   "timeouts": {
-    "ready_ms": 5000,
+    "ready_ms": 20000,
     "send_ms": 5000,
     "response_ms": 15000,
     "stable_ms": 1000,

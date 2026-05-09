@@ -51,14 +51,8 @@ _eval_req_lock = _Lock()
 
 
 def _build_evaluator(script_id: str, timeout_sec: float = 30.0):
-    """Returns an evaluator function wired to the Android bridge.
-
-    The returned evaluator accepts an optional ``timeout_sec`` keyword arg
-    that overrides the default for that specific call.  _poll() uses this to
-    pass a short per-call timeout so it can retry within its own deadline
-    instead of blocking for the full response_ms on every iteration.
-    """
-    def evaluator(js: str, timeout_sec: float = timeout_sec) -> Optional[str]:
+    """Returns an evaluator function wired to the Android bridge."""
+    def evaluator(js: str) -> Optional[str]:
         req_id = str(uuid.uuid4())
         evt    = _Event()
 
@@ -119,7 +113,7 @@ def _get_executor(script_id: str) -> Optional[DslExecutor]:
     if not os.path.isfile(script_path):
         return None
 
-    evaluator = _build_evaluator(script_id, timeout_sec=manifest.get("timeouts", {}).get("response_ms", 120_000) / 1000)
+    evaluator = _build_evaluator(script_id, timeout_sec=manifest.get("timeouts", {}).get("eval_bridge_ms", 10_000) / 1000)
     executor  = DslExecutor(script_path, manifest, evaluator)
 
     with _exec_lock:
@@ -254,9 +248,10 @@ def register_mediator_routes(app: Flask):
             "port":  data.get("port", 11440),
             "supports_tools": False,
             "timeouts": {
-                "ready_ms": 8000,
+                "ready_ms": 20000,
                 "send_ms": 5000,
                 "response_ms": 120000,
+                "eval_bridge_ms": 10000,
                 "stable_ms": 1500,
                 "poll_interval_ms": 600,
             },
@@ -269,6 +264,10 @@ def register_mediator_routes(app: Flask):
 # Selectors use: aria: placeholder: role: id: css: text:
 
 LOAD {data.get('url', 'https://example.com')}
+
+ON LOAD
+  WAIT_FOR     placeholder:Message
+END
 
 ON SEND
   WAIT_FOR     placeholder:Message

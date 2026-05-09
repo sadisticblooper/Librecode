@@ -8,9 +8,25 @@ Java side exposes, OR falls back to a mock evaluator for testing.
 Public API
 ----------
 executor = DslExecutor(script_dir, manifest, evaluator_fn)
-executor.load()                  # executes LOAD
+executor.load()                  # executes LOAD + ON LOAD block
 executor.send("user message")    # executes ON SEND block
 reply = executor.read()          # executes ON READ block
+
+DSL sections
+------------
+LOAD <url>          Navigate the WebView to the URL.
+
+ON LOAD             Runs after LOAD navigates, using ready_ms timeout.
+  WAIT_FOR ...      Use this to block until the page is interactive.
+END
+
+ON SEND             Runs on each user message, using send_ms timeout.
+  ...
+END
+
+ON READ             Runs to extract the reply, using response_ms timeout.
+  ...
+END
 """
 
 import re
@@ -66,6 +82,7 @@ class DslExecutor:
         self._eval       = evaluator
         self.timeouts    = {**DEFAULT_TIMEOUTS, **manifest.get("timeouts", {})}
 
+        self._on_load_lines: list[str] = []
         self._on_send_lines: list[str] = []
         self._on_read_lines: list[str] = []
         self._load_url: Optional[str]  = None
@@ -88,12 +105,16 @@ class DslExecutor:
 
             if upper.startswith("LOAD "):
                 self._load_url = line[5:].strip()
+            elif upper == "ON LOAD":
+                section = "load"
             elif upper == "ON SEND":
                 section = "send"
             elif upper == "ON READ":
                 section = "read"
             elif upper == "END":
                 section = None
+            elif section == "load":
+                self._on_load_lines.append(line)
             elif section == "send":
                 self._on_send_lines.append(line)
             elif section == "read":
@@ -102,9 +123,12 @@ class DslExecutor:
     # ── Public API ─────────────────────────────────────────────────────────────
 
     def load(self):
-        """Navigate the WebView to the provider URL."""
+        """Navigate the WebView to the provider URL, then run ON LOAD block."""
         if self._load_url:
             self._eval_raw(f"window.location.href = {repr(self._load_url)};")
+        for line in self._on_load_lines:
+            self._run_line(line, input_val=None,
+                           timeout_ms=self.timeouts["ready_ms"])
 
     def send(self, message: str):
         """Execute ON SEND block with $INPUT = message."""
@@ -200,25 +224,15 @@ class DslExecutor:
     def _poll(self, js: str, expected: str, timeout_ms: int):
         interval_ms = self.timeouts["poll_interval_ms"]
         deadline    = time.time() + timeout_ms / 1000
-        # Per-call eval timeout: short so we can actually retry within the
-        # overall deadline instead of blocking for the full response_ms each
-        # iteration.  Use 4× poll_interval but at least 2 s, capped to
-        # remaining time so we never block past the deadline.
-        poll_eval_timeout = max(self.timeouts["poll_interval_ms"] * 4 / 1000, 2.0)
         while time.time() < deadline:
-            remaining = deadline - time.time()
-            if remaining <= 0:
-                break
-            result = self._eval_raw(js, timeout_sec=min(poll_eval_timeout, remaining))
+            result = self._eval_raw(js)
             if result == expected:
                 return
             time.sleep(interval_ms / 1000)
         raise DslError(f"Timeout waiting for '{expected}' — JS: {js[:80]}")
 
-    def _eval_raw(self, js: str, timeout_sec: float = None) -> Optional[str]:
+    def _eval_raw(self, js: str) -> Optional[str]:
         try:
-            if timeout_sec is not None:
-                return self._eval(js, timeout_sec=timeout_sec)
             return self._eval(js)
         except Exception as e:
             logger.error("eval error: %s", e)
