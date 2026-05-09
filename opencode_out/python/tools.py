@@ -1095,7 +1095,7 @@ def run_tool(name: str, args: dict) -> str:
             dispatch = {
                 "browser_open":       lambda: bt.tool_browser_open(args.get("url", "about:blank")),
                 "spawn_browser":      lambda: bt.tool_browser_open(args.get("url", "about:blank"), args.get("on_load", "")),
-                "browser_snapshot":   lambda: bt.tool_browser_snapshot(),
+                "browser_snapshot":   lambda: bt.tool_browser_snapshot(int(args.get("offset", 0))),
                 "browser_click":      lambda: bt.tool_browser_click(args.get("uid", "")),
                 "browser_fill":       lambda: bt.tool_browser_fill(args.get("uid", ""), args.get("value", "")),
                 "browser_navigate":   lambda: bt.tool_browser_navigate(args.get("url", "")),

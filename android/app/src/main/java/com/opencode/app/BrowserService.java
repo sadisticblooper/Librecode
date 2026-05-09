@@ -124,11 +124,13 @@ public class BrowserService {
         return result.get();
     }
 
-    public String snapshot() {
+    public String snapshot() { return snapshot(0); }
+
+    public String snapshot(int offset) {
         if (!isVisible || browserWebView == null) return "{\"error\":\"Browser is not open.\"}";
         CountDownLatch latch = new CountDownLatch(1);
         AtomicReference<String> result = new AtomicReference<>("");
-        mainHandler.post(() -> snapshotInternal(s -> { result.set(s); latch.countDown(); }));
+        mainHandler.post(() -> snapshotInternal(s -> { result.set(s); latch.countDown(); }, offset));
         awaitLatch(latch, 15);
         String r = result.get();
         if (r == null || r.isEmpty())
@@ -770,30 +772,42 @@ public class BrowserService {
     // Snapshot / JS helpers
     // ─────────────────────────────────────────────────────────────────────
 
-    private void snapshotInternal(Consumer<String> cb) {
-        browserWebView.evaluateJavascript(buildSnapshotJs(), raw -> {
-            String url   = browserWebView.getUrl()   != null ? browserWebView.getUrl()   : "";
-            String title = browserWebView.getTitle() != null ? browserWebView.getTitle() : "";
-            String tree  = unquoteJs(raw);
-            cb.accept("{\"url\":\"" + esc(url) + "\",\"title\":\"" + esc(title) +
-                      "\",\"snapshot\":" + (tree != null ? tree : "null") + "}");
+    private void snapshotInternal(Consumer<String> cb) { snapshotInternal(cb, 0); }
+
+    private void snapshotInternal(Consumer<String> cb, int offset) {
+        browserWebView.evaluateJavascript(buildSnapshotJs(offset, 50), raw -> {
+            String url      = browserWebView.getUrl()   != null ? browserWebView.getUrl()   : "";
+            String title    = browserWebView.getTitle() != null ? browserWebView.getTitle() : "";
+            String jsResult = unquoteJs(raw);
+            if (jsResult != null && jsResult.startsWith("{")) {
+                // JS returned {tree, total, offset, limit, remaining} — inject url + title
+                cb.accept("{\"url\":\"" + esc(url) + "\",\"title\":\"" + esc(title) + "\"," + jsResult.substring(1));
+            } else {
+                cb.accept("{\"url\":\"" + esc(url) + "\",\"title\":\"" + esc(title) +
+                          "\",\"tree\":null,\"total\":0,\"offset\":0,\"remaining\":0}");
+            }
         });
     }
 
-    private String buildSnapshotJs() {
+    private String buildSnapshotJs(int offset, int limit) {
         int pid = pageCounter;
-        return "(function(){var uid=1;" +
+        // ic = interactive element counter (global across traversal)
+        // Only elements in [offset, offset+limit) get UIDs assigned.
+        // Full traversal still happens so we can count total and remaining.
+        return "(function(off,lim){var uid=1;" +
             "var TAGS='a,button,input,textarea,select,[role=button],[role=link]," +
             "[role=checkbox],[role=menuitem],[role=tab],[role=option],[contenteditable=true]';" +
+            "var skip=['script','style','svg','noscript','head','meta','link'];" +
+            "var ic=0;" +
             "function proc(el,d){" +
             "if(d>20||!el)return null;" +
             "if(el.nodeType===3){var t=el.textContent.trim();return t?{t:'txt',v:t.substring(0,200)}:null;}" +
             "if(el.nodeType!==1)return null;" +
             "var tag=el.tagName.toLowerCase();" +
-            "if(['script','style','svg','noscript','head','meta','link'].includes(tag))return null;" +
+            "if(skip.indexOf(tag)>=0)return null;" +
             "var inter=el.matches&&el.matches(TAGS);" +
             "var id=null;" +
-            "if(inter){id='" + pid + "_'+(uid++);el.setAttribute('data-ocuid',id);}" +
+            "if(inter){if(ic>=off&&ic<off+lim){id='" + pid + "_'+(uid++);el.setAttribute('data-ocuid',id);}ic++;}" +
             "var r={tag:tag};" +
             "if(id)r.uid=id;" +
             "var al=el.getAttribute&&el.getAttribute('aria-label');" +
@@ -808,16 +822,17 @@ public class BrowserService {
             "if(hr)r.href=hr.substring(0,200);" +
             "if(rl)r.role=rl;" +
             "if(vl!==undefined&&vl!=='')r.value=String(vl).substring(0,100);" +
-            "if(inter){var txt=el.innerText?el.innerText.trim().substring(0,200):'';if(txt)r.text=txt;}" +
-            // For non-interactive elements: recurse into childNodes AND shadow root
+            "if(inter&&id){var txt=el.innerText?el.innerText.trim().substring(0,200):'';if(txt)r.text=txt;}" +
             "if(!inter){var kids=[];" +
             "el.childNodes.forEach(function(c){var n=proc(c,d+1);if(n)kids.push(n);});" +
-            // Shadow DOM: if element has an open shadow root, walk it too
             "if(el.shadowRoot){el.shadowRoot.childNodes.forEach(function(c){var n=proc(c,d+1);if(n)kids.push(n);});}" +
             "if(kids.length)r.children=kids.slice(0,60);}" +
             "return r;}" +
             "var root=document.body||document.documentElement;" +
-            "return JSON.stringify(proc(root,0));})()";
+            "var tree=proc(root,0);" +
+            "var remaining=Math.max(0,ic-(off+lim));" +
+            "return JSON.stringify({tree:tree,total:ic,offset:off,limit:lim,remaining:remaining});" +
+            "})(" + offset + "," + limit + ")";
     }
 
     private String jsEval(String script) {

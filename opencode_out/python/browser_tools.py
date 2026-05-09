@@ -52,9 +52,7 @@ def _eject_tools():
 def _parse_snapshot_result(result: str, fallback_url: str = "") -> str:
     """
     Parse a snapshot/navigate JSON result and return a human-readable string.
-    Surfaces any error key clearly instead of silently swallowing it.
-    The full snapshot object is passed through without truncation so the AI
-    receives the complete DOM tree.
+    Handles the paginated format: {url, title, tree, total, offset, limit, remaining}.
     """
     if not result:
         return "Error: Got an empty response — the browser may have crashed or the page timed out."
@@ -64,13 +62,29 @@ def _parse_snapshot_result(result: str, fallback_url: str = "") -> str:
             return f"Error: {data['error']}"
         url = data.get("url", fallback_url)
         title = data.get("title", "")
-        snapshot = data.get("snapshot")
-        if snapshot:
-            # Serialize the full snapshot — no truncation
-            snap_str = json.dumps(snapshot, indent=2)
+
+        # New paginated format
+        tree = data.get("tree")
+        total = data.get("total", 0)
+        offset = data.get("offset", 0)
+        remaining = data.get("remaining", 0)
+        shown = total - offset - remaining  # interactive elements in this page
+
+        if tree:
+            snap_str = json.dumps(tree, indent=2)
         else:
             snap_str = "(empty snapshot — page may still be loading or has no visible body)"
-        return f"URL: {url}\nTitle: {title}\n\nDOM snapshot:\n{snap_str}"
+
+        if total > 0:
+            header = f"URL: {url}\nTitle: {title}\n(Interactive elements {offset + 1}–{offset + shown} of {total} shown)\n\nDOM snapshot:\n{snap_str}"
+        else:
+            header = f"URL: {url}\nTitle: {title}\n\nDOM snapshot:\n{snap_str}"
+
+        if remaining > 0:
+            next_offset = offset + shown
+            header += f"\n\n⚠️ {remaining} more interactive element(s) not shown. Call browser_snapshot with offset={next_offset} to see the next page."
+
+        return header
     except Exception:
         # Not JSON — return raw so the AI can still read it
         return result
@@ -96,18 +110,26 @@ def tool_browser_open(url: str = "about:blank", on_load: str = "") -> str:
             return f"Error opening browser: {data['error']}"
         current_url = data.get("url", url)
         title = data.get("title", "")
-        snapshot = data.get("snapshot")
-        snap_str = json.dumps(snapshot, indent=2) if snapshot else "(no snapshot)"
+        tree = data.get("tree")
+        total = data.get("total", 0)
+        remaining = data.get("remaining", 0)
+        shown = total - remaining
+        snap_str = json.dumps(tree, indent=2) if tree else "(no snapshot)"
+        page_info = f"(Interactive elements 1–{shown} of {total} shown)" if total > 0 else ""
+        remaining_note = f"\n\n⚠️ {remaining} more interactive element(s) not shown. Call browser_snapshot with offset={shown} to see the next page." if remaining > 0 else ""
         out = (
             f"Browser opened: {current_url}\n"
-            f"Title: {title}\n\n"
-            f"DOM snapshot:\n{snap_str}\n\n"
+            f"Title: {title}\n"
+            f"{page_info}\n\n"
+            f"DOM snapshot:\n{snap_str}\n"
+            f"{remaining_note}\n\n"
             f"Browser control tools are now available:\n"
-            f"  browser_snapshot   - get current DOM tree with UIDs\n"
+            f"  browser_snapshot   - get current DOM tree with UIDs (supports offset= for pagination)\n"
             f"  browser_click      - click element by UID\n"
             f"  browser_fill       - type into input by UID\n"
             f"  browser_navigate   - go to a URL (returns new snapshot)\n"
-            f"  browser_eval       - run JavaScript\n"
+            f"  browser_eval       - run JavaScript (MUST end with return or be single expression)\n"
+            f"  browser_network    - get all XHR/fetch calls captured since page load\n"
             f"  browser_wait       - wait for text to appear\n"
             f"  browser_screenshot - capture screenshot as base64\n"
             f"  browser_cookies    - get cookies for a domain\n"
@@ -127,11 +149,11 @@ def tool_browser_open(url: str = "about:blank", on_load: str = "") -> str:
         return base
 
 
-def tool_browser_snapshot() -> str:
+def tool_browser_snapshot(offset: int = 0) -> str:
     err = _check_open()
     if err:
         return err
-    result = str(_svc().snapshot())
+    result = str(_svc().snapshot(offset))
     return _parse_snapshot_result(result)
 
 
@@ -199,9 +221,15 @@ def tool_browser_wait(text: str, timeout_ms: int = 15000) -> str:
         data = json.loads(result)
         if "error" in data:
             return data["error"]
-        snapshot = data.get("snapshot")
-        snap_str = json.dumps(snapshot, indent=2)[:8000] if snapshot else ""
-        return f"Found '{text}'\n\nDOM snapshot:\n{snap_str}"
+        # waitForText returns a fresh snapshot — use tree key (new format)
+        tree = data.get("tree") or data.get("snapshot")  # fallback for compat
+        snap_str = json.dumps(tree, indent=2)[:8000] if tree else ""
+        total = data.get("total", 0)
+        remaining = data.get("remaining", 0)
+        shown = total - remaining
+        page_note = f"(elements 1–{shown} of {total})" if total > 0 else ""
+        remaining_note = f"\n⚠️ {remaining} more element(s) — call browser_snapshot with offset={shown} to continue." if remaining > 0 else ""
+        return f"Found '{text}' {page_note}\n\nDOM snapshot:\n{snap_str}{remaining_note}"
     except Exception:
         return result
 
@@ -268,8 +296,18 @@ BROWSER_CONTROL_SPECS = [
         "type": "function",
         "function": {
             "name": "browser_snapshot",
-            "description": "Get the current DOM tree of the open browser with UIDs for all interactive elements. Use UIDs to target elements with click/fill.",
-            "parameters": {"type": "object", "properties": {}},
+            "description": (
+                "Get the current DOM tree of the open browser with UIDs for all interactive elements. "
+                "Returns up to 50 interactive elements per call. "
+                "If the page has more, the response ends with a warning showing how many remain and the next offset to use. "
+                "Pass offset to page through elements, e.g. offset=50 for the next 50."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "offset": {"type": "integer", "description": "Index of the first interactive element to show (default 0). Use the value from the '⚠️ N more elements' message to page forward.", "default": 0},
+                },
+            },
         },
     },
     {
