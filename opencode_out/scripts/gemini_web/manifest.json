@@ -1,0 +1,15 @@
+{
+  "id": "gemini_web",
+  "label": "Gemini (Web)",
+  "url": "https://gemini.google.com",
+  "port": 11436,
+  "supports_tools": false,
+  "timeouts": {
+    "ready_ms": 10000,
+    "send_ms": 6000,
+    "response_ms": 120000,
+    "stable_ms": 2000,
+    "poll_interval_ms": 700
+  },
+  "script": "script.oc"
+}

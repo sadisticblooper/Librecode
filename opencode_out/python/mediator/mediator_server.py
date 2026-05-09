@@ -363,16 +363,19 @@ def _handle_chat(script_id: str, req) -> Response:
             url=manifest.get("url", ""),
             port=manifest.get("port", 0),
         )
+        load_done = threading.Event()
         def _do_load():
             try:
                 executor.load()
                 session_manager.mark_loaded(script_id)
             except Exception as e:
                 logger.error("auto-load error for %s: %s", script_id, e)
+            finally:
+                load_done.set()
         threading.Thread(target=_do_load, daemon=True).start()
-        # Wait for LOAD to complete before sending the first message
         ready_ms = manifest.get("timeouts", {}).get("ready_ms", 8000)
-        time.sleep(ready_ms / 1000)
+        if not load_done.wait(timeout=ready_ms / 1000):
+            return jsonify({"error": "Timed out waiting for page to load"}), 504
 
     # Flatten conversation → single user string
     user_parts = []

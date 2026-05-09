@@ -137,6 +137,8 @@ public class MainActivity extends Activity {
             long remaining = MIN_LOADING_MS - (System.currentTimeMillis() - startTime);
             long delay = Math.max(0, remaining);
 
+            if (ready) autoStartMediatorPollers();
+
             mainHandler.postDelayed(() -> {
                 if (ready) {
                     webView.loadUrl(FLASK_URL);
@@ -146,6 +148,39 @@ public class MainActivity extends Activity {
                 dismissLoadingOverlay();
             }, delay);
 
+        }).start();
+    }
+
+    private void autoStartMediatorPollers() {
+        new Thread(() -> {
+            try {
+                java.net.URL url = new java.net.URL("http://localhost:" + FLASK_PORT + "/mediator/scripts");
+                java.net.HttpURLConnection c = (java.net.HttpURLConnection) url.openConnection();
+                c.setConnectTimeout(3000);
+                c.setReadTimeout(3000);
+                java.io.BufferedReader r = new java.io.BufferedReader(
+                    new java.io.InputStreamReader(c.getInputStream(), java.nio.charset.StandardCharsets.UTF_8));
+                StringBuilder sb = new StringBuilder();
+                String line;
+                while ((line = r.readLine()) != null) sb.append(line);
+                r.close();
+                org.json.JSONObject json = new org.json.JSONObject(sb.toString());
+                org.json.JSONArray scripts = json.optJSONArray("scripts");
+                if (scripts == null) return;
+                for (int i = 0; i < scripts.length(); i++) {
+                    String scriptId = scripts.getJSONObject(i).optString("id");
+                    if (scriptId.isEmpty()) continue;
+                    android.widget.FrameLayout container =
+                        (android.widget.FrameLayout) findViewById(R.id.mediator_container);
+                    if (!mediatorWebViews.containsKey(scriptId)) {
+                        MediatorWebView mv = new MediatorWebView(MainActivity.this, container);
+                        mediatorWebViews.put(scriptId, mv);
+                        MediatorBridgePoller.start(scriptId, mv);
+                    }
+                }
+            } catch (Exception e) {
+                android.util.Log.w("Mediator", "autoStartMediatorPollers failed: " + e.getMessage());
+            }
         }).start();
     }
 
