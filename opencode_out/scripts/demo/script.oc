@@ -1,16 +1,14 @@
 # Demo site DSL script
-# 1. Deploy demo.html anywhere (Vercel, GitHub Pages, etc.)
-# 2. Replace the URL below + update "url" in manifest.json
 
-LOAD https://sadisticblooper.github.io/Sjdjd/
+LOAD https://sadisticblooder.github.io/Sjdjd/
 
 ON SEND
-  WAIT_FOR     placeholder:Type your message
-  TYPE         placeholder:Type your message  WITH $INPUT
-  CLICK        aria:Send message
-  WAIT_WHILE   aria:Stop generating
+  WAIT_FOR     placeholder:Message Opencode
+  TYPE         placeholder:Message Opencode  WITH $INPUT
+  CLICK        id:send
+  WAIT_WHILE   css:.stop-mode
 END
 
 ON READ
-  EXTRACT      last role:assistant
+  EXTRACT      last css:.msg.assistant
 END
