@@ -63,6 +63,7 @@ def _build_evaluator(script_id: str, timeout_sec: float = 30.0):
         with _eval_req_lock:
             _eval_requests.setdefault(script_id, []).append({"id": req_id, "js": js})
 
+        logger.info("[eval] enqueued req %s for %s: %s", req_id[:8], script_id, js[:60])
         got = evt.wait(timeout=timeout_sec)
 
         with _eval_lock:
@@ -70,8 +71,9 @@ def _build_evaluator(script_id: str, timeout_sec: float = 30.0):
             _eval_pending.pop(req_id, None)
 
         if not got:
-            logger.warning("eval timeout for req %s", req_id)
+            logger.warning("[eval] TIMEOUT for req %s (%.0fs)", req_id[:8], timeout_sec)
             return None
+        logger.info("[eval] got result for %s: %s", req_id[:8], str(result)[:60])
         return result
 
     return evaluator
@@ -294,7 +296,11 @@ END
                 session_manager.mark_loaded(script_id)
             except Exception as e:
                 logger.error("load error for %s: %s", script_id, e)
-        threading.Thread(target=_do_load, daemon=True).start()
+        try:
+            import gevent
+            gevent.spawn(_do_load)
+        except ImportError:
+            threading.Thread(target=_do_load, daemon=True).start()
         return jsonify({"status": "starting", "script_id": script_id})
 
     @app.route("/mediator/stop/<script_id>", methods=["POST"])
@@ -312,6 +318,7 @@ END
             queue = _eval_requests.get(script_id, [])
             if queue:
                 req = queue.pop(0)
+                logger.info("[poll] delivering req %s to Android for %s", req["id"][:8], script_id)
                 return jsonify({"pending": True, "id": req["id"], "js": req["js"]})
         return jsonify({"pending": False})
 
@@ -358,13 +365,19 @@ def _handle_chat(script_id: str, req) -> Response:
     messages = data.get("messages", [])
     tools    = data.get("tools")
 
+    logger.info("[mediator] _handle_chat called for script_id=%s", script_id)
+
     manifest = _load_manifest(script_id)
     if not manifest:
+        logger.error("[mediator] no manifest for %s", script_id)
         return jsonify({"error": f"No script found for id: {script_id}"}), 404
 
     executor = _get_executor(script_id)
     if not executor:
+        logger.error("[mediator] executor load failed for %s", script_id)
         return jsonify({"error": "Executor load failed"}), 500
+
+    logger.info("[mediator] is_loaded=%s for %s", session_manager.is_loaded(script_id), script_id)
 
     # Auto-start the session on first request — no manual button needed.
     if not session_manager.is_loaded(script_id):
@@ -373,19 +386,27 @@ def _handle_chat(script_id: str, req) -> Response:
             url=manifest.get("url", ""),
             port=manifest.get("port", 0),
         )
-        load_done = _Event()
+        load_done  = _Event()
+        load_error = [None]
         def _do_load():
             try:
                 executor.load()
                 session_manager.mark_loaded(script_id)
             except Exception as e:
-                logger.error("auto-load error for %s: %s", script_id, e)
+                load_error[0] = str(e)
             finally:
                 load_done.set()
-        threading.Thread(target=_do_load, daemon=True).start()
+        try:
+            import gevent
+            gevent.spawn(_do_load)
+        except ImportError:
+            threading.Thread(target=_do_load, daemon=True).start()
         load_timeout = manifest.get("timeouts", {}).get("response_ms", 30000) / 1000
         if not load_done.wait(timeout=load_timeout):
-            return jsonify({"error": "Timed out waiting for page to load"}), 504
+            pending = list(_eval_requests.get(script_id, []))
+            return jsonify({"error": f"[mediator] load timed out after {load_timeout}s. eval queue: {len(pending)} pending. poller may not be running."}), 504
+        if load_error[0]:
+            return jsonify({"error": f"[mediator] load failed: {load_error[0]}"}), 500
 
     # Flatten conversation → single user string
     user_parts = []

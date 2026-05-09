@@ -170,6 +170,7 @@ public class MainActivity extends Activity {
                 for (int i = 0; i < scripts.length(); i++) {
                     String scriptId = scripts.getJSONObject(i).optString("id");
                     if (scriptId.isEmpty()) continue;
+                    android.util.Log.i("Mediator", "Auto-starting poller for: " + scriptId);
                     android.widget.FrameLayout container =
                         (android.widget.FrameLayout) findViewById(R.id.mediator_container);
                     if (!mediatorWebViews.containsKey(scriptId)) {
