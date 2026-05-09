@@ -105,7 +105,6 @@ class DslExecutor:
         """Navigate the WebView to the provider URL."""
         if self._load_url:
             self._eval_raw(f"window.location.href = {repr(self._load_url)};")
-            time.sleep(self.timeouts["ready_ms"] / 1000)
 
     def send(self, message: str):
         """Execute ON SEND block with $INPUT = message."""

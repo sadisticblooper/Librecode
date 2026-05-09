@@ -373,8 +373,8 @@ def _handle_chat(script_id: str, req) -> Response:
             finally:
                 load_done.set()
         threading.Thread(target=_do_load, daemon=True).start()
-        ready_ms = manifest.get("timeouts", {}).get("ready_ms", 8000)
-        if not load_done.wait(timeout=ready_ms / 1000):
+        load_timeout = manifest.get("timeouts", {}).get("response_ms", 30000) / 1000
+        if not load_done.wait(timeout=load_timeout):
             return jsonify({"error": "Timed out waiting for page to load"}), 504
 
     # Flatten conversation → single user string
