@@ -1,22 +1,21 @@
 LOAD https://chatgpt.com
 
 ON LOAD
-  # Accept cookies if banner appears
   IF_VISIBLE text:Accept all  THEN CLICK text:Accept all
-  WAIT_FOR  id:prompt-textarea
+  WAIT_FOR   id:prompt-textarea
 END
 
 ON SEND
   WAIT_FOR     id:prompt-textarea
   IF_VISIBLE   aria:New chat  THEN CLICK aria:New chat
   WAIT_FOR     id:prompt-textarea
-  # TYPE handles contenteditable via execCommand — safe with any input including quotes
   TYPE         id:prompt-textarea  WITH $INPUT
   CLICK        aria:Send prompt
-  WAIT_WHILE   text:Stop generating
+  WAIT_WHILE   text:Stop answering
   IF_VISIBLE   aria:Close  THEN CLICK aria:Close
 END
 
 ON READ
   EXTRACT  last role:assistant
 END
+

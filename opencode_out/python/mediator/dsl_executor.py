@@ -119,10 +119,22 @@ class DslExecutor:
 
         elif upper.startswith("WAIT_WHILE "):
             sel = line[11:].strip()
-            self._poll(wait_for_js(sel), "FOUND", self.timeouts["send_ms"],
-                err=f"WAIT_WHILE '{sel}' — never appeared. Wrong selector or page didn't start responding.")
+            def _wait_while_err(sel=sel):
+                aria = self._get_aria_labels()
+                btns = self._eval_raw(
+                    'Array.from(document.querySelectorAll("button"))'
+                    '.map(b=>b.innerText.trim()).filter(Boolean).slice(0,20).join(" | ")'
+                ) or "none"
+                url = self._eval_raw("window.location.href") or "?"
+                return (
+                    f"WAIT_WHILE '{sel}' -- never appeared. "
+                    f"Aria-labels: {aria}. "
+                    f"Button texts: {btns}. "
+                    f"URL: {url}"
+                )
+            self._poll(wait_for_js(sel), "FOUND", self.timeouts["send_ms"], err=_wait_while_err)
             self._poll(wait_while_js(sel), "GONE", timeout_ms,
-                err=f"WAIT_WHILE '{sel}' — still visible after {timeout_ms}ms. Page may still be streaming.")
+                err=f"WAIT_WHILE '{sel}' -- still visible after {timeout_ms}ms. Page may still be streaming.")
 
         elif upper.startswith("WAIT_URL "):
             pattern = line[9:].strip()
