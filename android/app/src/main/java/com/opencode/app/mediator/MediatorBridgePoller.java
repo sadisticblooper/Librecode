@@ -26,7 +26,6 @@ public class MediatorBridgePoller {
 
     private static final String TAG       = "MediatorBridge";
     private static final String BASE      = "http://localhost:5000";
-    private static final int    POLL_MS   = 300;   // fast poll while session active
     private static final int    EVAL_TIMEOUT_MS = 30_000;
 
     // Active pollers keyed by scriptId
@@ -72,8 +71,7 @@ public class MediatorBridgePoller {
         thread = new Thread(() -> {
             while (running.get()) {
                 try {
-                    pollOnce();
-                    Thread.sleep(POLL_MS);
+                    pollOnce(); // blocks inside httpGet for up to 10s (long-poll)
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     break;
@@ -124,7 +122,7 @@ public class MediatorBridgePoller {
             HttpURLConnection c = (HttpURLConnection) new URL(urlStr).openConnection();
             c.setRequestMethod("GET");
             c.setConnectTimeout(5_000);
-            c.setReadTimeout(5_000);
+            c.setReadTimeout(15_000); // must exceed server long-poll window (10s)
             int code = c.getResponseCode();
             if (code != 200) return null;
             BufferedReader r = new BufferedReader(

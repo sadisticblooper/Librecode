@@ -345,13 +345,16 @@ END
 
     @app.route("/mediator/eval/<script_id>", methods=["GET"])
     def poll_eval_request(script_id: str):
-        """Android long-polls this to get the next JS to evaluate."""
-        with _eval_req_lock:
-            queue = _eval_requests.get(script_id, [])
-            if queue:
-                req = queue.pop(0)
-                logger.info("[poll] delivering req %s to Android for %s", req["id"][:8], script_id)
-                return jsonify({"pending": True, "id": req["id"], "js": req["js"]})
+        """Android long-polls this — holds connection open up to 10s until a job is queued."""
+        deadline = time.time() + 10.0
+        while time.time() < deadline:
+            with _eval_req_lock:
+                queue = _eval_requests.get(script_id, [])
+                if queue:
+                    req = queue.pop(0)
+                    logger.info("[poll] delivering req %s to Android for %s", req["id"][:8], script_id)
+                    return jsonify({"pending": True, "id": req["id"], "js": req["js"]})
+            time.sleep(0.02)
         return jsonify({"pending": False})
 
     @app.route("/mediator/eval/<script_id>", methods=["POST"])
