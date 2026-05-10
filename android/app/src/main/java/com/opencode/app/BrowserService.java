@@ -826,12 +826,15 @@ public class BrowserService {
             "var hr=el.getAttribute&&el.getAttribute('href');" +
             "var rl=el.getAttribute&&el.getAttribute('role');" +
             "var vl=el.value;" +
+            "var dp=el.getAttribute&&el.getAttribute('data-placeholder');" +
+            "if(!dp&&el.firstElementChild)dp=el.firstElementChild.getAttribute&&el.firstElementChild.getAttribute('data-placeholder');" +
             "if(al)r.label=al.substring(0,100);" +
             "if(ph)r.placeholder=ph.substring(0,100);" +
             "if(tp)r.type=tp;" +
             "if(hr)r.href=hr.substring(0,200);" +
             "if(rl)r.role=rl;" +
             "if(vl!==undefined&&vl!=='')r.value=String(vl).substring(0,100);" +
+            "if(dp)r.dataPlaceholder=dp.substring(0,100);" +
             "if(inter&&id){var txt=el.innerText?el.innerText.trim().substring(0,200):'';if(txt)r.text=txt;}" +
             "if(!inter){var kids=[];" +
             "el.childNodes.forEach(function(c){var n=proc(c,d+1);if(n)kids.push(n);});" +
@@ -897,9 +900,13 @@ public class BrowserService {
     private String unquoteJs(String raw) {
         if (raw == null || raw.equals("null")) return null;
         if (raw.length() >= 2 && raw.charAt(0) == '"' && raw.charAt(raw.length() - 1) == '"') {
-            return raw.substring(1, raw.length() - 1)
-                .replace("\\\"", "\"").replace("\\n", "\n")
-                .replace("\\t", "\t").replace("\\\\", "\\");
+            try {
+                return new org.json.JSONArray("[" + raw + "]").getString(0);
+            } catch (Exception e) {
+                return raw.substring(1, raw.length() - 1)
+                    .replace("\\\\", "\\").replace("\\\"", "\"")
+                    .replace("\\n", "\n").replace("\\t", "\t").replace("\\r", "\r");
+            }
         }
         return raw;
     }

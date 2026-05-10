@@ -566,11 +566,35 @@ def _ensure_devtools_injected() -> str:
 
 
 def tool_browser_html() -> str:
-    """Get the full outer HTML of the current page."""
+    """Get the outer HTML of the current page, chunked to avoid WebView size limits."""
     err = _check_open()
     if err:
         return err
-    return tool_browser_eval("document.documentElement.outerHTML")
+    CHUNK = 200_000
+    size_raw = tool_browser_eval("return document.documentElement.outerHTML.length")
+    try:
+        total = int(size_raw)
+    except Exception:
+        total = 0
+    if total == 0:
+        return "(empty page or eval failed — try browser_screenshot to see what's on screen)"
+    if total <= CHUNK:
+        return tool_browser_eval("return document.documentElement.outerHTML")
+    parts = []
+    offset = 0
+    while offset < total:
+        chunk = tool_browser_eval(
+            f"return document.documentElement.outerHTML.slice({offset},{offset+CHUNK})"
+        )
+        if not chunk or chunk.startswith("error:"):
+            parts.append(f"<!-- chunk error at offset {offset}: {chunk} -->")
+            break
+        parts.append(chunk)
+        offset += CHUNK
+    result = "".join(parts)
+    if total > CHUNK:
+        result += "\n<!-- total: " + str(total) + " chars, returned in " + str(len(parts)) + " chunk(s) -->"
+    return result
 
 
 def tool_browser_console() -> str:
