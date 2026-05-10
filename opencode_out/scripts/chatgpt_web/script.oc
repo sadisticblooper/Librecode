@@ -1,0 +1,41 @@
+LOAD https://chatgpt.com
+
+ON LOAD
+  # Wait for contenteditable input to be ready (found via eval since snapshot misses divs)
+  # Poll until the input div exists in DOM
+  EVAL (function(){
+    var check = function() {
+      var div = document.querySelector('[contenteditable="true"][role="textbox"]');
+      return div ? 'ready' : null;
+    };
+    return check() || 'not ready';
+  })()
+END
+
+ON SEND
+  # Clear and type into the contenteditable div using eval
+  # This is needed because snapshot doesn't capture contenteditable elements
+  EVAL (function(){
+    var div = document.querySelector('[contenteditable="true"][role="textbox"]');
+    if (!div) return 'ERROR: input not found';
+    div.innerHTML = '';
+    div.focus();
+    document.execCommand('selectAll', false, null);
+    document.execCommand('insertText', false, $INPUT);
+    return 'typed';
+  })()
+  
+  # Click the send button (appears after typing content)
+  CLICK aria:Send prompt
+END
+
+ON READ
+  # Wait for streaming to stop (stop button disappears)
+  WAIT_WHILE aria:Stop generating
+  
+  # Wait for the response to stabilize (content stops updating)
+  WAIT_STABLE css:[data-message-author-role="assistant"]
+  
+  # Extract the last assistant message
+  EXTRACT last css:[data-message-author-role="assistant"]
+END
