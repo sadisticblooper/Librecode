@@ -46,5 +46,13 @@
     "file": "caveman.md",
     "no_tools": false,
     "denied_tools": []
+  },
+  {
+    "id": "dsl_builder",
+    "name": "dsl_builder",
+    "description": "Builds scripts to automate browser ai conversation",
+    "file": "dsl_builder.md",
+    "no_tools": false,
+    "denied_tools": []
   }
 ]
