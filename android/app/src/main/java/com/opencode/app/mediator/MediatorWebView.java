@@ -14,7 +14,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 /**
- * MediatorWebView — a hidden 1×1 WebView that stays logged into a target site.
+ * MediatorWebView — WebView that stays logged into a target site (debug: 400dp visible).
  *
  * Shares cookie storage with the main BrowserService WebView automatically
  * (CookieManager is a singleton). User logs in once in the visible browser;
@@ -50,12 +50,13 @@ public class MediatorWebView {
 
         // Attach hidden 1×1 to the container
         mainHandler.post(() -> {
-            webView.measure(
-                View.MeasureSpec.makeMeasureSpec(1, View.MeasureSpec.EXACTLY),
-                View.MeasureSpec.makeMeasureSpec(1, View.MeasureSpec.EXACTLY)
+            // Debug: fill the visible 400dp container so ChatGPT renders at a real viewport
+            android.widget.FrameLayout.LayoutParams lp = new android.widget.FrameLayout.LayoutParams(
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                android.widget.FrameLayout.LayoutParams.MATCH_PARENT
             );
-            webView.layout(0, 0, 1, 1);
-            hiddenContainer.setVisibility(View.GONE);
+            webView.setLayoutParams(lp);
+            hiddenContainer.setVisibility(android.view.View.VISIBLE);
             hiddenContainer.addView(webView);
         });
     }
