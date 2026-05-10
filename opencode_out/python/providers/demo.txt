@@ -75,26 +75,14 @@ def _inject_tool_system(messages: list, tools: list) -> list:
 
 
 def _messages_to_input(messages: list) -> str:
-    """
-    Convert messages to the string that gets typed into the demo site.
-    Only the last user message is sent — history is prepended as context blocks
-    so the demo site echo shows the full conversation structure.
-    """
-    lines = []
-    for m in messages:
-        role    = m.get("role", "")
-        content = m.get("content") or ""
-        if isinstance(content, list):
-            content = " ".join(p.get("text", "") for p in content if p.get("type") == "text")
-        if role == "system":
-            lines.append(f"[System]: {content}")
-        elif role == "user":
-            lines.append(f"[User]: {content}")
-        elif role == "assistant":
-            lines.append(f"[Assistant]: {content}")
-        elif role == "tool":
-            lines.append(f"[Tool result]: {content}")
-    return "\n".join(lines).strip()
+    """Only type the last user message into the site."""
+    for m in reversed(messages):
+        if m.get("role") == "user":
+            content = m.get("content") or ""
+            if isinstance(content, list):
+                content = " ".join(p.get("text", "") for p in content if p.get("type") == "text")
+            return content.strip()
+    return ""
 
 
 def stream_chat(
