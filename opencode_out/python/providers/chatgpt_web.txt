@@ -1,88 +1,37 @@
 """
-demo.py - Provider for the bundled DSL demo site.
+chatgpt_web.py — Provider that drives ChatGPT via the DSL scripting engine.
 
-Mirrors qwen provider exactly:
-- Messages sent as JSON to mediator executor (only last user message typed)
-- Tool calling via text-based <tool_calls> scheme injected into system prompt
-- Streaming text yielded token by token as executor reads the response
-- Tool call block parsed after response is complete
+The mediator server handles all browser interaction. This provider just:
+1. Ensures the script session is started when activated.
+2. Forwards requests to the local OpenAI-compat endpoint the mediator exposes.
 """
 
 import json
+import requests
 from typing import Generator
 
 PROVIDER_NAME = "chatgpt_web"
-SCRIPT_ID     = "chatgpt_web"
+SCRIPT_ID     = "chatgpt"
 
 MODELS = [
-    {"id": "demo", "label": "Demo Site (test)", "ctx": 4000, "script_id": SCRIPT_ID},
+    {"id": "chatgpt",    "label": "ChatGPT (Web)",    "ctx": 32000, "script_id": SCRIPT_ID},
+    {"id": "chatgpt-4o", "label": "ChatGPT 4o (Web)", "ctx": 32000, "script_id": SCRIPT_ID},
 ]
 
-_TOOL_CALL_OPEN  = "<tool_calls>"
-_TOOL_CALL_CLOSE = "</tool_calls>"
+# Flask app base — same process, so we just POST internally
+_INTERNAL_BASE = "http://localhost:5000"
 
 
-def _build_tool_system(tools: list) -> str:
-    tool_specs = []
-    for t in tools:
-        fn       = t.get("function", t)
-        name     = fn.get("name", "")
-        desc     = fn.get("description", "")
-        params   = fn.get("parameters", {})
-        props    = params.get("properties", {})
-        required = params.get("required", [])
-        args_doc = []
-        for k, v in props.items():
-            req   = " (required)" if k in required else ""
-            typ   = v.get("type", "any")
-            pdesc = v.get("description", "")
-            args_doc.append(f"  - {k} ({typ}){req}: {pdesc}")
-        tool_specs.append(
-            f"### {name}\n{desc}\nArguments:\n"
-            + ("\n".join(args_doc) if args_doc else "  (none)")
-        )
-
-    return (
-        "\n\n---\n"
-        "## Tool Calling\n\n"
-        "You have access to tools. If you need to call one or more tools, "
-        "output your full response text first, then append a tool call block "
-        "as the VERY LAST thing in your message — no text after it.\n\n"
-        "Format (strict — no markdown fences, no extra whitespace before the tag):\n"
-        "<tool_calls>\n"
-        '[{"name": "tool_name", "args": {"arg1": "val1"}}, ...]\n'
-        "</tool_calls>\n\n"
-        "Rules:\n"
-        "- Only include the block if you are actually calling a tool.\n"
-        "- All tool calls for a single turn go in one block as a JSON array.\n"
-        "- args values must match the expected types exactly.\n"
-        "- After you receive tool results they will appear as user messages; "
-        "continue your response naturally.\n\n"
-        "Available tools:\n\n"
-        + "\n\n".join(tool_specs)
-    )
-
-
-def _inject_tool_system(messages: list, tools: list) -> list:
-    tool_instructions = _build_tool_system(tools)
-    msgs = list(messages)
-    if msgs and msgs[0].get("role") == "system":
-        msgs[0] = dict(msgs[0])
-        msgs[0]["content"] = msgs[0]["content"] + tool_instructions
-    else:
-        msgs.insert(0, {"role": "system", "content": tool_instructions.strip()})
-    return msgs
-
-
-def _messages_to_input(messages: list) -> str:
-    """Only type the last user message into the site."""
-    for m in reversed(messages):
-        if m.get("role") == "user":
-            content = m.get("content") or ""
-            if isinstance(content, list):
-                content = " ".join(p.get("text", "") for p in content if p.get("type") == "text")
-            return content.strip()
-    return ""
+def _ensure_session():
+    """Start the mediator script session if not already running."""
+    try:
+        resp = requests.get(f"{_INTERNAL_BASE}/mediator/sessions", timeout=5)
+        sessions = resp.json().get("sessions", [])
+        active_ids = {s["id"] for s in sessions if s.get("loaded")}
+        if SCRIPT_ID not in active_ids:
+            requests.post(f"{_INTERNAL_BASE}/mediator/start/{SCRIPT_ID}", timeout=5)
+    except Exception:
+        pass  # Best-effort; mediator will start on first chat request anyway
 
 
 def stream_chat(
@@ -91,79 +40,47 @@ def stream_chat(
     tools: list | None = None,
     max_tokens: int | None = None,
 ) -> Generator[dict, None, None]:
-    from python.mediator.mediator_server import _get_executor, _load_manifest
-    from python.mediator.script_session import session_manager
-    from python.mediator.dsl_executor import DslError
+    _ensure_session()
 
+    payload = {
+        "model":    SCRIPT_ID,
+        "messages": messages,
+    }
     if tools:
-        messages = _inject_tool_system(messages, tools)
-
-    manifest = _load_manifest(SCRIPT_ID)
-    if not manifest:
-        yield {"type": "error", "text": "No manifest found for demo script"}
-        return
-
-    executor = _get_executor(SCRIPT_ID)
-    if not executor:
-        yield {"type": "error", "text": "Failed to load demo executor"}
-        return
-
-    user_input = _messages_to_input(messages)
+        payload["tools"] = tools
 
     try:
-        if not session_manager.is_loaded(SCRIPT_ID):
-            session_manager.get_or_create(
-                script_id=SCRIPT_ID,
-                url=manifest.get("url", ""),
-                port=manifest.get("port", 0),
-            )
-            executor.load()
-            session_manager.mark_loaded(SCRIPT_ID)
-
-        executor.send(user_input)
-        reply = executor.read() or ""
-        session_manager.reset_errors(SCRIPT_ID)
-
-    except DslError as e:
-        yield {"type": "error", "text": f"DSL error: {e}"}
-        return
+        resp = requests.post(
+            f"{_INTERNAL_BASE}/v1/chat/completions/{SCRIPT_ID}",
+            json=payload,
+            timeout=180,
+        )
+        resp.raise_for_status()
+        data = resp.json()
     except Exception as e:
-        yield {"type": "error", "text": f"Executor error: {e}"}
+        yield {"type": "error", "text": str(e)}
         return
 
-    # Split out tool_calls block exactly like qwen
-    tool_buffer = None
-    if _TOOL_CALL_OPEN in reply:
-        before, _, after = reply.partition(_TOOL_CALL_OPEN)
-        if before.strip():
-            yield {"type": "text", "text": before.strip()}
-        tool_buffer = after.split(_TOOL_CALL_CLOSE)[0].strip()
-    else:
-        if reply:
-            yield {"type": "text", "text": reply}
+    choice = (data.get("choices") or [{}])[0]
+    msg    = choice.get("message", {})
 
-    if tool_buffer is None:
-        yield {"type": "done"}
-        return
+    text = msg.get("content") or ""
+    if text:
+        yield {"type": "text", "text": text}
 
-    try:
-        tool_calls = json.loads(tool_buffer)
-        if not isinstance(tool_calls, list):
-            raise ValueError("expected JSON array")
-    except Exception as e:
-        yield {"type": "error", "text": f"Failed to parse tool_calls: {e}\nRaw: {tool_buffer}"}
-        yield {"type": "done"}
-        return
-
-    for i, tc in enumerate(tool_calls):
-        name = tc.get("name", "")
-        args = tc.get("args", tc.get("arguments", {}))
+    for tc in msg.get("tool_calls") or []:
+        fn   = tc.get("function", {})
+        args = fn.get("arguments", "{}")
+        try:
+            args_parsed = json.loads(args)
+        except Exception:
+            args_parsed = {}
         yield {
             "type":      "tool_delta",
-            "index":     i,
-            "id":        "",
-            "name":      name,
-            "arguments": json.dumps(args) if not isinstance(args, str) else args,
+            "index":     0,
+            "id":        tc.get("id", ""),
+            "name":      fn.get("name", ""),
+            "arguments": args,
         }
 
     yield {"type": "done"}

@@ -407,8 +407,28 @@ END
         if result["bridge_alive"]:
             result["webview_url"]   = quick_eval("window.location.href")
             result["page_title"]    = quick_eval("document.title")
-            from .dsl_executor import _DOM_SNAPSHOT_JS
-            result["dom_snapshot"] = quick_eval(_DOM_SNAPSHOT_JS)
+            result["placeholders"]  = quick_eval(
+                "(function(){"
+                "var els=document.querySelectorAll('[placeholder]');"
+                "return Array.from(els).map(function(e){return e.placeholder;}).join(' | ')||'none';"
+                "})()"
+            )
+            result["aria_labels"] = quick_eval(
+                "(function(){"
+                "var els=document.querySelectorAll('[aria-label]');"
+                "var ls=Array.from(els).map(function(e){return e.getAttribute('aria-label');}).filter(Boolean);"
+                "return ls.slice(0,20).join(' | ')||'none';"
+                "})()"
+            )
+            result["input_elements"] = quick_eval(
+                "(function(){"
+                "var els=document.querySelectorAll('input,textarea');"
+                "return Array.from(els).map(function(e){"
+                "  return (e.tagName+' type='+e.type+' placeholder='+e.placeholder+"
+                "         ' aria-label='+e.getAttribute('aria-label'));"
+                "}).join(' || ')||'none';"
+                "})()"
+            )
 
         return jsonify(result)
 

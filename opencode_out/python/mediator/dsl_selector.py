@@ -41,7 +41,10 @@ def selector_to_js_finder(selector: str, return_all: bool = False) -> str:
     if sel.startswith("aria:"):
         css = f"[aria-label*='{sel[5:].strip()}']"
     elif sel.startswith("placeholder:"):
-        css = f"[placeholder*='{sel[12:].strip()}']"
+        needle = sel[12:].strip()
+        # Match native placeholder, data-placeholder (React/contenteditable pattern), or aria-placeholder.
+        # :is() is supported in Chrome 88+ / modern Android WebView.
+        css = f":is([placeholder*='{needle}'],[data-placeholder*='{needle}'],[aria-placeholder*='{needle}'])"
     elif sel.startswith("role:"):
         css = f"[role='{sel[5:].strip()}']"
     elif sel.startswith("data-message-author-role:"):
@@ -119,13 +122,33 @@ def type_js(selector: str, value: str) -> str:
     val_json = json.dumps(value)
     finder = selector_to_js_finder(selector)
     return (
-        f"(function(){{const el={finder};if(!el)return 'NOT_FOUND';el.focus();"
-        f"const niv=Object.getOwnPropertyDescriptor("
+        f"(function(){{var el={finder};"
+        f"if(!el)return 'NOT_FOUND';"
+        # If the found element is not directly typeable (e.g. <p data-placeholder> child),
+        # walk up to the nearest contenteditable ancestor or input/textarea.
+        f"var t=el;"
+        f"while(t&&t!==document.body"
+        f"&&t.tagName!=='INPUT'&&t.tagName!=='TEXTAREA'&&t.contentEditable!=='true')"
+        f"t=t.parentElement;"
+        f"if(t&&(t.tagName==='INPUT'||t.tagName==='TEXTAREA'||t.contentEditable==='true'))el=t;"
+        f"el.focus();"
+        f"if(el.contentEditable==='true'){{"
+        # ContentEditable: clear then use execCommand for React synthetic event compatibility.
+        # execCommand('insertText') fires the right InputEvent that React listens for.
+        f"el.innerHTML='';"
+        f"var ok=document.execCommand('insertText',false,{val_json});"
+        f"if(!ok){{el.textContent={val_json};}}"
+        f"el.dispatchEvent(new InputEvent('input',{{bubbles:true,inputType:'insertText',data:{val_json}}}));"
+        f"return 'OK';"
+        f"}}else{{"
+        f"var niv=Object.getOwnPropertyDescriptor("
         f"el.tagName==='TEXTAREA'?window.HTMLTextAreaElement.prototype:window.HTMLInputElement.prototype,'value');"
         f"if(niv)niv.set.call(el,{val_json});else el.value={val_json};"
         f"el.dispatchEvent(new Event('input',{{bubbles:true}}));"
         f"el.dispatchEvent(new Event('change',{{bubbles:true}}));"
-        f"return 'OK';}})()"
+        f"return 'OK';"
+        f"}}"
+        f"}})()"
     )
 
 

@@ -562,39 +562,16 @@ _DEVTOOLS_INJECT_JS = """
 
 def _ensure_devtools_injected() -> str:
     """Inject the network/console interceptor if not already on this page."""
-    return tool_browser_eval(_DEVTOOLS_INJECT_JS)
+    # Must prefix with `return` so evaluate()'s wrapper captures the IIFE's value.
+    return tool_browser_eval("return " + _DEVTOOLS_INJECT_JS.strip())
 
 
 def tool_browser_html() -> str:
-    """Get the outer HTML of the current page, chunked to avoid WebView size limits."""
+    """Get the full outer HTML of the current page."""
     err = _check_open()
     if err:
         return err
-    CHUNK = 200_000
-    size_raw = tool_browser_eval("return document.documentElement.outerHTML.length")
-    try:
-        total = int(size_raw)
-    except Exception:
-        total = 0
-    if total == 0:
-        return "(empty page or eval failed — try browser_screenshot to see what's on screen)"
-    if total <= CHUNK:
-        return tool_browser_eval("return document.documentElement.outerHTML")
-    parts = []
-    offset = 0
-    while offset < total:
-        chunk = tool_browser_eval(
-            f"return document.documentElement.outerHTML.slice({offset},{offset+CHUNK})"
-        )
-        if not chunk or chunk.startswith("error:"):
-            parts.append(f"<!-- chunk error at offset {offset}: {chunk} -->")
-            break
-        parts.append(chunk)
-        offset += CHUNK
-    result = "".join(parts)
-    if total > CHUNK:
-        result += "\n<!-- total: " + str(total) + " chars, returned in " + str(len(parts)) + " chunk(s) -->"
-    return result
+    return tool_browser_eval("return document.documentElement.outerHTML")
 
 
 def tool_browser_console() -> str:
@@ -603,7 +580,7 @@ def tool_browser_console() -> str:
     if err:
         return err
     _ensure_devtools_injected()
-    raw = tool_browser_eval("JSON.stringify(window.__ocdvt ? window.__ocdvt.con : [])")
+    raw = tool_browser_eval("return JSON.stringify(window.__ocdvt ? window.__ocdvt.con : [])")
     try:
         logs = json.loads(raw) if isinstance(raw, str) else raw
         if not logs:
@@ -620,7 +597,7 @@ def tool_browser_network() -> str:
     if err:
         return err
     _ensure_devtools_injected()
-    raw = tool_browser_eval("JSON.stringify(window.__ocdvt ? window.__ocdvt.net : [])")
+    raw = tool_browser_eval("return JSON.stringify(window.__ocdvt ? window.__ocdvt.net : [])")
     try:
         entries = json.loads(raw) if isinstance(raw, str) else raw
         if not entries:
@@ -645,7 +622,7 @@ def tool_browser_local_storage(domain: str = "") -> str:
     if err:
         return err
     raw = tool_browser_eval(
-        "JSON.stringify(Object.fromEntries(Object.keys(localStorage).map(k => [k, localStorage.getItem(k)])))"
+        "return JSON.stringify(Object.fromEntries(Object.keys(localStorage).map(k => [k, localStorage.getItem(k)])))"
     )
     try:
         data = json.loads(raw) if isinstance(raw, str) else raw
@@ -662,7 +639,7 @@ def tool_browser_session_storage() -> str:
     if err:
         return err
     raw = tool_browser_eval(
-        "JSON.stringify(Object.fromEntries(Object.keys(sessionStorage).map(k => [k, sessionStorage.getItem(k)])))"
+        "return JSON.stringify(Object.fromEntries(Object.keys(sessionStorage).map(k => [k, sessionStorage.getItem(k)])))"
     )
     try:
         data = json.loads(raw) if isinstance(raw, str) else raw
@@ -679,7 +656,7 @@ def tool_browser_dom_query(selector: str) -> str:
     if err:
         return err
     script = (
-        "JSON.stringify(Array.from(document.querySelectorAll(" + json.dumps(selector) + "))"
+        "return JSON.stringify(Array.from(document.querySelectorAll(" + json.dumps(selector) + "))"
         ".map(function(el){return {tag:el.tagName,id:el.id,classes:el.className,"
         "text:el.innerText&&el.innerText.slice(0,500),html:el.outerHTML&&el.outerHTML.slice(0,1000)}}))"
     )
@@ -701,7 +678,7 @@ def tool_browser_set_cookie(name: str, value: str, domain: str = "", path: str =
     cookie_str = f"{name}={value}; path={path}"
     if domain:
         cookie_str += f"; domain={domain}"
-    script = f"document.cookie = {json.dumps(cookie_str)}; 'ok'"
+    script = f"document.cookie = {json.dumps(cookie_str)}; return 'ok'"
     return tool_browser_eval(script)
 
 
@@ -710,7 +687,7 @@ def tool_browser_clear_network() -> str:
     err = _check_open()
     if err:
         return err
-    return tool_browser_eval("if(window.__ocdvt){window.__ocdvt.net=[];window.__ocdvt.con=[];} 'cleared'")
+    return tool_browser_eval("if(window.__ocdvt){window.__ocdvt.net=[];window.__ocdvt.con=[];} return 'cleared'")
 
 
 BROWSER_DEVTOOLS_SPECS = [

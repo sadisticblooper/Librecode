@@ -169,17 +169,9 @@ public class BrowserService {
             "var el=_ocFind(\"" + uid + "\");" +
             "if(!el)return 'error: uid not found';" +
             "el.focus();" +
-            "var ce=el.getAttribute('contenteditable');" +
-            "if(ce!==null&&ce!=='false'){" +
-            "  el.focus();" +
-            "  document.execCommand('selectAll',false,null);" +
-            "  document.execCommand('insertText',false,`" + safe + "`);" +
-            "  el.dispatchEvent(new Event('input',{bubbles:true,composed:true}));" +
-            "}else{" +
-            "  var d=Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value');" +
-            "  if(d&&d.set)d.set.call(el,`" + safe + "`);else el.value=`" + safe + "`;" +
-            "  ['input','change'].forEach(function(e){el.dispatchEvent(new Event(e,{bubbles:true,composed:true}));});" +
-            "}" +
+            "var d=Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value');" +
+            "if(d&&d.set)d.set.call(el,`" + safe + "`);else el.value=`" + safe + "`;" +
+            "['input','change'].forEach(function(e){el.dispatchEvent(new Event(e,{bubbles:true,composed:true}));});" +
             "return 'filled';})()"
         );
     }
@@ -764,7 +756,7 @@ public class BrowserService {
             "(function(){" +
             "if(window._ocFocusInstalled)return;" +
             "window._ocFocusInstalled=true;" +
-            "var SEL='input,textarea,select,[contenteditable]:not([contenteditable=false]),[role=textbox],[role=combobox],[role=searchbox]';" +
+            "var SEL='input,textarea,select,[contenteditable=true]';" +
             "document.addEventListener('focusin',function(e){" +
             "  if(e.target.matches&&e.target.matches(SEL)&&window._ocFocus)" +
             "    window._ocFocus.onFocused();" +
@@ -804,9 +796,7 @@ public class BrowserService {
         // Full traversal still happens so we can count total and remaining.
         return "(function(off,lim){var uid=1;" +
             "var TAGS='a,button,input,textarea,select,[role=button],[role=link]," +
-            "[role=checkbox],[role=menuitem],[role=tab],[role=option]," +
-            "[role=textbox],[role=combobox],[role=searchbox]," +
-            "[contenteditable]:not([contenteditable=false])';" +
+            "[role=checkbox],[role=menuitem],[role=tab],[role=option],[contenteditable=true]';" +
             "var skip=['script','style','svg','noscript','head','meta','link'];" +
             "var ic=0;" +
             "function proc(el,d){" +
@@ -821,20 +811,24 @@ public class BrowserService {
             "var r={tag:tag};" +
             "if(id)r.uid=id;" +
             "var al=el.getAttribute&&el.getAttribute('aria-label');" +
-            "var ph=el.getAttribute&&el.getAttribute('placeholder');" +
+            // Read placeholder from element directly (native input) or from data-/aria- variant,
+            // then fall back to checking children — handles contenteditable+<p data-placeholder> pattern (ChatGPT etc.)
+            "var ph=el.getAttribute&&(el.getAttribute('placeholder')||el.getAttribute('data-placeholder')||el.getAttribute('aria-placeholder'));" +
+            "if(!ph&&inter&&el.querySelector){" +
+            "var phc=el.querySelector('[data-placeholder]')||el.querySelector('[aria-placeholder]');" +
+            "if(phc)ph=phc.getAttribute('data-placeholder')||phc.getAttribute('aria-placeholder');}" +
             "var tp=el.getAttribute&&el.getAttribute('type');" +
             "var hr=el.getAttribute&&el.getAttribute('href');" +
             "var rl=el.getAttribute&&el.getAttribute('role');" +
+            "var eid=el.getAttribute&&el.getAttribute('id');" +
             "var vl=el.value;" +
-            "var dp=el.getAttribute&&el.getAttribute('data-placeholder');" +
-            "if(!dp&&el.firstElementChild)dp=el.firstElementChild.getAttribute&&el.firstElementChild.getAttribute('data-placeholder');" +
             "if(al)r.label=al.substring(0,100);" +
             "if(ph)r.placeholder=ph.substring(0,100);" +
             "if(tp)r.type=tp;" +
             "if(hr)r.href=hr.substring(0,200);" +
             "if(rl)r.role=rl;" +
+            "if(eid)r.id=eid;" +
             "if(vl!==undefined&&vl!=='')r.value=String(vl).substring(0,100);" +
-            "if(dp)r.dataPlaceholder=dp.substring(0,100);" +
             "if(inter&&id){var txt=el.innerText?el.innerText.trim().substring(0,200):'';if(txt)r.text=txt;}" +
             "if(!inter){var kids=[];" +
             "el.childNodes.forEach(function(c){var n=proc(c,d+1);if(n)kids.push(n);});" +
@@ -900,13 +894,9 @@ public class BrowserService {
     private String unquoteJs(String raw) {
         if (raw == null || raw.equals("null")) return null;
         if (raw.length() >= 2 && raw.charAt(0) == '"' && raw.charAt(raw.length() - 1) == '"') {
-            try {
-                return new org.json.JSONArray("[" + raw + "]").getString(0);
-            } catch (Exception e) {
-                return raw.substring(1, raw.length() - 1)
-                    .replace("\\\\", "\\").replace("\\\"", "\"")
-                    .replace("\\n", "\n").replace("\\t", "\t").replace("\\r", "\r");
-            }
+            return raw.substring(1, raw.length() - 1)
+                .replace("\\\"", "\"").replace("\\n", "\n")
+                .replace("\\t", "\t").replace("\\\\", "\\");
         }
         return raw;
     }
