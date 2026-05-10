@@ -2,17 +2,15 @@ LOAD https://chatgpt.com
 
 ON LOAD
   WAIT_FOR     id:prompt-textarea
-  SLEEP        2000
-  IF_VISIBLE   text:Accept all  THEN CLICK text:Accept all
+  SLEEP        2500
+  EVAL         (function(){var d=document.querySelector('div[role="dialog"]');if(d){var btns=d.querySelectorAll('button');btns.forEach(function(b){if((b.innerText||'').toLowerCase().includes('accept'))b.click();});}})()
 END
 
 ON SEND
   WAIT_FOR     id:prompt-textarea
-  IF_VISIBLE   aria:New chat  THEN CLICK aria:New chat
-  WAIT_FOR     id:prompt-textarea
   TYPE         id:prompt-textarea  WITH $INPUT
   CLICK        aria:Send prompt
-  WAIT_WHILE   text:Stop answering
+  WAIT_NEW     role:assistant
   IF_VISIBLE   aria:Close  THEN CLICK aria:Close
 END
 

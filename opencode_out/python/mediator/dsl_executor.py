@@ -127,6 +127,27 @@ class DslExecutor:
                 return None
             _wait_for_either()
 
+        elif upper.startswith("WAIT_NEW "):
+            # Wait until a NEW element matching selector appears (count increases)
+            sel = line[9:].strip()
+            if sel.startswith("role:"):
+                css = f"[role='{sel[5:]}']"
+            elif sel.startswith("css:"):
+                css = sel[4:]
+            elif sel.startswith("aria:"):
+                css = f"[aria-label*='{sel[5:]}']"
+            elif sel.startswith("id:"):
+                css = f"#{sel[3:]}"
+            else:
+                css = sel
+            current = self._eval_raw(f"document.querySelectorAll({repr(css)}).length") or "0"
+            try:
+                current_count = int(current)
+            except Exception:
+                current_count = 0
+            self._poll(wait_count_js(css, "gt", current_count), "MET", timeout_ms,
+                err=f"WAIT_NEW '{sel}' -- count never increased above {current_count} after {timeout_ms}ms.")
+
         elif upper.startswith("WAIT_FOR "):
             sel = line[9:].strip()
             self._poll(wait_for_js(sel), "FOUND", timeout_ms,
