@@ -119,9 +119,10 @@ class DslExecutor:
 
         elif upper.startswith("WAIT_WHILE "):
             sel = line[11:].strip()
+            self._poll(wait_for_js(sel), "FOUND", self.timeouts["send_ms"],
+                err=f"WAIT_WHILE '{sel}' — never appeared. Wrong selector or page didn't start responding.")
             self._poll(wait_while_js(sel), "GONE", timeout_ms,
-                err=f"WAIT_WHILE '{sel}' — element still visible after {timeout_ms}ms. "
-                    f"Page may still be loading or streaming.")
+                err=f"WAIT_WHILE '{sel}' — still visible after {timeout_ms}ms. Page may still be streaming.")
 
         elif upper.startswith("WAIT_URL "):
             pattern = line[9:].strip()

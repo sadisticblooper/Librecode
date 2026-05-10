@@ -1,20 +1,20 @@
-# Demo site DSL script
-# 1. Deploy demo.html anywhere (Vercel, GitHub Pages, etc.)
-# 2. Replace the URL below + update "url" in manifest.json
-
-LOAD https://sadisticblooper.github.io/Sjdjd/
+LOAD https://chatgpt.com
 
 ON LOAD
-  WAIT_FOR     placeholder:Type your message
+  IF_VISIBLE text:Accept all  THEN CLICK text:Accept all
+  WAIT_FOR   id:prompt-textarea
 END
 
 ON SEND
-  WAIT_FOR     placeholder:Type your message
-  TYPE         placeholder:Type your message  WITH $INPUT
+  WAIT_FOR     id:prompt-textarea
+  IF_VISIBLE   aria:New chat  THEN CLICK aria:New chat
+  WAIT_FOR     id:prompt-textarea
+  TYPE         id:prompt-textarea  WITH $INPUT
   CLICK        aria:Send message
-  WAIT_WHILE   aria:Stop generating
+  WAIT_WHILE   text:Stop answering
+  IF_VISIBLE   aria:Close  THEN CLICK aria:Close
 END
 
 ON READ
-  EXTRACT      last role:assistant
+  EXTRACT  last role:assistant
 END
