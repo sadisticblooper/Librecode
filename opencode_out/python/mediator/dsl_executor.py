@@ -112,10 +112,25 @@ class DslExecutor:
 
         # ── Waiting ────────────────────────────────────────────────────────────
 
-        if upper.startswith("WAIT_FOR "):
+        if upper.startswith("WAIT_FOR_EITHER "):
+            sels = [s.strip() for s in line[16:].split("|")]
+            def _wait_for_either(sels=sels, timeout_ms=timeout_ms):
+                import time
+                interval_ms = self.timeouts["poll_interval_ms"]
+                deadline = time.time() + timeout_ms / 1000
+                while time.time() < deadline:
+                    for sel in sels:
+                        raw = self._eval_raw(wait_for_js(sel))
+                        if raw == "FOUND":
+                            return sel
+                    time.sleep(interval_ms / 1000)
+                return None
+            _wait_for_either()
+
+        elif upper.startswith("WAIT_FOR "):
             sel = line[9:].strip()
             self._poll(wait_for_js(sel), "FOUND", timeout_ms,
-                err=f"WAIT_FOR '{sel}' — element never became visible after {timeout_ms}ms.")
+                err=f"WAIT_FOR '{sel}' -- element never became visible after {timeout_ms}ms.")
 
         elif upper.startswith("WAIT_WHILE "):
             sel = line[11:].strip()
