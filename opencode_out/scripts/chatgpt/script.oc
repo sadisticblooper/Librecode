@@ -1,18 +1,22 @@
 LOAD https://chatgpt.com
 
 ON LOAD
-  WAIT_FOR     placeholder:Message ChatGPT
+  # Accept cookies if banner appears
+  IF_VISIBLE text:Accept all  THEN CLICK text:Accept all
+  WAIT_FOR  id:prompt-textarea
 END
 
 ON SEND
-  WAIT_FOR     placeholder:Message ChatGPT
-  IF_VISIBLE   aria:New chat THEN CLICK aria:New chat
-  WAIT_FOR     placeholder:Message ChatGPT
-  TYPE         placeholder:Message ChatGPT  WITH $INPUT
-  CLICK        aria:Send message
-  WAIT_WHILE   aria:Stop streaming
+  WAIT_FOR     id:prompt-textarea
+  IF_VISIBLE   aria:New chat  THEN CLICK aria:New chat
+  WAIT_FOR     id:prompt-textarea
+  # TYPE handles contenteditable via execCommand — safe with any input including quotes
+  TYPE         id:prompt-textarea  WITH $INPUT
+  CLICK        aria:Send prompt
+  WAIT_WHILE   text:Stop generating
+  IF_VISIBLE   aria:Close  THEN CLICK aria:Close
 END
 
 ON READ
-  EXTRACT      last role:assistant
+  EXTRACT  last role:assistant
 END
