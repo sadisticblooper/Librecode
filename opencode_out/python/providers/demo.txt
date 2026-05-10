@@ -1,24 +1,15 @@
 """
-demo.py — Provider for the bundled demo site.
+demo.py - Provider for the bundled DSL demo site.
 
-Uses the DSL executor to drive the demo WebView, with the same text-based
-tool-calling scheme as the qwen provider (<tool_calls>...</tool_calls>).
-
-Message handling
-----------------
-Only the last user message is typed into the site.  The system prompt and
-conversation history are prepended as a compact context block so the demo
-site sees them as part of the typed input — matching how a real provider
-would receive the full context.
-
-Tool calling
-------------
-If tools are passed, the system prompt is extended with tool instructions
-(same format as qwen).  The reply is scanned for a <tool_calls> block and
-parsed into tool_delta events before the final done event.
+Mirrors qwen provider exactly:
+- Messages sent as JSON to mediator executor (only last user message typed)
+- Tool calling via text-based <tool_calls> scheme injected into system prompt
+- Streaming text yielded token by token as executor reads the response
+- Tool call block parsed after response is complete
 """
 
 import json
+from typing import Generator
 
 PROVIDER_NAME = "demo"
 SCRIPT_ID     = "demo"
@@ -30,8 +21,6 @@ MODELS = [
 _TOOL_CALL_OPEN  = "<tool_calls>"
 _TOOL_CALL_CLOSE = "</tool_calls>"
 
-
-# ── Tool prompt injection (mirrors qwen provider) ─────────────────────────────
 
 def _build_tool_system(tools: list) -> str:
     tool_specs = []
@@ -74,74 +63,52 @@ def _build_tool_system(tools: list) -> str:
     )
 
 
-def _build_input(messages: list, tools: list | None) -> str:
-    """
-    Build the string that gets typed into the demo site input box.
+def _inject_tool_system(messages: list, tools: list) -> list:
+    tool_instructions = _build_tool_system(tools)
+    msgs = list(messages)
+    if msgs and msgs[0].get("role") == "system":
+        msgs[0] = dict(msgs[0])
+        msgs[0]["content"] = msgs[0]["content"] + tool_instructions
+    else:
+        msgs.insert(0, {"role": "system", "content": tool_instructions.strip()})
+    return msgs
 
-    Format:
-      [System]: <system prompt + optional tool instructions>
-      [User]: <msg>
-      [Assistant]: <msg>
-      ...
-      [User]: <last user message>   ← this is what the site "responds" to
-    """
-    # Merge tool instructions into system prompt if needed
-    sys_extra = _build_tool_system(tools) if tools else ""
 
+def _messages_to_input(messages: list) -> str:
+    """
+    Convert messages to the string that gets typed into the demo site.
+    Only the last user message is sent — history is prepended as context blocks
+    so the demo site echo shows the full conversation structure.
+    """
     lines = []
     for m in messages:
         role    = m.get("role", "")
         content = m.get("content") or ""
         if isinstance(content, list):
-            # multi-part content — join text parts
-            content = " ".join(
-                p.get("text", "") for p in content if p.get("type") == "text"
-            )
-
+            content = " ".join(p.get("text", "") for p in content if p.get("type") == "text")
         if role == "system":
-            lines.append(f"[System]: {content}{sys_extra}")
+            lines.append(f"[System]: {content}")
         elif role == "user":
             lines.append(f"[User]: {content}")
         elif role == "assistant":
             lines.append(f"[Assistant]: {content}")
         elif role == "tool":
-            # tool result — surface it as a bracketed block
             lines.append(f"[Tool result]: {content}")
-
     return "\n".join(lines).strip()
 
 
-# ── Tool call parsing (mirrors qwen provider) ─────────────────────────────────
-
-def _parse_tool_calls(reply: str):
-    """
-    Returns (clean_text, tool_calls_list).
-    clean_text has the <tool_calls> block stripped.
-    tool_calls_list is [] if no block found or parse fails.
-    """
-    if _TOOL_CALL_OPEN not in reply:
-        return reply, []
-
-    before, _, after = reply.partition(_TOOL_CALL_OPEN)
-    raw_block = after.split(_TOOL_CALL_CLOSE)[0].strip()
-    clean     = before.strip()
-
-    try:
-        parsed = json.loads(raw_block)
-        if not isinstance(parsed, list):
-            raise ValueError("expected JSON array")
-        return clean, parsed
-    except Exception:
-        # Malformed block — return full reply, no tool calls
-        return reply, []
-
-
-# ── Provider entry point ──────────────────────────────────────────────────────
-
-def stream_chat(model_id, messages, tools=None, max_tokens=None):
+def stream_chat(
+    model_id: str,
+    messages: list[dict],
+    tools: list | None = None,
+    max_tokens: int | None = None,
+) -> Generator[dict, None, None]:
     from python.mediator.mediator_server import _get_executor, _load_manifest
     from python.mediator.script_session import session_manager
     from python.mediator.dsl_executor import DslError
+
+    if tools:
+        messages = _inject_tool_system(messages, tools)
 
     manifest = _load_manifest(SCRIPT_ID)
     if not manifest:
@@ -153,7 +120,7 @@ def stream_chat(model_id, messages, tools=None, max_tokens=None):
         yield {"type": "error", "text": "Failed to load demo executor"}
         return
 
-    user_input = _build_input(messages, tools)
+    user_input = _messages_to_input(messages)
 
     try:
         if not session_manager.is_loaded(SCRIPT_ID):
@@ -166,7 +133,7 @@ def stream_chat(model_id, messages, tools=None, max_tokens=None):
             session_manager.mark_loaded(SCRIPT_ID)
 
         executor.send(user_input)
-        reply = executor.read()
+        reply = executor.read() or ""
         session_manager.reset_errors(SCRIPT_ID)
 
     except DslError as e:
@@ -176,14 +143,29 @@ def stream_chat(model_id, messages, tools=None, max_tokens=None):
         yield {"type": "error", "text": f"Executor error: {e}"}
         return
 
-    if not reply:
+    # Split out tool_calls block exactly like qwen
+    tool_buffer = None
+    if _TOOL_CALL_OPEN in reply:
+        before, _, after = reply.partition(_TOOL_CALL_OPEN)
+        if before.strip():
+            yield {"type": "text", "text": before.strip()}
+        tool_buffer = after.split(_TOOL_CALL_CLOSE)[0].strip()
+    else:
+        if reply:
+            yield {"type": "text", "text": reply}
+
+    if tool_buffer is None:
         yield {"type": "done"}
         return
 
-    clean, tool_calls = _parse_tool_calls(reply)
-
-    if clean:
-        yield {"type": "text", "text": clean}
+    try:
+        tool_calls = json.loads(tool_buffer)
+        if not isinstance(tool_calls, list):
+            raise ValueError("expected JSON array")
+    except Exception as e:
+        yield {"type": "error", "text": f"Failed to parse tool_calls: {e}\nRaw: {tool_buffer}"}
+        yield {"type": "done"}
+        return
 
     for i, tc in enumerate(tool_calls):
         name = tc.get("name", "")
