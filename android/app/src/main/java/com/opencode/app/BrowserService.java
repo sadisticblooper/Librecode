@@ -169,9 +169,17 @@ public class BrowserService {
             "var el=_ocFind(\"" + uid + "\");" +
             "if(!el)return 'error: uid not found';" +
             "el.focus();" +
-            "var d=Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value');" +
-            "if(d&&d.set)d.set.call(el,`" + safe + "`);else el.value=`" + safe + "`;" +
-            "['input','change'].forEach(function(e){el.dispatchEvent(new Event(e,{bubbles:true,composed:true}));});" +
+            "var ce=el.getAttribute('contenteditable');" +
+            "if(ce!==null&&ce!=='false'){" +
+            "  el.focus();" +
+            "  document.execCommand('selectAll',false,null);" +
+            "  document.execCommand('insertText',false,`" + safe + "`);" +
+            "  el.dispatchEvent(new Event('input',{bubbles:true,composed:true}));" +
+            "}else{" +
+            "  var d=Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value');" +
+            "  if(d&&d.set)d.set.call(el,`" + safe + "`);else el.value=`" + safe + "`;" +
+            "  ['input','change'].forEach(function(e){el.dispatchEvent(new Event(e,{bubbles:true,composed:true}));});" +
+            "}" +
             "return 'filled';})()"
         );
     }
@@ -756,7 +764,7 @@ public class BrowserService {
             "(function(){" +
             "if(window._ocFocusInstalled)return;" +
             "window._ocFocusInstalled=true;" +
-            "var SEL='input,textarea,select,[contenteditable=true]';" +
+            "var SEL='input,textarea,select,[contenteditable]:not([contenteditable=false]),[role=textbox],[role=combobox],[role=searchbox]';" +
             "document.addEventListener('focusin',function(e){" +
             "  if(e.target.matches&&e.target.matches(SEL)&&window._ocFocus)" +
             "    window._ocFocus.onFocused();" +
@@ -796,7 +804,9 @@ public class BrowserService {
         // Full traversal still happens so we can count total and remaining.
         return "(function(off,lim){var uid=1;" +
             "var TAGS='a,button,input,textarea,select,[role=button],[role=link]," +
-            "[role=checkbox],[role=menuitem],[role=tab],[role=option],[contenteditable=true]';" +
+            "[role=checkbox],[role=menuitem],[role=tab],[role=option]," +
+            "[role=textbox],[role=combobox],[role=searchbox]," +
+            "[contenteditable]:not([contenteditable=false])';" +
             "var skip=['script','style','svg','noscript','head','meta','link'];" +
             "var ic=0;" +
             "function proc(el,d){" +

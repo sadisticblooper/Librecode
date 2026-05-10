@@ -31,6 +31,46 @@ DEFAULT_TIMEOUTS = {
     "poll_interval_ms":    150,
 }
 
+_DOM_SNAPSHOT_JS = """
+(function(){
+  var items=[];
+  var seen=new WeakSet();
+  function describe(el){
+    if(seen.has(el))return;
+    seen.add(el);
+    var tag=el.tagName.toLowerCase();
+    var parts=[tag];
+    var role=el.getAttribute('role');
+    var ariaLabel=el.getAttribute('aria-label');
+    var ph=el.getAttribute('aria-placeholder')||el.getAttribute('placeholder');
+    var type=el.getAttribute('type');
+    var id=el.id;
+    var ce=el.getAttribute('contenteditable');
+    if(ce&&ce!=='false')parts.push('[contenteditable]');
+    if(role)parts.push('role='+role);
+    if(type&&type!=='text'&&type!=='submit')parts.push('type='+type);
+    if(ariaLabel)parts.push('aria-label="'+ariaLabel+'"');
+    if(ph)parts.push('placeholder="'+ph+'"');
+    if(id)parts.push('id='+id);
+    if(el.getAttribute('aria-disabled')==='true')parts.push('[disabled]');
+    if(!ariaLabel&&(tag==='button'||role==='button')){
+      var txt=(el.innerText||'').trim().slice(0,40);
+      if(txt)parts.push('text="'+txt+'"');
+    }
+    if(parts.length>1)items.push(parts.join(' '));
+  }
+  function walk(root){
+    root.querySelectorAll('[contenteditable]:not([contenteditable="false"])').forEach(describe);
+    root.querySelectorAll('input,textarea').forEach(describe);
+    root.querySelectorAll('button,[role="button"]').forEach(describe);
+    root.querySelectorAll('[role="textbox"],[role="combobox"],[role="searchbox"]').forEach(describe);
+    root.querySelectorAll('*').forEach(function(el){if(el.shadowRoot)walk(el.shadowRoot);});
+  }
+  walk(document.body||document.documentElement);
+  return items.slice(0,25).join(' | ')||'none';
+})()
+""".strip().replace('\n', '')
+
 
 class DslError(RuntimeError):
     pass
@@ -154,7 +194,7 @@ class DslExecutor:
             if res == "NOT_FOUND":
                 raise DslError(
                     f"CLICK '{sel}' — element not found. "
-                    f"Aria-labels: {self._get_aria_labels()}. "
+                    f"DOM snapshot: {self._get_dom_snapshot()}. "
                     f"URL: {self._eval_raw('window.location.href') or '?'}"
                 )
 
@@ -168,7 +208,7 @@ class DslExecutor:
                 if res == "NOT_FOUND":
                     raise DslError(
                         f"TYPE '{sel}' — input not found. "
-                        f"Placeholders: {self._get_placeholders()}. "
+                        f"DOM snapshot: {self._get_dom_snapshot()}. "
                         f"URL: {self._eval_raw('window.location.href') or '?'}"
                     )
 
@@ -178,7 +218,11 @@ class DslExecutor:
             if res is BRIDGE_TIMEOUT:
                 raise DslError(f"CLEAR '{sel}' — bridge timeout.")
             if res == "NOT_FOUND":
-                raise DslError(f"CLEAR '{sel}' — element not found. URL: {self._eval_raw('window.location.href') or '?'}")
+                raise DslError(
+                    f"CLEAR '{sel}' — element not found. "
+                    f"DOM snapshot: {self._get_dom_snapshot()}. "
+                    f"URL: {self._eval_raw('window.location.href') or '?'}"
+                )
 
         elif upper.startswith("PRESS_KEY "):
             m = re.match(r'PRESS_KEY\s+(.+?)\s+(\S+)$', line, re.IGNORECASE)
@@ -188,7 +232,10 @@ class DslExecutor:
                 if res is BRIDGE_TIMEOUT:
                     raise DslError(f"PRESS_KEY '{sel}' {key} — bridge timeout.")
                 if res == "NOT_FOUND":
-                    raise DslError(f"PRESS_KEY '{sel}' {key} — element not found.")
+                    raise DslError(
+                        f"PRESS_KEY '{sel}' {key} — element not found. "
+                        f"DOM snapshot: {self._get_dom_snapshot()}."
+                    )
 
         elif upper.startswith("HOVER "):
             sel = line[6:].strip()
@@ -357,34 +404,19 @@ class DslExecutor:
         if title and title is not BRIDGE_TIMEOUT:
             lines.append(f"title={title}")
 
-        placeholders = self._get_placeholders()
-        aria_labels  = self._get_aria_labels()
-        if placeholders != "none":
-            lines.append(f"placeholders=[{placeholders}]")
-        if aria_labels != "none":
-            lines.append(f"aria-labels=[{aria_labels}]")
+        snapshot = self._get_dom_snapshot()
+        if snapshot != "none":
+            lines.append(f"dom=[{snapshot}]")
 
-        # Count how many matches the failing selector has (ignoring visibility)
         sel_match = re.search(r"querySelector(?:All)?\('([^']+)'\)", failing_js)
         if sel_match:
-            css = sel_match.group(1)
+            css   = sel_match.group(1)
             count = self._eval_raw(f"document.querySelectorAll('{css}').length")
             if count and count is not BRIDGE_TIMEOUT:
                 lines.append(f"matches for '{css}'={count}")
 
         return " | ".join(lines)
 
-    def _get_placeholders(self) -> str:
-        r = self._eval_raw(
-            "(function(){var e=document.querySelectorAll('[placeholder]');"
-            "return Array.from(e).map(function(x){return x.placeholder;}).join(' | ')||'none';})()"
-        )
-        return r if r and r is not BRIDGE_TIMEOUT else "none"
-
-    def _get_aria_labels(self) -> str:
-        r = self._eval_raw(
-            "(function(){var e=document.querySelectorAll('[aria-label]');"
-            "var l=Array.from(e).map(function(x){return x.getAttribute('aria-label');}).filter(Boolean);"
-            "return l.slice(0,15).join(' | ')||'none';})()"
-        )
+    def _get_dom_snapshot(self) -> str:
+        r = self._eval_raw(_DOM_SNAPSHOT_JS)
         return r if r and r is not BRIDGE_TIMEOUT else "none"
