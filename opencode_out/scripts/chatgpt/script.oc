@@ -1,14 +1,12 @@
 LOAD https://chatgpt.com
 
 ON LOAD
-  WAIT_FOR_EITHER id:prompt-textarea | text:Accept all
-  IF_VISIBLE text:Accept all  THEN CLICK text:Accept all
-  WAIT_FOR   id:prompt-textarea
+  WAIT_FOR     id:prompt-textarea
+  SLEEP        2000
+  IF_VISIBLE   text:Accept all  THEN CLICK text:Accept all
 END
 
 ON SEND
-  WAIT_FOR_EITHER id:prompt-textarea | text:Accept all
-  IF_VISIBLE text:Accept all  THEN CLICK text:Accept all
   WAIT_FOR     id:prompt-textarea
   IF_VISIBLE   aria:New chat  THEN CLICK aria:New chat
   WAIT_FOR     id:prompt-textarea

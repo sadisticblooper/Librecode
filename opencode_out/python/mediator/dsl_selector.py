@@ -111,9 +111,14 @@ def wait_count_js(selector: str, op: str, count: int) -> str:
 def click_js(selector: str) -> str:
     finder = selector_to_js_finder(selector)
     return (
-        f"(function(){{const el={finder};if(!el)return 'NOT_FOUND';"
+        f"(function(){{var el={finder};if(!el)return 'NOT_FOUND';"
+        f"var t=el;"
+        f"while(t&&t!==document.body&&t.tagName!=='BUTTON'&&t.tagName!=='A'&&t.getAttribute('role')!=='button')t=t.parentElement;"
+        f"if(t&&t!==document.body)el=t;"
         f"el.scrollIntoView({{block:'center'}});"
+        f"el.focus();"
         f"['mousedown','mouseup','click'].forEach(t=>el.dispatchEvent(new MouseEvent(t,{{bubbles:true,cancelable:true}})));"
+        f"if(el.tagName==='BUTTON'||el.getAttribute('role')==='button')el.click();"
         f"return 'OK';}})()"
     )
 
