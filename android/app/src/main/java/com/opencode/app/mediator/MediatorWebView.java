@@ -83,7 +83,7 @@ public class MediatorWebView {
                 if (value != null && !value.equals("null")) {
                     // evaluateJavascript always returns a JSON-encoded value.
                     // Use org.json.JSONArray to properly decode string values
-                    // (handles all escape sequences: \n, \t, \uXXXX, etc.)
+                    // (handles all escape sequences: newline, tab, unicode, etc.)
                     try {
                         // Wrap in array so org.json can parse any JSON type
                         org.json.JSONArray arr = new org.json.JSONArray("[" + value + "]");
