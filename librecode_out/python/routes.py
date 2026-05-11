@@ -165,11 +165,6 @@ def _register(app) -> None:
         data    = request.json
         chat_id = data.get("chat_id")
         state.current_chat_id = chat_id
-
-            # Per-chat token tracking — init if first message in this chat
-            if chat_id not in state.chat_token_counts:
-                state.chat_token_counts[chat_id] = {"input": 0, "output": 0}
-            token_counts = state.chat_token_counts[chat_id]
         if chat_id:
             raw_history = data.get("history", [])
             cleaned = []
@@ -417,6 +412,11 @@ def _register(app) -> None:
             full_reasoning = ""
             last_heartbeat = time.time()
             state.current_chat_id = chat_id
+
+            # Per-chat token tracking — init if first message in this chat
+            if chat_id not in state.chat_token_counts:
+                state.chat_token_counts[chat_id] = {"input": 0, "output": 0}
+            token_counts = state.chat_token_counts[chat_id]
 
             try:
                 provider = get_provider(model)
