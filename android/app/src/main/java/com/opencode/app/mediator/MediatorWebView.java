@@ -81,13 +81,16 @@ public class MediatorWebView {
         mainHandler.post(() ->
             webView.evaluateJavascript(js, value -> {
                 if (value != null && !value.equals("null")) {
-                    // Strip surrounding quotes from JSON string
-                    if (value.startsWith("\"") && value.endsWith("\"")) {
-                        result[0] = value.substring(1, value.length() - 1)
-                                         .replace("\\\"", "\"")
-                                         .replace("\\n", "\n")
-                                         .replace("\\\\", "\\");
-                    } else {
+                    // evaluateJavascript always returns a JSON-encoded value.
+                    // Use org.json.JSONArray to properly decode string values
+                    // (handles all escape sequences: \n, \t, \uXXXX, etc.)
+                    try {
+                        // Wrap in array so org.json can parse any JSON type
+                        org.json.JSONArray arr = new org.json.JSONArray("[" + value + "]");
+                        Object v = arr.get(0);
+                        result[0] = v == org.json.JSONObject.NULL ? null : v.toString();
+                    } catch (org.json.JSONException e) {
+                        // Fallback: return raw value as-is
                         result[0] = value;
                     }
                 }

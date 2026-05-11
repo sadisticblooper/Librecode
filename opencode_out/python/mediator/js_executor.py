@@ -147,10 +147,18 @@ class JsExecutor:
         self._run_phase("load", None, self.timeouts["ready_ms"])
 
     def send(self, message: str):
-        """Run onSend(message). For streaming scripts this returns once the
-        response element appears; for non-streaming it returns when done."""
+        """Run onSend(message).
+        Streaming scripts: onSend clicks and returns immediately (fast).
+        Non-streaming: onSend waits for full response (add response_ms).
+        stream_read_with_thinking handles the full wait for streaming mode.
+        """
         self._ensure_injected()
-        self._run_phase("send", message, self.timeouts["send_ms"] + self.timeouts["response_ms"])
+        streaming = bool(self.manifest.get("stream_selector") or
+                         self.manifest.get("thinking_snapshot_js"))
+        timeout = self.timeouts["send_ms"] if streaming else (
+            self.timeouts["send_ms"] + self.timeouts["response_ms"]
+        )
+        self._run_phase("send", message, timeout)
 
     def read(self) -> str:
         """Run onRead() and return the extracted text."""
@@ -312,13 +320,16 @@ class JsExecutor:
 
             if changed:
                 stable_since = time.time()
-            else:
-                # Stable check: done when not generating AND text hasn't moved
-                if not generating:
-                    if stable_since is not None and (time.time() - stable_since) * 1000 >= stable_ms:
+            elif stable_since is not None:
+                # Only consider stopping if:
+                #  1. We have actually received some reply content
+                #  2. The page says generation is done
+                #  3. Text has been stable for stable_ms
+                has_content = bool(last_reply or last_thinking)
+                if has_content and not generating:
+                    elapsed_stable = (time.time() - stable_since) * 1000
+                    if elapsed_stable >= stable_ms:
                         break
-                    elif stable_since is None:
-                        stable_since = time.time()
 
             time.sleep(interval_ms / 1000)
 
