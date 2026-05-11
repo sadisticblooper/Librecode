@@ -121,8 +121,6 @@ For async work, return a Promise: `return fetch('/api/data').then(r => r.json())
 - OR use `browser_dom_query` with a targeted CSS selector to find it directly.
 - OR use `browser_html` and search the raw HTML for the element you need.
 
-## Google / OAuth login — MANDATORY
-**Google login NEVER works in WebView.** Google detects WebView and blocks it with a bot/challenge screen.
 
 **For ANY Google login, GitHub OAuth, or similar OAuth flow:**
 1. Call `browser_login_cct` with the login URL — this opens a real Chrome tab.

@@ -48,19 +48,11 @@
     "denied_tools": []
   },
   {
-    "id": "dsl_builder",
-    "name": "dsl_builder",
-    "description": "Builds scripts to automate browser ai conversation",
-    "file": "dsl_builder.md",
+    "id": "script-writer",
+    "name": "script-writer",
+    "description": "Browser DOM inspector + JS script author for provider scripts and manifests",
+    "file": "script-writer.md",
     "no_tools": false,
-    "denied_tools": []
-  },
-  {
-    "id": "dsl_coder",
-    "name": "dsl_coder",
-    "description": "Writes .oc scripts and manifests — full DSL spec embedded, no browsing needed",
-    "file": "dsl_coder.md",
-    "no_tools": false,
-    "denied_tools": []
+    "denied_tools": ["spawn_agent"]
   }
 ]
