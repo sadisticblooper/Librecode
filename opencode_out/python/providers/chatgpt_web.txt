@@ -107,6 +107,10 @@ def stream_chat(
         return
 
     user_input = _messages_to_input(messages)
+    stream_selector = manifest.get("stream_selector", "")
+    thinking_js     = manifest.get("thinking_snapshot_js", None)
+    stable_ms       = manifest.get("timeouts", {}).get("stream_stable_ms",
+                      manifest.get("timeouts", {}).get("stable_ms", 1500))
 
     try:
         if not session_manager.is_loaded(SCRIPT_ID):
@@ -119,7 +123,6 @@ def stream_chat(
             session_manager.mark_loaded(SCRIPT_ID)
 
         executor.send(user_input)
-        reply = executor.read() or ""
         session_manager.reset_errors(SCRIPT_ID)
 
     except JsError as e:
@@ -129,16 +132,47 @@ def stream_chat(
         yield {"type": "error", "text": f"Executor error: {e}"}
         return
 
-    # Split out tool_calls block if present
+    # ── Streaming: emit thinking + reply deltas ───────────────────────────────
+    if stream_selector:
+        reply_buffer = ""
+        try:
+            for item in executor.stream_read_with_thinking(
+                stream_selector,
+                thinking_js=thinking_js,
+                stable_ms=stable_ms,
+            ):
+                chunk_type = item.get("type", "text")
+                chunk_text = item.get("text", "")
+                if chunk_type == "thinking":
+                    yield {"type": "thinking", "text": chunk_text}
+                else:
+                    reply_buffer += chunk_text
+                    yield {"type": "text", "text": chunk_text}
+        except JsError as e:
+            yield {"type": "error", "text": f"Stream error: {e}"}
+            yield {"type": "done"}
+            return
+
+        reply = reply_buffer
+
+    else:
+        # Non-streaming fallback (no stream_selector in manifest)
+        try:
+            reply = executor.read() or ""
+        except JsError as e:
+            yield {"type": "error", "text": f"Script error: {e}"}
+            return
+        except Exception as e:
+            yield {"type": "error", "text": f"Executor error: {e}"}
+            return
+        if reply:
+            yield {"type": "text", "text": reply}
+
+    # ── Tool call extraction ──────────────────────────────────────────────────
     tool_buffer = None
     if _TOOL_CALL_OPEN in reply:
         before, _, after = reply.partition(_TOOL_CALL_OPEN)
-        if before.strip():
-            yield {"type": "text", "text": before.strip()}
         tool_buffer = after.split(_TOOL_CALL_CLOSE)[0].strip()
-    else:
-        if reply:
-            yield {"type": "text", "text": reply}
 
     if tool_buffer is None:
         yield {"type": "done"}

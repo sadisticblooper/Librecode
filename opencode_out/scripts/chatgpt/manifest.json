@@ -5,13 +5,14 @@
   "port": 11435,
   "supports_tools": false,
   "stream_selector": "[data-message-author-role=\"assistant\"]",
+  "thinking_snapshot_js": "window._ocGetSnapshot ? window._ocGetSnapshot() : null",
   "timeouts": {
     "ready_ms": 20000,
     "send_ms": 8000,
-    "response_ms": 20000,
+    "response_ms": 120000,
     "stable_ms": 1500,
-    "stream_stable_ms": 1500,
-    "poll_interval_ms": 150,
+    "stream_stable_ms": 2000,
+    "poll_interval_ms": 120,
     "eval_bridge_ms": 10000
   },
   "script": "script.js"

@@ -483,6 +483,9 @@ def _handle_chat(script_id: str, req) -> Response:
 
     # ── Streaming SSE response ────────────────────────────────────────────────
     if want_stream and stream_selector:
+        # Read thinking_snapshot_js from manifest (set by chatgpt script).
+        thinking_js = manifest.get("thinking_snapshot_js", None)
+
         def _generate():
             resp_id = f"mediator-{uuid.uuid4().hex[:8]}"
 
@@ -504,19 +507,46 @@ def _handle_chat(script_id: str, req) -> Response:
 
             full_text = ""
             try:
-                for chunk in executor.stream_read(stream_selector, stable_ms=stable_ms):
-                    full_text += chunk
-                    event = {
-                        "id":      resp_id,
-                        "object":  "chat.completion.chunk",
-                        "model":   script_id,
-                        "choices": [{
-                            "index":         0,
-                            "delta":         {"role": "assistant", "content": chunk},
-                            "finish_reason": None,
-                        }],
-                    }
+                # Use stream_read_with_thinking when the manifest declares a
+                # thinking_snapshot_js; this surfaces reasoning tokens as
+                # delta chunks with finish_reason="thinking" (non-standard but
+                # recognizable by the OpenCode UI).  Falls back gracefully to
+                # plain text chunks when the JS helper is absent.
+                for item in executor.stream_read_with_thinking(
+                    stream_selector,
+                    thinking_js=thinking_js,
+                    stable_ms=stable_ms,
+                ):
+                    chunk_type = item.get("type", "text")
+                    chunk_text = item.get("text", "")
+
+                    if chunk_type == "thinking":
+                        # Emit as a special reasoning delta so the UI can
+                        # display it in a collapsible "Thinking…" block.
+                        event = {
+                            "id":      resp_id,
+                            "object":  "chat.completion.chunk",
+                            "model":   script_id,
+                            "choices": [{
+                                "index":         0,
+                                "delta":         {"role": "assistant", "reasoning_content": chunk_text},
+                                "finish_reason": None,
+                            }],
+                        }
+                    else:
+                        full_text += chunk_text
+                        event = {
+                            "id":      resp_id,
+                            "object":  "chat.completion.chunk",
+                            "model":   script_id,
+                            "choices": [{
+                                "index":         0,
+                                "delta":         {"role": "assistant", "content": chunk_text},
+                                "finish_reason": None,
+                            }],
+                        }
                     yield f"data: {json.dumps(event)}\n\n"
+
             except JsError as e:
                 err_event = {"error": {"message": str(e), "type": "js_error"}}
                 yield f"data: {json.dumps(err_event)}\n\n"

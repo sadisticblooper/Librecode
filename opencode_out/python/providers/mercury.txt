@@ -8,7 +8,7 @@ from typing import Generator
 
 PROVIDER_NAME = "mercury"
 API_BASE      = "https://api.inceptionlabs.ai/v1"
-API_KEY       = "sk_ed6c5f9b76c20217c5b95a6c954d916f"
+API_KEY       = "sk_a514bcff2033be2c30bf8781d9f33941"
 
 MODELS = [
     {"id": "mercury-2",      "label": "Mercury 2",      "ctx": 32000},

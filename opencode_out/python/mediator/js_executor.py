@@ -218,6 +218,115 @@ class JsExecutor:
                 "Bridge timeout during stream_read — Android not polling /mediator/eval."
             )
 
+    def stream_read_with_thinking(
+        self,
+        selector: str,
+        thinking_js: Optional[str] = None,
+        stable_ms: Optional[int] = None,
+        timeout_ms: Optional[int] = None,
+    ) -> Iterator[dict]:
+        """
+        Generator that yields dicts with keys:
+          {"type": "thinking", "text": delta}  — incremental thinking/reasoning tokens
+          {"type": "text",     "text": delta}  — incremental reply tokens
+
+        Uses window._ocGetSnapshot() if available (injected by script.js),
+        otherwise falls back to plain stream_read() yielding only text deltas.
+
+        Stops when both reply and thinking have been stable for stable_ms AND
+        the page reports generating=False (stop button gone).
+        """
+        css         = _sel_to_css(selector)
+        stable_ms   = stable_ms  or self.timeouts.get("stream_stable_ms",
+                                                       self.timeouts["stable_ms"])
+        timeout_ms  = timeout_ms or self.timeouts["response_ms"]
+        interval_ms = self.timeouts["poll_interval_ms"]
+
+        # JS snippet to call: uses _ocGetSnapshot if available, else plain poll.
+        snapshot_js = thinking_js or "window._ocGetSnapshot ? window._ocGetSnapshot() : null"
+
+        # Fallback plain-text poll (when snapshot unavailable)
+        plain_poll_js = (
+            f"(function(){{"
+            f"  var all = document.querySelectorAll({json.dumps(css)});"
+            f"  if (!all.length) return null;"
+            f"  return all[all.length-1].innerText || null;"
+            f"}})()"
+        )
+
+        deadline      = time.time() + timeout_ms / 1000
+        last_thinking = ""
+        last_reply    = ""
+        stable_since: Optional[float] = None
+        bridge_alive  = False
+
+        while time.time() < deadline:
+            raw = self._eval_raw(snapshot_js)
+
+            if raw is BRIDGE_TIMEOUT:
+                time.sleep(interval_ms / 1000)
+                continue
+
+            bridge_alive = True
+
+            # Parse snapshot JSON
+            snapshot = None
+            if raw:
+                try:
+                    import json as _json
+                    snapshot = _json.loads(raw)
+                except Exception:
+                    pass
+
+            if snapshot is None:
+                # _ocGetSnapshot not present — fall back to plain text
+                text = self._eval_raw(plain_poll_js) or ""
+                if isinstance(text, str) and text != last_reply:
+                    if len(text) > len(last_reply):
+                        yield {"type": "text", "text": text[len(last_reply):]}
+                    last_reply    = text
+                    stable_since  = time.time()
+                else:
+                    if stable_since and (time.time() - stable_since) * 1000 >= stable_ms:
+                        break
+                time.sleep(interval_ms / 1000)
+                continue
+
+            thinking  = snapshot.get("thinking") or ""
+            reply     = snapshot.get("reply")    or ""
+            generating = snapshot.get("generating", True)
+
+            changed = False
+
+            # Emit new thinking delta
+            if thinking and len(thinking) > len(last_thinking):
+                yield {"type": "thinking", "text": thinking[len(last_thinking):]}
+                last_thinking = thinking
+                changed = True
+
+            # Emit new reply delta
+            if reply and len(reply) > len(last_reply):
+                yield {"type": "text", "text": reply[len(last_reply):]}
+                last_reply = reply
+                changed = True
+
+            if changed:
+                stable_since = time.time()
+            else:
+                # Stable check: done when not generating AND text hasn't moved
+                if not generating:
+                    if stable_since is not None and (time.time() - stable_since) * 1000 >= stable_ms:
+                        break
+                    elif stable_since is None:
+                        stable_since = time.time()
+
+            time.sleep(interval_ms / 1000)
+
+        if not bridge_alive:
+            raise JsError(
+                "Bridge timeout during stream_read_with_thinking — Android not polling /mediator/eval."
+            )
+
     # ── Phase runner ───────────────────────────────────────────────────────────
 
     def _run_phase(
