@@ -4,11 +4,11 @@
   "url": "https://chatgpt.com",
   "port": 11435,
   "supports_tools": false,
-  "stream_selector": "[role='assistant']",
+  "stream_selector": "[data-message-author-role=\"assistant\"]",
   "timeouts": {
     "ready_ms": 20000,
     "send_ms": 8000,
-    "response_ms": 120000,
+    "response_ms": 20000,
     "stable_ms": 1500,
     "stream_stable_ms": 1500,
     "poll_interval_ms": 150,
