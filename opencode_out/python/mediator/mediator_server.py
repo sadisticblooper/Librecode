@@ -135,8 +135,8 @@ def _invalidate_executor(script_id: str):
 # ── Seed default scripts ───────────────────────────────────────────────────────
 
 def seed_default_scripts():
-    """Sync bundled scripts/ into opencode/scripts/.
-    Always overwrites script and manifest files so updates land on existing installs.
+    """Seed bundled scripts/ into opencode/scripts/ on first install only.
+    Skips any file that already exists — never overwrites user edits.
     Never deletes files the user added themselves.
     """
     import shutil, sys
@@ -158,9 +158,11 @@ def seed_default_scripts():
         if not os.path.isdir(src):
             continue
         os.makedirs(dst, exist_ok=True)
-        # Always copy every file from the bundle into the user folder.
+        # Only copy if the file doesn't exist yet — never overwrite user edits.
         for fname in os.listdir(src):
-            shutil.copy2(os.path.join(src, fname), os.path.join(dst, fname))
+            dst_file = os.path.join(dst, fname)
+            if not os.path.exists(dst_file):
+                shutil.copy2(os.path.join(src, fname), dst_file)
 
 
 # ── Route registration ─────────────────────────────────────────────────────────

@@ -26,9 +26,19 @@ async function onSend(input) {
   })();
   if (!textarea) throw new Error("Textarea not found");
   textarea.focus();
-  document.execCommand('insertText', false, input);
 
-  // Find send button — walk shadow DOM
+  // Insert text with React-compatible input event
+  if (textarea.tagName === 'TEXTAREA') {
+    var setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
+    setter.call(textarea, input);
+  } else {
+    textarea.textContent = input;
+  }
+  textarea.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
+
+  await $oc.sleep(300); // Let React enable the send button
+
+  // Find and click send button — walk shadow DOM
   var sendBtn = (function findBtn() {
     var btn = document.querySelector('#composer-submit-button')
       || document.querySelector('button[data-testid="send-button"]')
