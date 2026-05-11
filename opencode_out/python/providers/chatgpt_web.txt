@@ -91,7 +91,7 @@ def stream_chat(
 ) -> Generator[dict, None, None]:
     from python.mediator.mediator_server import _get_executor, _load_manifest
     from python.mediator.script_session import session_manager
-    from python.mediator.dsl_executor import DslError
+    from python.mediator.js_executor import JsError
 
     if tools:
         messages = _inject_tool_system(messages, tools)
@@ -122,7 +122,7 @@ def stream_chat(
         reply = executor.read() or ""
         session_manager.reset_errors(SCRIPT_ID)
 
-    except DslError as e:
+    except JsError as e:
         yield {"type": "error", "text": f"DSL error: {e}"}
         return
     except Exception as e:
