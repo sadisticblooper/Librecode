@@ -453,9 +453,9 @@ def _handle_chat(script_id: str, req) -> Response:
 
         load_timeout = manifest.get("timeouts", {}).get("response_ms", 30000) / 1000 + 5
         if not load_done.wait(timeout=load_timeout):
-            return jsonify({"error": "Load timed out"}), 504
+            return jsonify({"id": f"mediator-err-{uuid.uuid4().hex[:8]}", "object": "chat.completion", "model": script_id, "choices": [{"index": 0, "message": {"role": "assistant", "content": "[Load timed out] Bridge did not respond"}, "finish_reason": "stop"}]})
         if load_error[0]:
-            return jsonify({"error": f"Load failed: {load_error[0]}"}), 500
+            return jsonify({"id": f"mediator-err-{uuid.uuid4().hex[:8]}", "object": "chat.completion", "model": script_id, "choices": [{"index": 0, "message": {"role": "assistant", "content": f"[Load failed] {load_error[0]}"}, "finish_reason": "stop"}]})
 
     # Build the input string from messages.
     user_parts = []
@@ -564,13 +564,23 @@ def _handle_chat(script_id: str, req) -> Response:
         session_manager.reset_errors(script_id)
     except JsError as e:
         needs_reauth = session_manager.record_error(script_id)
-        error_msg = str(e)
+        error_msg = f"[Script error] {e}"
         if needs_reauth:
             error_msg += " — too many errors, please re-authenticate in the browser."
-        return jsonify({"error": error_msg}), 500
+        return jsonify({
+            "id": f"mediator-err-{uuid.uuid4().hex[:8]}",
+            "object": "chat.completion",
+            "model": script_id,
+            "choices": [{"index": 0, "message": {"role": "assistant", "content": error_msg}, "finish_reason": "stop"}],
+        })
     except Exception as e:
         session_manager.record_error(script_id)
-        return jsonify({"error": str(e)}), 500
+        return jsonify({
+            "id": f"mediator-err-{uuid.uuid4().hex[:8]}",
+            "object": "chat.completion",
+            "model": script_id,
+            "choices": [{"index": 0, "message": {"role": "assistant", "content": f"[Internal error] {e}"}, "finish_reason": "stop"}],
+        })
 
     tool_calls  = None
     clean_reply = reply_text
