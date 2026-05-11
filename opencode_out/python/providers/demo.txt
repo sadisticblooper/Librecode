@@ -1,11 +1,6 @@
 """
-demo.py - Provider for the bundled DSL demo site.
-
-Mirrors qwen provider exactly:
-- Messages sent as JSON to mediator executor (only last user message typed)
-- Tool calling via text-based <tool_calls> scheme injected into system prompt
-- Streaming text yielded token by token as executor reads the response
-- Tool call block parsed after response is complete
+demo.py - Provider for the bundled JS demo site.
+Non-streaming: reads the complete response, then yields it as one text chunk.
 """
 
 import json
@@ -75,7 +70,6 @@ def _inject_tool_system(messages: list, tools: list) -> list:
 
 
 def _messages_to_input(messages: list) -> str:
-    """Only type the last user message into the site."""
     for m in reversed(messages):
         if m.get("role") == "user":
             content = m.get("content") or ""
@@ -93,7 +87,7 @@ def stream_chat(
 ) -> Generator[dict, None, None]:
     from python.mediator.mediator_server import _get_executor, _load_manifest
     from python.mediator.script_session import session_manager
-    from python.mediator.dsl_executor import DslError
+    from python.mediator.js_executor import JsError
 
     if tools:
         messages = _inject_tool_system(messages, tools)
@@ -124,14 +118,14 @@ def stream_chat(
         reply = executor.read() or ""
         session_manager.reset_errors(SCRIPT_ID)
 
-    except DslError as e:
-        yield {"type": "error", "text": f"DSL error: {e}"}
+    except JsError as e:
+        yield {"type": "error", "text": f"Script error: {e}"}
         return
     except Exception as e:
         yield {"type": "error", "text": f"Executor error: {e}"}
         return
 
-    # Split out tool_calls block exactly like qwen
+    # Split out tool_calls block if present.
     tool_buffer = None
     if _TOOL_CALL_OPEN in reply:
         before, _, after = reply.partition(_TOOL_CALL_OPEN)

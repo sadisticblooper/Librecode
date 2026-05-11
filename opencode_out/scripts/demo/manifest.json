@@ -4,12 +4,14 @@
   "url": "https://sadisticblooder.github.io/Sjdjd/",
   "port": 11440,
   "supports_tools": false,
+  "stream_selector": "",
   "timeouts": {
     "ready_ms": 20000,
     "send_ms": 5000,
     "response_ms": 15000,
     "stable_ms": 1000,
-    "poll_interval_ms": 300
+    "poll_interval_ms": 300,
+    "eval_bridge_ms": 10000
   },
-  "script": "script.oc"
+  "script": "script.js"
 }

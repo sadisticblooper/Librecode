@@ -1,5 +1,5 @@
 """
-mediator_server.py — OpenAI-compatible localhost endpoint for DSL-scripted providers.
+mediator_server.py — OpenAI-compatible localhost endpoint for JS-scripted providers.
 
 Registers these routes on the main Flask app:
 
@@ -7,10 +7,13 @@ Registers these routes on the main Flask app:
   POST /mediator/stop/<script_id>           Tear down a session
   GET  /mediator/sessions                   List active sessions
   GET  /mediator/scripts                    List available scripts in opencode/scripts/
-  GET  /mediator/scripts/<script_id>        Read a script.oc
-  PUT  /mediator/scripts/<script_id>        Write/update a script.oc
+  GET  /mediator/scripts/<script_id>        Read a script.js
+  PUT  /mediator/scripts/<script_id>        Write/update a script.js
   POST /mediator/eval/<script_id>           Bridge: Android calls this to deliver JS eval results
-  POST /v1/chat/completions/<script_id>     OpenAI-compat chat endpoint
+  POST /v1/chat/completions/<script_id>     OpenAI-compat chat endpoint  (streaming via SSE)
+
+Scripts are plain .js files; see scripts/demo/script.js for the template.
+Set manifest "stream_selector" to enable token-streaming SSE responses.
 """
 
 import json
@@ -19,7 +22,6 @@ import uuid
 import threading
 import time
 
-# Use gevent primitives if gevent is running (monkey-patched), otherwise stdlib.
 try:
     import gevent.event
     import gevent.lock
@@ -28,12 +30,13 @@ try:
 except ImportError:
     _Event = threading.Event
     _Lock  = threading.Lock
+
 import logging
 from typing import Optional
 
 from flask import Flask, request, jsonify, Response, stream_with_context
 
-from .dsl_executor import DslExecutor, DslError
+from .js_executor import JsExecutor, JsError
 from .tool_harness import wrap as harness_wrap, parse as harness_parse
 from .script_session import session_manager
 
@@ -41,23 +44,16 @@ logger = logging.getLogger(__name__)
 
 # ── JS eval bridge ─────────────────────────────────────────────────────────────
 # Android WebView posts results here; Python side blocks waiting for them.
-_eval_pending: dict[str, threading.Event]   = {}   # req_id → Event
-_eval_results: dict[str, Optional[str]]     = {}   # req_id → result string
+_eval_pending: dict[str, threading.Event]   = {}
+_eval_results: dict[str, Optional[str]]     = {}
 _eval_lock = _Lock()
 
-# Per-script_id queue of pending JS eval requests for the Android side to pick up
-_eval_requests: dict[str, list[dict]] = {}  # script_id → [{id, js}, ...]
+_eval_requests: dict[str, list[dict]] = {}
 _eval_req_lock = _Lock()
 
 
 def _build_evaluator(script_id: str, timeout_sec: float = 10.0):
-    """Returns an evaluator function wired to the Android bridge.
-
-    Return values:
-      str   → bridge responded, JS returned that string
-      None  → bridge responded, JS returned null/undefined
-      raises BridgeTimeoutError → Android never picked up the request
-    """
+    """Returns an evaluator wired to the Android bridge (unchanged from before)."""
     def evaluator(js: str) -> Optional[str]:
         req_id = str(uuid.uuid4())
         evt    = _Event()
@@ -69,7 +65,7 @@ def _build_evaluator(script_id: str, timeout_sec: float = 10.0):
         with _eval_req_lock:
             _eval_requests.setdefault(script_id, []).append({"id": req_id, "js": js})
 
-        logger.info("[eval] enqueued req %s for %s: %s", req_id[:8], script_id, js[:60])
+        logger.debug("[eval] enqueued %s for %s: %.60s", req_id[:8], script_id, js)
         got = evt.wait(timeout=timeout_sec)
 
         with _eval_lock:
@@ -77,28 +73,19 @@ def _build_evaluator(script_id: str, timeout_sec: float = 10.0):
             _eval_pending.pop(req_id, None)
 
         if not got:
-            logger.warning("[eval] BRIDGE TIMEOUT for req %s (%.0fs) — Android did not poll /mediator/eval/%s",
-                           req_id[:8], timeout_sec, script_id)
-            # Return a sentinel string so _poll can distinguish "bridge dead"
-            # from "element not found (null)".
-            # _poll checks for None == bridge alive but JS returned null.
-            # We raise here so the DslExecutor._eval() catches it and returns None,
-            # but we need _poll to know the bridge is dead, not just null.
-            # Solution: raise so _poll's raw = self._eval(js) stays None → bridge_alive stays False.
             raise RuntimeError(
-                f"Android bridge did not respond within {timeout_sec:.0f}s "
-                f"for script '{script_id}'. "
+                f"Android bridge timeout ({timeout_sec:.0f}s) for '{script_id}'. "
                 f"MediatorBridgePoller may not be running."
             )
 
-        logger.info("[eval] got result for %s: %s", req_id[:8], str(result)[:60])
+        logger.debug("[eval] result %s: %.60s", req_id[:8], str(result))
         return result
 
     return evaluator
 
 
-# ── Loaded executors cache ─────────────────────────────────────────────────────
-_executors: dict[str, DslExecutor] = {}
+# ── Executor cache ─────────────────────────────────────────────────────────────
+_executors: dict[str, JsExecutor] = {}
 _exec_lock = _Lock()
 
 
@@ -117,7 +104,7 @@ def _load_manifest(script_id: str) -> Optional[dict]:
         return json.load(f)
 
 
-def _get_executor(script_id: str) -> Optional[DslExecutor]:
+def _get_executor(script_id: str) -> Optional[JsExecutor]:
     with _exec_lock:
         if script_id in _executors:
             return _executors[script_id]
@@ -126,13 +113,14 @@ def _get_executor(script_id: str) -> Optional[DslExecutor]:
     if not manifest:
         return None
 
-    script_name = manifest.get("script", "script.oc")
+    script_name = manifest.get("script", "script.js")
     script_path = os.path.join(_get_scripts_dir(), script_id, script_name)
     if not os.path.isfile(script_path):
         return None
 
-    evaluator = _build_evaluator(script_id, timeout_sec=manifest.get("timeouts", {}).get("eval_bridge_ms", 10_000) / 1000)
-    executor  = DslExecutor(script_path, manifest, evaluator)
+    timeout_sec = manifest.get("timeouts", {}).get("eval_bridge_ms", 10_000) / 1000
+    evaluator   = _build_evaluator(script_id, timeout_sec=timeout_sec)
+    executor    = JsExecutor(script_path, manifest, evaluator)
 
     with _exec_lock:
         _executors[script_id] = executor
@@ -144,16 +132,13 @@ def _invalidate_executor(script_id: str):
         _executors.pop(script_id, None)
 
 
-# ── Seed default scripts if missing ───────────────────────────────────────────
+# ── Seed default scripts ───────────────────────────────────────────────────────
 
 def seed_default_scripts():
-    """Copy bundled scripts/ into the user-accessible opencode/scripts/ dir on first run."""
+    """Copy bundled scripts/ into opencode/scripts/ on first run."""
     import shutil, sys
     scripts_dir = _get_scripts_dir()
 
-    # Under Chaquopy, __file__ is inside the APK zip so os.path.isdir fails.
-    # Instead, walk sys.path entries to find the real extracted root that
-    # contains our bundled scripts/ folder.
     bundle_dir = None
     for root in sys.path:
         candidate = os.path.join(root, "scripts")
@@ -174,7 +159,6 @@ def seed_default_scripts():
 # ── Route registration ─────────────────────────────────────────────────────────
 
 def register_mediator_routes(app: Flask):
-    """Call from routes.py init_app to mount all mediator routes."""
 
     seed_default_scripts()
 
@@ -188,18 +172,19 @@ def register_mediator_routes(app: Flask):
             folder = os.path.join(scripts_dir, name)
             if not os.path.isdir(folder):
                 continue
-            manifest = _load_manifest(name) or {}
-            script_file = manifest.get("script", "script.oc")
+            manifest    = _load_manifest(name) or {}
+            script_file = manifest.get("script", "script.js")
             script_path = os.path.join(folder, script_file)
             results.append({
-                "id":           name,
-                "label":        manifest.get("label", name),
-                "url":          manifest.get("url", ""),
-                "port":         manifest.get("port", 0),
-                "supports_tools": manifest.get("supports_tools", False),
-                "script_file":  script_file,
-                "has_script":   os.path.isfile(script_path),
-                "folder":       folder,
+                "id":              name,
+                "label":           manifest.get("label", name),
+                "url":             manifest.get("url", ""),
+                "port":            manifest.get("port", 0),
+                "supports_tools":  manifest.get("supports_tools", False),
+                "stream_selector": manifest.get("stream_selector", ""),
+                "script_file":     script_file,
+                "has_script":      os.path.isfile(script_path),
+                "folder":          folder,
             })
         return jsonify({"scripts": results, "scripts_dir": scripts_dir})
 
@@ -208,7 +193,7 @@ def register_mediator_routes(app: Flask):
         manifest = _load_manifest(script_id)
         if not manifest:
             return jsonify({"error": "Script not found"}), 404
-        script_file = manifest.get("script", "script.oc")
+        script_file = manifest.get("script", "script.js")
         script_path = os.path.join(_get_scripts_dir(), script_id, script_file)
         content = ""
         if os.path.isfile(script_path):
@@ -218,25 +203,21 @@ def register_mediator_routes(app: Flask):
 
     @app.route("/mediator/scripts/<script_id>", methods=["PUT"])
     def update_script(script_id: str):
-        """Update script.oc content. Also accepts manifest updates."""
-        data     = request.json or {}
+        data        = request.json or {}
         scripts_dir = _get_scripts_dir()
-        folder   = os.path.join(scripts_dir, script_id)
+        folder      = os.path.join(scripts_dir, script_id)
         os.makedirs(folder, exist_ok=True)
 
-        # Write manifest if provided
         if "manifest" in data:
             with open(os.path.join(folder, "manifest.json"), "w", encoding="utf-8") as f:
                 json.dump(data["manifest"], f, indent=2)
 
-        # Write script content if provided
         if "content" in data:
             manifest    = _load_manifest(script_id) or {}
-            script_file = manifest.get("script", "script.oc")
+            script_file = manifest.get("script", "script.js")
             with open(os.path.join(folder, script_file), "w", encoding="utf-8") as f:
                 f.write(data["content"])
 
-        # Invalidate cached executor so it reloads fresh
         _invalidate_executor(script_id)
         return jsonify({"status": "ok"})
 
@@ -252,53 +233,62 @@ def register_mediator_routes(app: Flask):
 
     @app.route("/mediator/scripts/<script_id>/create", methods=["POST"])
     def create_script(script_id: str):
-        """Create a new script folder with a blank template."""
         data        = request.json or {}
         scripts_dir = _get_scripts_dir()
         folder      = os.path.join(scripts_dir, script_id)
         if os.path.isdir(folder):
             return jsonify({"error": "Already exists"}), 409
         os.makedirs(folder, exist_ok=True)
+
         manifest = {
-            "id":    script_id,
-            "label": data.get("label", script_id),
-            "url":   data.get("url", ""),
-            "port":  data.get("port", 11440),
-            "supports_tools": False,
+            "id":              script_id,
+            "label":           data.get("label", script_id),
+            "url":             data.get("url", ""),
+            "port":            data.get("port", 11440),
+            "supports_tools":  False,
+            "stream_selector": "",
             "timeouts": {
-                "ready_ms": 20000,
-                "send_ms": 5000,
-                "response_ms": 120000,
-                "eval_bridge_ms": 10000,
-                "stable_ms": 1500,
-                "poll_interval_ms": 600,
+                "ready_ms":        20000,
+                "send_ms":          5000,
+                "response_ms":    120000,
+                "stable_ms":        1500,
+                "poll_interval_ms":  300,
+                "eval_bridge_ms":  10000,
             },
-            "script": "script.oc",
+            "script": "script.js",
         }
         with open(os.path.join(folder, "manifest.json"), "w", encoding="utf-8") as f:
             json.dump(manifest, f, indent=2)
+
+        target_url = data.get("url", "https://example.com")
         template = f"""\
-# {script_id} DSL script
-# Selectors use: aria: placeholder: role: id: css: text:
+// {script_id} — JavaScript provider script
+// $oc helpers: waitFor, waitWhile, waitNew, waitStable,
+//              click, type, clear, pressKey, navigate,
+//              extractLast, extractFirst, extractUrl, sleep
 
-LOAD {data.get('url', 'https://example.com')}
+const LOAD_URL = "{target_url}";
 
-ON LOAD
-  WAIT_FOR     placeholder:Message
-END
+async function onLoad() {{
+  await $oc.waitFor("placeholder:Message");
+}}
 
-ON SEND
-  WAIT_FOR     placeholder:Message
-  TYPE         placeholder:Message  WITH $INPUT
-  CLICK        aria:Send
-  WAIT_WHILE   aria:Stop
-END
+async function onSend(input) {{
+  await $oc.waitFor("placeholder:Message");
+  await $oc.type("placeholder:Message", input);
+  await $oc.click("aria:Send");
+  // For streaming providers: stop here (waitNew for response element).
+  // For non-streaming: add  await $oc.waitWhile("aria:Stop");
+  await $oc.waitNew("role:assistant");
+}}
 
-ON READ
-  EXTRACT      last role:assistant
-END
+async function onRead() {{
+  // Called only for non-streaming providers (no stream_selector in manifest).
+  await $oc.waitStable("role:assistant", 1500);
+  return $oc.extractLast("role:assistant");
+}}
 """
-        with open(os.path.join(folder, "script.oc"), "w", encoding="utf-8") as f:
+        with open(os.path.join(folder, "script.js"), "w", encoding="utf-8") as f:
             f.write(template)
         return jsonify({"status": "ok", "id": script_id, "manifest": manifest})
 
@@ -321,18 +311,20 @@ END
         executor = _get_executor(script_id)
         if not executor:
             return jsonify({"error": "Failed to load executor"}), 500
-        # Trigger LOAD in background so we don't block the HTTP response
+
         def _do_load():
             try:
                 executor.load()
                 session_manager.mark_loaded(script_id)
             except Exception as e:
                 logger.error("load error for %s: %s", script_id, e)
+
         try:
             import gevent
             gevent.spawn(_do_load)
         except ImportError:
             threading.Thread(target=_do_load, daemon=True).start()
+
         return jsonify({"status": "starting", "script_id": script_id})
 
     @app.route("/mediator/stop/<script_id>", methods=["POST"])
@@ -341,18 +333,19 @@ END
         session_manager.invalidate(script_id)
         return jsonify({"status": "stopped"})
 
-    # ── JS eval bridge (called by Android WebView) ─────────────────────────────
+    # ── JS eval bridge (Android WebView) ───────────────────────────────────────
 
     @app.route("/mediator/eval/<script_id>", methods=["GET"])
     def poll_eval_request(script_id: str):
-        """Android long-polls this — holds connection open up to 10s until a job is queued."""
+        """Android long-polls — holds connection up to 10s waiting for a job."""
         deadline = time.time() + 10.0
         while time.time() < deadline:
             with _eval_req_lock:
                 queue = _eval_requests.get(script_id, [])
                 if queue:
                     req = queue.pop(0)
-                    logger.info("[poll] delivering req %s to Android for %s", req["id"][:8], script_id)
+                    logger.debug("[poll] delivering %s to Android for %s",
+                                 req["id"][:8], script_id)
                     return jsonify({"pending": True, "id": req["id"], "js": req["js"]})
             time.sleep(0.02)
         return jsonify({"pending": False})
@@ -362,7 +355,7 @@ END
         """Android posts the JS result back here."""
         data   = request.json or {}
         req_id = data.get("id")
-        result = data.get("result")  # string or null
+        result = data.get("result")
 
         with _eval_lock:
             evt = _eval_pending.get(req_id)
@@ -371,111 +364,62 @@ END
                 evt.set()
         return jsonify({"status": "ok"})
 
-    # ── Live debug endpoint ────────────────────────────────────────────────────
+    # ── Debug endpoint ─────────────────────────────────────────────────────────
 
     @app.route("/mediator/debug/<script_id>", methods=["GET"])
     def debug_script(script_id: str):
-        """
-        Run quick diagnostics against the live WebView for a script.
-        Hit this from the browser while the app is running to see exactly
-        what state the WebView is in.
-        """
         executor = _get_executor(script_id)
         if not executor:
             return jsonify({"error": f"No executor for '{script_id}'"}), 404
 
-        timeout_sec = executor.timeouts.get("eval_bridge_ms", 10_000) / 1000
-
         def quick_eval(js):
-            try:
-                return executor._eval(js)
-            except Exception as e:
-                return f"ERROR: {e}"
+            try:    return executor._eval_raw(js)
+            except: return "ERROR"
 
-        result = {
-            "script_id":     script_id,
-            "session_loaded": session_manager.is_loaded(script_id),
-            "pending_evals":  len(_eval_requests.get(script_id, [])),
-            "bridge_timeout_sec": timeout_sec,
-        }
-
-        # Try a trivial eval to test if the bridge is alive
         ping = quick_eval("'pong'")
-        result["bridge_alive"] = (ping == "pong")
-        result["bridge_ping"]  = ping
-
+        result = {
+            "script_id":          script_id,
+            "session_loaded":     session_manager.is_loaded(script_id),
+            "pending_evals":      len(_eval_requests.get(script_id, [])),
+            "bridge_alive":       ping == "pong",
+            "bridge_ping":        ping,
+            "oc_loaded":          quick_eval("window.__ocLoaded === true ? 'yes' : 'no'"),
+        }
         if result["bridge_alive"]:
-            result["webview_url"]   = quick_eval("window.location.href")
-            result["page_title"]    = quick_eval("document.title")
-            result["placeholders"]  = quick_eval(
-                "(function(){"
-                "var els=document.querySelectorAll('[placeholder]');"
-                "return Array.from(els).map(function(e){return e.placeholder;}).join(' | ')||'none';"
-                "})()"
-            )
-            result["aria_labels"] = quick_eval(
-                "(function(){"
-                "var els=document.querySelectorAll('[aria-label]');"
-                "var ls=Array.from(els).map(function(e){return e.getAttribute('aria-label');}).filter(Boolean);"
-                "return ls.slice(0,20).join(' | ')||'none';"
-                "})()"
-            )
-            result["input_elements"] = quick_eval(
-                "(function(){"
-                "var els=document.querySelectorAll('input,textarea');"
-                "return Array.from(els).map(function(e){"
-                "  return (e.tagName+' type='+e.type+' placeholder='+e.placeholder+"
-                "         ' aria-label='+e.getAttribute('aria-label'));"
-                "}).join(' || ')||'none';"
-                "})()"
-            )
-
+            result["webview_url"] = quick_eval("window.location.href")
+            result["page_title"]  = quick_eval("document.title")
         return jsonify(result)
 
     # ── OpenAI-compatible chat endpoint ────────────────────────────────────────
 
     @app.route("/v1/chat/completions/<script_id>", methods=["POST"])
     def mediator_chat(script_id: str):
-        """
-        OpenAI-compatible endpoint. Provider files point baseURL here.
-        Example: baseURL = "http://localhost:5000/v1/chat/completions/chatgpt"
-        Actually we expose /v1/chat/completions and detect script from model name
-        OR use a dedicated port per script. For simplicity we use the script_id
-        URL segment approach.
-        """
         return _handle_chat(script_id, request)
 
     @app.route("/v1/chat/completions", methods=["POST"])
     def mediator_chat_default():
-        """
-        Fallback: detect script_id from the model field.
-        Provider sets model = "chatgpt" or "gemini_web" etc.
-        """
         data      = request.json or {}
         script_id = data.get("model", "")
         return _handle_chat(script_id, request)
 
 
+# ── Chat handler ───────────────────────────────────────────────────────────────
+
 def _handle_chat(script_id: str, req) -> Response:
     data     = req.json or {}
     messages = data.get("messages", [])
     tools    = data.get("tools")
-
-    logger.info("[mediator] _handle_chat called for script_id=%s", script_id)
+    want_stream = data.get("stream", False)
 
     manifest = _load_manifest(script_id)
     if not manifest:
-        logger.error("[mediator] no manifest for %s", script_id)
         return jsonify({"error": f"No script found for id: {script_id}"}), 404
 
     executor = _get_executor(script_id)
     if not executor:
-        logger.error("[mediator] executor load failed for %s", script_id)
         return jsonify({"error": "Executor load failed"}), 500
 
-    logger.info("[mediator] is_loaded=%s for %s", session_manager.is_loaded(script_id), script_id)
-
-    # Auto-start the session on first request — no manual button needed.
+    # Auto-start session on first request.
     if not session_manager.is_loaded(script_id):
         session_manager.get_or_create(
             script_id=script_id,
@@ -484,6 +428,7 @@ def _handle_chat(script_id: str, req) -> Response:
         )
         load_done  = _Event()
         load_error = [None]
+
         def _do_load():
             try:
                 executor.load()
@@ -492,19 +437,20 @@ def _handle_chat(script_id: str, req) -> Response:
                 load_error[0] = str(e)
             finally:
                 load_done.set()
+
         try:
             import gevent
             gevent.spawn(_do_load)
         except ImportError:
             threading.Thread(target=_do_load, daemon=True).start()
+
         load_timeout = manifest.get("timeouts", {}).get("response_ms", 30000) / 1000 + 5
         if not load_done.wait(timeout=load_timeout):
-            pending = list(_eval_requests.get(script_id, []))
-            return jsonify({"error": "BANANA"}), 504
+            return jsonify({"error": "Load timed out"}), 504
         if load_error[0]:
-            return jsonify({"error": f"[mediator] load failed: {load_error[0]}"}), 500
+            return jsonify({"error": f"Load failed: {load_error[0]}"}), 500
 
-    # Flatten conversation → single user string
+    # Build the input string from messages.
     user_parts = []
     for m in messages:
         role    = m.get("role", "")
@@ -522,11 +468,94 @@ def _handle_chat(script_id: str, req) -> Response:
     if harness_active:
         final_message = harness_wrap(final_message, tools)
 
+    stream_selector = manifest.get("stream_selector", "")
+    stable_ms       = manifest.get("timeouts", {}).get("stream_stable_ms",
+                       manifest.get("timeouts", {}).get("stable_ms", 1500))
+
+    # ── Streaming SSE response ────────────────────────────────────────────────
+    if want_stream and stream_selector:
+        def _generate():
+            resp_id = f"mediator-{uuid.uuid4().hex[:8]}"
+
+            try:
+                executor.send(final_message)
+                session_manager.reset_errors(script_id)
+            except JsError as e:
+                session_manager.record_error(script_id)
+                err_event = {"error": {"message": str(e), "type": "js_error"}}
+                yield f"data: {json.dumps(err_event)}\n\n"
+                yield "data: [DONE]\n\n"
+                return
+            except Exception as e:
+                session_manager.record_error(script_id)
+                err_event = {"error": {"message": str(e), "type": "internal_error"}}
+                yield f"data: {json.dumps(err_event)}\n\n"
+                yield "data: [DONE]\n\n"
+                return
+
+            full_text = ""
+            try:
+                for chunk in executor.stream_read(stream_selector, stable_ms=stable_ms):
+                    full_text += chunk
+                    event = {
+                        "id":      resp_id,
+                        "object":  "chat.completion.chunk",
+                        "model":   script_id,
+                        "choices": [{
+                            "index":         0,
+                            "delta":         {"role": "assistant", "content": chunk},
+                            "finish_reason": None,
+                        }],
+                    }
+                    yield f"data: {json.dumps(event)}\n\n"
+            except JsError as e:
+                err_event = {"error": {"message": str(e), "type": "js_error"}}
+                yield f"data: {json.dumps(err_event)}\n\n"
+                yield "data: [DONE]\n\n"
+                return
+
+            # Handle tool calls in the full text (harness mode).
+            if harness_active and full_text:
+                clean, tool_calls = harness_parse(full_text)
+                if tool_calls:
+                    for i, tc in enumerate(tool_calls):
+                        tool_event = {
+                            "id":      resp_id,
+                            "object":  "chat.completion.chunk",
+                            "model":   script_id,
+                            "choices": [{
+                                "index": 0,
+                                "delta": {"tool_calls": [tc]},
+                                "finish_reason": None,
+                            }],
+                        }
+                        yield f"data: {json.dumps(tool_event)}\n\n"
+
+            # Final stop chunk.
+            stop_event = {
+                "id":      resp_id,
+                "object":  "chat.completion.chunk",
+                "model":   script_id,
+                "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+            }
+            yield f"data: {json.dumps(stop_event)}\n\n"
+            yield "data: [DONE]\n\n"
+
+        return Response(
+            stream_with_context(_generate()),
+            mimetype="text/event-stream",
+            headers={
+                "Cache-Control":    "no-cache",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
+    # ── Non-streaming response ────────────────────────────────────────────────
     try:
         executor.send(final_message)
         reply_text = executor.read()
         session_manager.reset_errors(script_id)
-    except DslError as e:
+    except JsError as e:
         needs_reauth = session_manager.record_error(script_id)
         error_msg = str(e)
         if needs_reauth:
@@ -536,8 +565,8 @@ def _handle_chat(script_id: str, req) -> Response:
         session_manager.record_error(script_id)
         return jsonify({"error": str(e)}), 500
 
-    tool_calls   = None
-    clean_reply  = reply_text
+    tool_calls  = None
+    clean_reply = reply_text
 
     if harness_active and reply_text:
         clean_reply, tool_calls = harness_parse(reply_text)
