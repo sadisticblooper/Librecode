@@ -175,7 +175,6 @@ def _load_agents() -> dict:
 
 SYSTEM_PROMPT_BASE: str  = _load_system_prompt()
 AGENT_PROFILES: dict     = _load_agents()
-get_providers_dir()
 
 
 def make_spawn_agent_tool() -> dict:

@@ -3,6 +3,7 @@ import pkgutil
 import os
 
 _providers = {}
+_loaded = False
 
 def _load_from_file(module_name, file_path):
     spec = importlib.util.spec_from_file_location(module_name, file_path)
@@ -24,9 +25,14 @@ def _load_providers():
         except Exception:
             pass
 
-_load_providers()
+def _ensure_loaded():
+    global _loaded
+    if not _loaded:
+        _loaded = True
+        _load_providers()
 
 def get_provider(model_id):
+    _ensure_loaded()
     for p in _providers.values():
         for m in p.MODELS:
             if m["id"] == model_id:
@@ -34,4 +40,5 @@ def get_provider(model_id):
     raise ValueError(f"No provider for model: {model_id}")
 
 def all_models():
+    _ensure_loaded()
     return {name: mod.MODELS for name, mod in _providers.items()}
