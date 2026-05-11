@@ -46,7 +46,12 @@ def _fetch_models():
         {"id": "mistral-large-3:675b", "label": "Mistral Large 3 675B",  "ctx": 128000},
     ]
 
-MODELS = _fetch_models()
+MODELS = []
+
+def _ensure_models():
+    global MODELS
+    if not MODELS:
+        MODELS = _fetch_models()
 
 
 def _prepare_messages(messages: list[dict]) -> list[dict]:
@@ -97,6 +102,7 @@ def _prepare_messages(messages: list[dict]) -> list[dict]:
 
 
 def stream_chat(model_id: str, messages: list[dict], tools: list | None = None,
+    _ensure_models()
                 max_tokens: int | None = None) -> Generator[dict, None, None]:
     headers = {
         "Authorization": f"Bearer {API_KEY}",
