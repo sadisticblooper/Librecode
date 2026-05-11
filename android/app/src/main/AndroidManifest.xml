@@ -13,10 +13,10 @@
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
-        android:label="OpenCode"
+        android:label="LibreCode"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:theme="@style/Theme.OpenCode"
+        android:theme="@style/Theme.LibreCode"
         android:usesCleartextTraffic="true">
 
         <activity

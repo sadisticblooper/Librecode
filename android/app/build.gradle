@@ -4,11 +4,11 @@ plugins {
 }
 
 android {
-    namespace 'com.opencode.app'
+    namespace 'com.librecode.app'
     compileSdk 34
 
     defaultConfig {
-        applicationId "com.opencode.app"
+        applicationId "com.librecode.app"
         minSdk 26
         targetSdk 34
         versionCode 1
@@ -43,11 +43,11 @@ android {
         targetCompatibility JavaVersion.VERSION_17
     }
 
-    // Tell Chaquopy that our Python source root is opencode_out/
+    // Tell Chaquopy that our Python source root is librecode_out/
     // so runner.py and python/ are both on sys.path at runtime
     sourceSets {
         main {
-            python.srcDirs = ["../../opencode_out"]
+            python.srcDirs = ["../../librecode_out"]
             jniLibs.srcDirs = ["src/main/jniLibs"]
         }
     }
