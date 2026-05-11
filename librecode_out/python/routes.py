@@ -165,6 +165,11 @@ def _register(app) -> None:
         data    = request.json
         chat_id = data.get("chat_id")
         state.current_chat_id = chat_id
+
+            # Per-chat token tracking — init if first message in this chat
+            if chat_id not in state.chat_token_counts:
+                state.chat_token_counts[chat_id] = {"input": 0, "output": 0}
+            token_counts = state.chat_token_counts[chat_id]
         if chat_id:
             raw_history = data.get("history", [])
             cleaned = []
@@ -197,6 +202,7 @@ def _register(app) -> None:
         chat_id = data.get("chat_id", "default")
         state.chat_histories.pop(chat_id, None)
         state.chat_summaries.pop(chat_id, None)
+        state.chat_token_counts.pop(chat_id, None)
         return jsonify({"status": "cleared"})
 
     @app.route("/delete_chat", methods=["POST"])
@@ -207,6 +213,7 @@ def _register(app) -> None:
             return jsonify({"status": "error", "message": "No chat_id"})
         state.chat_histories.pop(cid, None)
         state.chat_summaries.pop(cid, None)
+        state.chat_token_counts.pop(cid, None)
         try:
             path = chat_file(cid)
             if os.path.isfile(path):
@@ -306,6 +313,25 @@ def _register(app) -> None:
             "compacted": True,
             "history":   state.chat_histories[chat_id],
         })
+
+    # ── Token counts ─────────────────────────────────────────────────────
+
+    @app.route("/token_counts", methods=["GET"])
+    def token_counts_route():
+        chat_id = request.args.get("chat_id", "default")
+        counts  = state.chat_token_counts.get(chat_id, {"input": 0, "output": 0})
+        return jsonify({
+            "chat_id": chat_id,
+            "input":   counts["input"],
+            "output":  counts["output"],
+            "total":   counts["input"] + counts["output"],
+        })
+
+    @app.route("/token_counts", methods=["DELETE"])
+    def reset_token_counts():
+        chat_id = request.args.get("chat_id", "default")
+        state.chat_token_counts.pop(chat_id, None)
+        return jsonify({"status": "ok"})
 
     # ── Agents ───────────────────────────────────────────────────────────
 
@@ -417,6 +443,10 @@ def _register(app) -> None:
             messages       = [system_msg] + build_compacted_messages_for_api(compacted)
             new_rich_turns = []
 
+            # Count input tokens for this round (full context being sent)
+            from python.compaction import estimate_messages_tokens as _est
+            token_counts["input"] += _est(messages)
+
             for _round in range(1000):
                 tool_calls_acc  = {}
                 round_content   = ""
@@ -488,6 +518,9 @@ def _register(app) -> None:
                         "tool_calls":       [],
                     }
                     new_rich_turns.append(rich_asst)
+                    # Count output tokens and emit update
+                    token_counts["output"] += _est(full_content) + _est(full_reasoning)
+                    yield f"data: {json.dumps({'type': 'token_update', 'input': token_counts['input'], 'output': token_counts['output'], 'total': token_counts['input'] + token_counts['output']})}\n\n"
                     break
 
                 tc_list = []

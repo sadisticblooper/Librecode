@@ -68,10 +68,10 @@ def estimate_messages_tokens(messages: list) -> int:
 def usable_tokens(context_limit: int, max_output_tokens: int) -> int:
     """
     How many input tokens are actually usable before we must compact.
-    We reserve space for the model's output + compaction buffer.
+    Reserve space for the model's output + a safety buffer.
     """
     reserved = min(COMPACTION_BUFFER, max_output_tokens)
-    return max(0, context_limit - max_output_tokens - reserved)
+    return max(0, context_limit - reserved)
 
 def is_overflow(
     total_tokens: int,

@@ -18,5 +18,7 @@ chat_summaries: dict = {}
 chat_msg_counts: dict = {}
 # chat_id -> list of todo items [{id, content, status}]
 todo_lists: dict = {}
+# chat_id -> {"input": int, "output": int}  (tokens for that chat only)
+chat_token_counts: dict = {}
 
 current_chat_id = None
