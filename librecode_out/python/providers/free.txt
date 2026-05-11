@@ -1,5 +1,5 @@
 """
-Free provider — librecode.ai via SSE.
+Free provider — opencode.ai via SSE.
 SSE parsing matches the original routes.py implementation:
 iter_lines() + explicit UTF-8 decode, which correctly handles
 multi-byte characters (emoji etc.) and proper line boundaries.
@@ -19,7 +19,7 @@ MODELS = [
 
 def stream_chat(model_id: str, messages: list[dict], tools: list | None = None,
                 max_tokens: int | None = None) -> Generator[dict, None, None]:
-    url = "https://librecode.ai/zen/v1/chat/completions"
+    url = "https://opencode.ai/zen/v1/chat/completions"
 
     payload = {
         "model":      model_id,
