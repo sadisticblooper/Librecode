@@ -63,10 +63,13 @@ def history_to_api_messages(history: list) -> list:
         if role == "user":
             out.append({"role": "user", "content": turn.get("content", "")})
         elif role == "assistant":
-            msg = {"role": "assistant", "content": turn.get("content", "") or ""}
             tcs = turn.get("tool_calls")
+            text = turn.get("content") or None
+            msg = {"role": "assistant", "content": text if not tcs else text}
             if tcs:
                 msg["tool_calls"] = tcs
+                if not text:
+                    msg["content"] = None
             out.append(msg)
         elif role == "tool":
             out.append({
@@ -385,25 +388,18 @@ def _register(app) -> None:
         datetime_line = f"Current date/time: {now_str}\n\n"
 
         if dirs:
-            hints = []
-            for d in dirs:
-                try:
-                    files = sorted(os.listdir(d))[:30]
-                    hints.append(f"Folder: {d}\nContents:\n" + "\n".join(files))
-                except Exception:
-                    hints.append(f"Folder: {d} (unreadable)")
-            dir_info   = "\n\n".join(hints)
+            dir_list = "\n".join(f"- {d}" for d in dirs)
             system_msg = {
                 "role":    "system",
                 "content": (
-                    f"{base_prompt}{datetime_line}You have access to {len(dirs)} project folder(s):\n\n"
-                    f"{dir_info}\n\nAlways use tools relative to these directories. Never navigate above them.\n\n---\n{agent_suffix}"
+                    f"{base_prompt}{datetime_line}Working director{'y' if len(dirs) == 1 else 'ies'}:\n{dir_list}\n\n"
+                    f"Use glob, fd, or rg to explore. Never navigate above these paths.\n\n---\n{agent_suffix}"
                 ),
             }
         else:
             system_msg = {
                 "role":    "system",
-                "content": f"{base_prompt}{datetime_line}No working directory set. Ask user to select a project folder first.\n\n---\n{agent_suffix}",
+                "content": f"{base_prompt}{datetime_line}No working directory set. Ask the user to select a project folder first.\n\n---\n{agent_suffix}",
             }
 
         def generate():
@@ -543,26 +539,36 @@ def _register(app) -> None:
                 }
                 new_rich_turns.append(rich_asst)
 
-                flat_asst = {"role": "assistant", "content": round_content or "", "tool_calls": tc_list}
+                flat_asst = {"role": "assistant", "content": round_content or None, "tool_calls": tc_list}
                 messages.append(flat_asst)
 
                 # ── Parallel tool execution ────────────────────────────────
+                _TOOL_RESULT_MAX = 30_000
+
                 ev_queue    = _queue_mod.Queue()
                 tc_results  = {}
                 tc_args_map = {}
+                tc_parse_errors = {}
 
                 for tc in tc_list:
                     fn_name = tc["function"]["name"]
                     try:
                         args = json.loads(tc["function"]["arguments"])
-                    except json.JSONDecodeError:
+                        tc_parse_errors[tc["id"]] = None
+                    except json.JSONDecodeError as e:
                         args = {}
+                        tc_parse_errors[tc["id"]] = f"Error: could not parse tool arguments as JSON: {e}\nRaw arguments: {tc['function']['arguments']!r}"
                     tc_args_map[tc["id"]] = (fn_name, args)
                     yield f"data: {json.dumps({'type': 'tool_use', 'name': fn_name, 'args': args, 'tc_id': tc['id']})}\n\n"
                     if fn_name == "spawn_agent":
                         yield f"data: {json.dumps({'type': 'subagent_start', 'key': tc['id'], 'agent': args.get('agent_id','build'), 'task': args.get('task',''), 'context': args.get('context','')})}\n\n"
 
                 def _run_tc(tc):
+                    parse_err = tc_parse_errors.get(tc["id"])
+                    if parse_err:
+                        tc_results[tc["id"]] = parse_err
+                        ev_queue.put({"_done": True, "tc_id": tc["id"]})
+                        return
                     fn_name, args = tc_args_map[tc["id"]]
                     result = ""
                     try:
@@ -584,7 +590,10 @@ def _register(app) -> None:
                     except Exception as e:
                         result = f"Error: {e}"
                     finally:
-                        tc_results[tc["id"]] = result if isinstance(result, str) else str(result)
+                        raw = result if isinstance(result, str) else str(result)
+                        if len(raw) > _TOOL_RESULT_MAX:
+                            raw = raw[:_TOOL_RESULT_MAX] + f"\n\n[output truncated — {len(raw) - _TOOL_RESULT_MAX} chars omitted]"
+                        tc_results[tc["id"]] = raw
                         ev_queue.put({"_done": True, "tc_id": tc["id"]})
 
                 threads = []
@@ -628,11 +637,20 @@ def _register(app) -> None:
                     history.append(t)
                 if len(history) > 40:
                     trimmed = history[-40:]
+                    tool_call_ids_in_tail = set()
+                    for turn in trimmed:
+                        if turn.get("role") == "assistant":
+                            for tc in (turn.get("tool_calls") or []):
+                                tool_call_ids_in_tail.add(tc.get("id"))
+                    safe_start = 0
                     for i, turn in enumerate(trimmed):
-                        if turn.get("role") in ("user", "assistant"):
-                            trimmed = trimmed[i:]
+                        role = turn.get("role")
+                        if role == "tool" and turn.get("tool_call_id") not in tool_call_ids_in_tail:
+                            continue
+                        if role in ("user", "assistant"):
+                            safe_start = i
                             break
-                    state.chat_histories[chat_id] = trimmed
+                    state.chat_histories[chat_id] = trimmed[safe_start:]
                 else:
                     state.chat_histories[chat_id] = history
 

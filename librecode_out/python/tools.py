@@ -993,6 +993,7 @@ TOOLS: list = [
 from python.browser_tools import BROWSER_OPEN_SPEC as _BROWSER_OPEN_SPEC
 from python.browser_tools import BROWSER_OPEN_FILE_SPEC as _BROWSER_OPEN_FILE_SPEC
 TOOLS.append(_BROWSER_OPEN_SPEC)
+TOOLS.append(_BROWSER_OPEN_FILE_SPEC)
 
 
 # ══════════════════════════════════════════════════════════════════════
