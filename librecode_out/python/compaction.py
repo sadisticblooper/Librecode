@@ -301,25 +301,15 @@ def compact_messages(
         # Summary failed – fall back to just the tail to avoid hard crash
         return tail if tail else pruned, previous_summary, False
 
-    # Step 4 – build compacted history.
-    # To avoid consecutive user messages (which some APIs like Opencode/Anthropic block),
-    # we prepend the summary to the first message of the tail if it is a user message.
-    prefix = f"[Context compacted]\n\n{summary}"
+    # Step 4 – build compacted history:
+    #   [compaction marker message] + tail
+    compaction_marker = {
+        "role": "user",
+        "content": f"[Context compacted]\n\n{summary}",
+        "_compaction": True,   # internal flag, stripped before sending
+    }
 
-    if tail and tail[0].get("role") == "user":
-        # Create a deep-ish copy to avoid mutating state history
-        first = tail[0].copy()
-        first["content"] = prefix + "\n\n---\n\n" + (first.get("content") or "")
-        first["_compaction"] = True
-        compacted = [first] + tail[1:]
-    else:
-        compaction_marker = {
-            "role": "user",
-            "content": prefix,
-            "_compaction": True,
-        }
-        compacted = [compaction_marker] + tail
-
+    compacted = [compaction_marker] + tail
     return compacted, summary, True
 
 def build_compacted_messages_for_api(compacted: list) -> list:

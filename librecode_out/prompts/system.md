@@ -138,8 +138,8 @@ For async work, return a Promise: `return fetch('/api/data').then(r => r.json())
 **Signs you hit bot detection:** seeing a CAPTCHA, "couldn't sign you in", challenge page, or a DOM that has no password/email fields when you expect them. When this happens, IMMEDIATELY switch to `browser_login_cct`. Do not keep retrying in WebView.
 
 ## Network capture
-XHR, fetch, WebSocket, and EventSource (SSE) calls are captured automatically starting from every page load — no setup needed.
-- After loading a page, call `browser_network` to see all requests, including URLs, methods, status, and message history for streaming connections (WebSockets/SSE).
+XHR and fetch calls are captured automatically starting from every page load — no setup needed.
+- After loading a page, call `browser_network` to see all requests with URL, method, status, headers, request body, and response body.
 - If a page uses JS-only navigation (pushState) without a full reload, call `browser_network_start` to re-inject, then `browser_network` to read.
 - `browser_network_clear` resets the capture log.
 

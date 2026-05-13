@@ -1139,8 +1139,6 @@ def run_tool(name, args):
         "browser_dom_query":       lambda: bt.tool_browser_dom_query(args.get("selector", "")),
         "browser_set_cookie":      lambda: bt.tool_browser_set_cookie(args.get("name",""), args.get("value",""), args.get("domain",""), args.get("path","/")),
         "browser_open_file":       lambda: bt.tool_browser_open_file(args.get("path", "")),
-        "browser_hover":           lambda: bt.tool_browser_hover(args.get("uid", "")),
-        "browser_press_key":       lambda: bt.tool_browser_press_key(args.get("key", "")),
     }
     if name in _devtools_dispatch:
         return _devtools_dispatch[name]()

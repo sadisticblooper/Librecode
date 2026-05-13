@@ -171,18 +171,6 @@ def tool_browser_click(uid: str) -> str:
     return f"{result}\n\n" + tool_browser_snapshot()
 
 
-def tool_browser_hover(uid: str) -> str:
-    err = _check_open()
-    if err:
-        return err
-    result = str(_svc().hover(uid))
-    if result.startswith("error"):
-        return result
-    import time
-    time.sleep(0.5)
-    return f"{result}\n\n" + tool_browser_snapshot()
-
-
 def tool_browser_fill(uid: str, value: str) -> str:
     err = _check_open()
     if err:
@@ -191,18 +179,6 @@ def tool_browser_fill(uid: str, value: str) -> str:
     if result.startswith("error"):
         return result
     # Return updated snapshot so AI doesn't need a separate browser_snapshot call
-    return f"{result}\n\n" + tool_browser_snapshot()
-
-
-def tool_browser_press_key(key: str) -> str:
-    err = _check_open()
-    if err:
-        return err
-    result = str(_svc().pressKey(key))
-    if result.startswith("error"):
-        return result
-    import time
-    time.sleep(0.5)
     return f"{result}\n\n" + tool_browser_snapshot()
 
 
@@ -341,20 +317,6 @@ BROWSER_CONTROL_SPECS = [
     {
         "type": "function",
         "function": {
-            "name": "browser_hover",
-            "description": "Hover the mouse over an element by its UID. Useful for triggering hover menus or revealing hidden content.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "uid": {"type": "string", "description": "Element UID from snapshot"},
-                },
-                "required": ["uid"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
             "name": "browser_click",
             "description": "Click an element in the open browser by its UID from a snapshot. THIS is the correct tool to click anything — never call spawn_browser to click. Use the UID from the most recent snapshot.",
             "parameters": {
@@ -363,20 +325,6 @@ BROWSER_CONTROL_SPECS = [
                     "uid": {"type": "string", "description": "Element UID from snapshot (e.g. '1_5')"},
                 },
                 "required": ["uid"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "browser_press_key",
-            "description": "Press a key on the keyboard (e.g., 'Enter', 'Tab', 'ArrowDown', 'Escape'). The key is sent to the currently focused element.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "key": {"type": "string", "description": "Key name (e.g. 'Enter')"},
-                },
-                "required": ["key"],
             },
         },
     },
@@ -771,7 +719,7 @@ BROWSER_DEVTOOLS_SPECS = [
         "type": "function",
         "function": {
             "name": "browser_network",
-            "description": "Get all captured XHR, fetch, WebSocket, and EventSource (SSE) traffic since page load. Network capture starts automatically on every page/navigate load. Returns details including URLs, methods, status codes, and message history for streaming connections.",
+            "description": "Get all captured XHR and fetch requests/responses since page load. Network capture starts automatically on every page/navigate load — no need to call browser_network_start first. Returns URL, method, status, request headers, request body, response headers, and response body for each request.",
             "parameters": {"type": "object", "properties": {}},
         },
     },
