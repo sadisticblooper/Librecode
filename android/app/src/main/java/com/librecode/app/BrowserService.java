@@ -796,6 +796,38 @@ public class BrowserService {
         "return resp;" +
         "});" +
         "};" +
+        // WebSocket capture
+        "var OrigWS = window.WebSocket;" +
+        "window.WebSocket = function(url, protocols) {" +
+        "  var ws = protocols ? new OrigWS(url, protocols) : new OrigWS(url);" +
+        "  var entry = {type:'ws', url:url, t:Date.now(), msgs:[]};" +
+        "  window.__ocdvt.net.push(entry);" +
+        "  ws.addEventListener('message', function(e){" +
+        "    entry.msgs.push({type:'received', data:String(e.data).slice(0,1000), t:Date.now()});" +
+        "    if(entry.msgs.length>100) entry.msgs.shift();" +
+        "  });" +
+        "  var origSend = ws.send.bind(ws);" +
+        "  ws.send = function(data) {" +
+        "    entry.msgs.push({type:'sent', data:String(data).slice(0,1000), t:Date.now()});" +
+        "    if(entry.msgs.length>100) entry.msgs.shift();" +
+        "    return origSend(data);" +
+        "  };" +
+        "  return ws;" +
+        "};" +
+        "window.WebSocket.prototype = OrigWS.prototype;" +
+        // EventSource (SSE) capture
+        "var OrigES = window.EventSource;" +
+        "window.EventSource = function(url, config) {" +
+        "  var es = new OrigES(url, config);" +
+        "  var entry = {type:'sse', url:url, t:Date.now(), msgs:[]};" +
+        "  window.__ocdvt.net.push(entry);" +
+        "  es.addEventListener('message', function(e){" +
+        "    entry.msgs.push({data:String(e.data).slice(0,1000), t:Date.now()});" +
+        "    if(entry.msgs.length>100) entry.msgs.shift();" +
+        "  });" +
+        "  return es;" +
+        "};" +
+        "window.EventSource.prototype = OrigES.prototype;" +
         "return 'injected';" +
         "})()";
 

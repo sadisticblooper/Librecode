@@ -771,7 +771,7 @@ BROWSER_DEVTOOLS_SPECS = [
         "type": "function",
         "function": {
             "name": "browser_network",
-            "description": "Get all captured XHR and fetch requests/responses since page load. Network capture starts automatically on every page/navigate load — no need to call browser_network_start first. Returns URL, method, status, request headers, request body, response headers, and response body for each request.",
+            "description": "Get all captured XHR, fetch, WebSocket, and EventSource (SSE) traffic since page load. Network capture starts automatically on every page/navigate load. Returns details including URLs, methods, status codes, and message history for streaming connections.",
             "parameters": {"type": "object", "properties": {}},
         },
     },
