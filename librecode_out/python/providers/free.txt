@@ -1,5 +1,5 @@
 """
-Free provider — opencode.ai via SSE.
+Free provider — librecode-supported models via SSE.
 SSE parsing matches the original routes.py implementation:
 iter_lines() + explicit UTF-8 decode, which correctly handles
 multi-byte characters (emoji etc.) and proper line boundaries.

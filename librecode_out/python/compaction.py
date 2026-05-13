@@ -302,7 +302,7 @@ def compact_messages(
         return tail if tail else pruned, previous_summary, False
 
     # Step 4 – build compacted history.
-    # To avoid consecutive user messages (which some APIs like Opencode/Anthropic block),
+    # To avoid consecutive user messages (which some APIs like LibreCode/Anthropic block),
     # we prepend the summary to the first message of the tail if it is a user message.
     prefix = f"[Context compacted]\n\n{summary}"
 

@@ -121,10 +121,10 @@ public class FlaskService extends Service {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationChannel channel = new NotificationChannel(
                 CHANNEL_ID,
-                "OpenCode Server",
+                "LibreCode Server",
                 NotificationManager.IMPORTANCE_LOW
             );
-            channel.setDescription("OpenCode Flask server is running");
+            channel.setDescription("LibreCode Flask server is running");
             NotificationManager manager = getSystemService(NotificationManager.class);
             if (manager != null) manager.createNotificationChannel(channel);
         }
@@ -138,7 +138,7 @@ public class FlaskService extends Service {
 
         Notification notification = new Notification.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
-            .setContentTitle("OpenCode")
+            .setContentTitle("LibreCode")
             .setContentText("Server running — tap to open")
             .setContentIntent(pendingIntent)
             .setOngoing(true)
