@@ -63,6 +63,7 @@ public class BrowserService {
     private WebView                    browserWebView;
     private WindowManager.LayoutParams overlayParams;
     private TextView                   headerTitle;
+    private TextView                   statusText;
     private View                       leftTab;
     private View                       rightTab;
 
@@ -130,7 +131,14 @@ public class BrowserService {
         if (!isVisible || browserWebView == null) return "{\"error\":\"Browser is not open.\"}";
         CountDownLatch latch = new CountDownLatch(1);
         AtomicReference<String> result = new AtomicReference<>("");
-        mainHandler.post(() -> snapshotInternal(s -> { result.set(s); latch.countDown(); }, offset));
+        mainHandler.post(() -> {
+            setStatus("Taking snapshot...");
+            snapshotInternal(s -> {
+                result.set(s);
+                setStatus("");
+                latch.countDown();
+            }, offset);
+        });
         awaitLatch(latch, 15);
         String r = result.get();
         if (r == null || r.isEmpty())
@@ -139,9 +147,9 @@ public class BrowserService {
     }
 
     public String click(String uid) {
-        return jsEval(
+        setStatus("Clicking " + uid + "...");
+        String res = jsEval(
             "(function(){" +
-            // Shadow-DOM-aware UID finder (recursive BFS through open shadow roots)
             "function _ocFind(uid){var q='[data-ocuid=\"'+uid+'\"]';" +
             "function s(root){var el=root.querySelector(q);if(el)return el;" +
             "var all=root.querySelectorAll('*');" +
@@ -150,16 +158,38 @@ public class BrowserService {
             "var el=_ocFind(\"" + uid + "\");" +
             "if(!el)return 'error: uid not found';" +
             "el.scrollIntoView({block:'center'});el.focus();" +
-            // composed:true lets synthetic events cross shadow DOM boundaries
             "['mousedown','mouseup','click'].forEach(function(t){" +
             "el.dispatchEvent(new MouseEvent(t,{bubbles:true,cancelable:true,composed:true}));});" +
             "return 'clicked:'+el.tagName;})()"
         );
+        setStatus("");
+        return res;
+    }
+
+    public String hover(String uid) {
+        setStatus("Hovering " + uid + "...");
+        String res = jsEval(
+            "(function(){" +
+            "function _ocFind(uid){var q='[data-ocuid=\"'+uid+'\"]';" +
+            "function s(root){var el=root.querySelector(q);if(el)return el;" +
+            "var all=root.querySelectorAll('*');" +
+            "for(var i=0;i<all.length;i++){if(all[i].shadowRoot){var f=s(all[i].shadowRoot);if(f)return f;}}" +
+            "return null;}return s(document);}" +
+            "var el=_ocFind(\"" + uid + "\");" +
+            "if(!el)return 'error: uid not found';" +
+            "el.scrollIntoView({block:'center'});" +
+            "['mouseenter','mouseover','mousemove'].forEach(function(t){" +
+            "el.dispatchEvent(new MouseEvent(t,{bubbles:true,cancelable:true,composed:true}));});" +
+            "return 'hovered:'+el.tagName;})()"
+        );
+        setStatus("");
+        return res;
     }
 
     public String fill(String uid, String value) {
+        setStatus("Filling " + uid + "...");
         String safe = value.replace("\\", "\\\\").replace("`", "\\`").replace("$", "\\$");
-        return jsEval(
+        String res = jsEval(
             "(function(){" +
             "function _ocFind(uid){var q='[data-ocuid=\"'+uid+'\"]';" +
             "function s(root){var el=root.querySelector(q);if(el)return el;" +
@@ -174,6 +204,21 @@ public class BrowserService {
             "['input','change'].forEach(function(e){el.dispatchEvent(new Event(e,{bubbles:true,composed:true}));});" +
             "return 'filled';})()"
         );
+        setStatus("");
+        return res;
+    }
+
+    public String pressKey(String key) {
+        setStatus("Pressing " + key + "...");
+        String res = jsEval(
+            "(function(){" +
+            "var el=document.activeElement||document.body;" +
+            "['keydown','keypress','keyup'].forEach(function(t){" +
+            "el.dispatchEvent(new KeyboardEvent(t,{key:\"" + key + "\",bubbles:true,cancelable:true,composed:true}));});" +
+            "return 'pressed:'+key;})()"
+        );
+        setStatus("");
+        return res;
     }
 
     public String navigate(String url) {
@@ -383,14 +428,27 @@ public class BrowserService {
         handle.setTextSize(16);
         handle.setPadding(0, 0, dp(10), 0);
 
+        LinearLayout textContainer = new LinearLayout(activity);
+        textContainer.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        textContainer.setLayoutParams(clp);
+
         headerTitle = new TextView(activity);
         headerTitle.setTextColor(0xFFBBBBBB);
-        headerTitle.setTextSize(12.5f);
+        headerTitle.setTextSize(11f);
         headerTitle.setSingleLine(true);
         headerTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-        headerTitle.setLayoutParams(tlp);
         headerTitle.setText("Browser");
+
+        statusText = new TextView(activity);
+        statusText.setTextColor(0xFF4A90E2); // Blue text
+        statusText.setTextSize(9f);
+        statusText.setSingleLine(true);
+        statusText.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        statusText.setText("");
+
+        textContainer.addView(headerTitle);
+        textContainer.addView(statusText);
 
         TextView closeBtn = new TextView(activity);
         closeBtn.setText("✕");
@@ -400,7 +458,7 @@ public class BrowserService {
         closeBtn.setOnClickListener(v -> destroyOverlay());
 
         header.addView(handle);
-        header.addView(headerTitle);
+        header.addView(textContainer);
         header.addView(closeBtn);
 
         final int[] down     = {0, 0, 0, 0};  // rawX, rawY, initX, initY
@@ -738,6 +796,38 @@ public class BrowserService {
         "return resp;" +
         "});" +
         "};" +
+        // WebSocket capture
+        "var OrigWS = window.WebSocket;" +
+        "window.WebSocket = function(url, protocols) {" +
+        "  var ws = protocols ? new OrigWS(url, protocols) : new OrigWS(url);" +
+        "  var entry = {type:'ws', url:url, t:Date.now(), msgs:[]};" +
+        "  window.__ocdvt.net.push(entry);" +
+        "  ws.addEventListener('message', function(e){" +
+        "    entry.msgs.push({type:'received', data:String(e.data).slice(0,1000), t:Date.now()});" +
+        "    if(entry.msgs.length>100) entry.msgs.shift();" +
+        "  });" +
+        "  var origSend = ws.send.bind(ws);" +
+        "  ws.send = function(data) {" +
+        "    entry.msgs.push({type:'sent', data:String(data).slice(0,1000), t:Date.now()});" +
+        "    if(entry.msgs.length>100) entry.msgs.shift();" +
+        "    return origSend(data);" +
+        "  };" +
+        "  return ws;" +
+        "};" +
+        "window.WebSocket.prototype = OrigWS.prototype;" +
+        // EventSource (SSE) capture
+        "var OrigES = window.EventSource;" +
+        "window.EventSource = function(url, config) {" +
+        "  var es = new OrigES(url, config);" +
+        "  var entry = {type:'sse', url:url, t:Date.now(), msgs:[]};" +
+        "  window.__ocdvt.net.push(entry);" +
+        "  es.addEventListener('message', function(e){" +
+        "    entry.msgs.push({data:String(e.data).slice(0,1000), t:Date.now()});" +
+        "    if(entry.msgs.length>100) entry.msgs.shift();" +
+        "  });" +
+        "  return es;" +
+        "};" +
+        "window.EventSource.prototype = OrigES.prototype;" +
         "return 'injected';" +
         "})()";
 
@@ -791,28 +881,30 @@ public class BrowserService {
 
     private String buildSnapshotJs(int offset, int limit) {
         int pid = pageCounter;
-        // ic = interactive element counter (global across traversal)
-        // Only elements in [offset, offset+limit) get UIDs assigned.
-        // Full traversal still happens so we can count total and remaining.
         return "(function(off,lim){var uid=1;" +
-            "var TAGS='a,button,input,textarea,select,[role=button],[role=link]," +
-            "[role=checkbox],[role=menuitem],[role=tab],[role=option],[contenteditable=true]';" +
+            "var TAGS='a,button,input,textarea,select,[role=button],[role=link],[role=checkbox],[role=menuitem],[role=tab],[role=option],[role=textbox],[role=searchbox],[role=combobox],[contenteditable=true]';" +
             "var skip=['script','style','svg','noscript','head','meta','link'];" +
             "var ic=0;" +
+            "function isInter(el){" +
+            "  if(!el.matches)return false;" +
+            "  if(el.matches(TAGS))return true;" +
+            "  if(el.tabIndex>=0)return true;" +
+            "  if(el.isContentEditable)return true;" +
+            "  try{var s=window.getComputedStyle(el);if(s.cursor==='pointer')return true;}catch(e){}" +
+            "  return false;" +
+            "}" +
             "function proc(el,d){" +
-            "if(d>20||!el)return null;" +
+            "if(d>30||!el)return null;" +
             "if(el.nodeType===3){var t=el.textContent.trim();return t?{t:'txt',v:t.substring(0,200)}:null;}" +
             "if(el.nodeType!==1)return null;" +
             "var tag=el.tagName.toLowerCase();" +
             "if(skip.indexOf(tag)>=0)return null;" +
-            "var inter=el.matches&&el.matches(TAGS);" +
+            "var inter=isInter(el);" +
             "var id=null;" +
             "if(inter){if(ic>=off&&ic<off+lim){id='" + pid + "_'+(uid++);el.setAttribute('data-ocuid',id);}ic++;}" +
             "var r={tag:tag};" +
             "if(id)r.uid=id;" +
             "var al=el.getAttribute&&el.getAttribute('aria-label');" +
-            // Read placeholder from element directly (native input) or from data-/aria- variant,
-            // then fall back to checking children — handles contenteditable+<p data-placeholder> pattern (ChatGPT etc.)
             "var ph=el.getAttribute&&(el.getAttribute('placeholder')||el.getAttribute('data-placeholder')||el.getAttribute('aria-placeholder'));" +
             "if(!ph&&inter&&el.querySelector){" +
             "var phc=el.querySelector('[data-placeholder]')||el.querySelector('[aria-placeholder]');" +
@@ -830,10 +922,10 @@ public class BrowserService {
             "if(eid)r.id=eid;" +
             "if(vl!==undefined&&vl!=='')r.value=String(vl).substring(0,100);" +
             "if(inter&&id){var txt=el.innerText?el.innerText.trim().substring(0,200):'';if(txt)r.text=txt;}" +
-            "if(!inter){var kids=[];" +
+            "var kids=[];" +
             "el.childNodes.forEach(function(c){var n=proc(c,d+1);if(n)kids.push(n);});" +
             "if(el.shadowRoot){el.shadowRoot.childNodes.forEach(function(c){var n=proc(c,d+1);if(n)kids.push(n);});}" +
-            "if(kids.length)r.children=kids.slice(0,60);}" +
+            "if(kids.length)r.children=kids.slice(0,100);" +
             "return r;}" +
             "var root=document.body||document.documentElement;" +
             "var tree=proc(root,0);" +
@@ -857,6 +949,12 @@ public class BrowserService {
     // Teardown
     // ─────────────────────────────────────────────────────────────────────
 
+    private void setStatus(String text) {
+        mainHandler.post(() -> {
+            if (statusText != null) statusText.setText(text);
+        });
+    }
+
     private void destroyOverlay() {
         // Persist cookies to disk before tearing down
         CookieManager.getInstance().flush();
@@ -870,6 +968,7 @@ public class BrowserService {
             browserWebView = null;
         }
         headerTitle = null;
+        statusText  = null;
         leftTab     = null;
         rightTab    = null;
         isVisible   = false;
