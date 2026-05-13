@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="https://raw.githubusercontent.com/anomalyco/opencode/dev/packages/console/app/src/asset/logo-ornate-light.svg" width="120" height="120" alt="LibreCode Logo">
+  <img src="android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png" width="120" height="120" alt="LibreCode Logo">
 
   # ⚡ LibreCode ⚡
   ### The Most Powerful AI Agent Harness for Android
