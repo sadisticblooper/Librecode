@@ -730,58 +730,6 @@ def tool_todo_write(todos: list) -> str:
     return "Todo list updated:\n" + "\n".join(lines) if lines else "Todo list cleared."
 
 
-def tool_todo_update(updates: list) -> str:
-    """Update status of specific todo items by id. Does not touch other items."""
-    chat_id = state.current_chat_id or "default"
-    todos = state.todo_lists.get(chat_id, [])
-    if not todos:
-        return "Error: no todo list exists. Use todo_write to create one first."
-    update_map = {}
-    for u in updates:
-        if isinstance(u, dict) and u.get("id"):
-            update_map[str(u["id"])] = u.get("status")
-    changed = 0
-    for t in todos:
-        new_status = update_map.get(t["id"])
-        if new_status and new_status in ("pending", "in_progress", "completed"):
-            t["status"] = new_status
-            changed += 1
-    state.todo_lists[chat_id] = todos
-    lines = []
-    for t in todos:
-        icon = {"pending": "○", "in_progress": "◑", "completed": "✓"}.get(t["status"], "○")
-        lines.append(f"{icon} [{t['id']}] {t['content']}")
-    return f"Updated {changed} item(s):\n" + "\n".join(lines)
-
-
-def tool_todo_add(items: list) -> str:
-    """Append new items to the existing todo list without touching existing ones."""
-    chat_id = state.current_chat_id or "default"
-    todos = state.todo_lists.get(chat_id, [])
-    existing_ids = {t["id"] for t in todos}
-    added = 0
-    for item in items:
-        if not isinstance(item, dict):
-            continue
-        new_id = str(item.get("id", len(todos) + added + 1))
-        # avoid id collisions
-        while new_id in existing_ids:
-            new_id = new_id + "_1"
-        todos.append({
-            "id":      new_id,
-            "content": str(item.get("content", "")),
-            "status":  item.get("status", "pending") if item.get("status") in ("pending", "in_progress", "completed") else "pending",
-        })
-        existing_ids.add(new_id)
-        added += 1
-    state.todo_lists[chat_id] = todos
-    lines = []
-    for t in todos:
-        icon = {"pending": "○", "in_progress": "◑", "completed": "✓"}.get(t["status"], "○")
-        lines.append(f"{icon} [{t['id']}] {t['content']}")
-    return f"Added {added} item(s):\n" + "\n".join(lines)
-
-
 def tool_todo_read() -> str:
     """Return the current todo list."""
     chat_id = state.current_chat_id or "default"
@@ -806,9 +754,10 @@ TOOLS: list = [
         "function": {
             "name": "todo_write",
             "description": (
-                "Write the todo list from scratch. Only use this to create the initial plan at the start of a task. "
-                "To update statuses mid-task use todo_update. To add new items use todo_add. "
-                "Do NOT rewrite the whole list just to change a status — that loses history."
+                "Write or update the task todo list. Use this to plan tasks, track progress, and maintain "
+                "visibility into what you're doing. Call this BEFORE starting any multi-step task to create "
+                "the plan, then update statuses as you work (pending → in_progress → completed). "
+                "Mark items completed immediately when done — do not batch updates."
             ),
             "parameters": {
                 "type": "object",
@@ -834,61 +783,7 @@ TOOLS: list = [
     {
         "type": "function",
         "function": {
-            "name": "todo_update",
-            "description": (
-                "Update the status of specific todo items by their id. "
-                "Use this to mark items in_progress or completed — do NOT rewrite the whole list just to change a status. "
-                "Only touch the items that actually changed."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "updates": {
-                        "type": "array",
-                        "description": "List of {id, status} pairs to update.",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "id":     {"type": "string", "description": "ID of the todo item to update"},
-                                "status": {"type": "string", "description": "New status: pending, in_progress, or completed"},
-                            },
-                            "required": ["id", "status"],
-                        },
-                    },
-                },
-                "required": ["updates"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "todo_add",
-            "description": (
-                "Append new items to the existing todo list without modifying existing items. "
-                "Use this when sub-problems arise mid-task instead of rewriting the whole list."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "items": {
-                        "type": "array",
-                        "description": "New todo items to append.",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "id":      {"type": "string",  "description": "Unique short ID"},
-                                "content": {"type": "string",  "description": "Task description"},
-                                "status":  {"type": "string",  "description": "One of: pending, in_progress, completed"},
-                            },
-                            "required": ["id", "content", "status"],
-                        },
-                    },
-                },
-                "required": ["items"],
-            },
-        },
-    },
+            "name": "todo_read",
             "description": "Read the current todo list. Use this to check what's pending before starting work or after completing a step.",
             "parameters": {
                 "type": "object",
@@ -1132,10 +1027,6 @@ def run_tool(name: str, args: dict) -> str:
     try:
         if name == "todo_write":
             result = tool_todo_write(args.get("todos", []))
-        elif name == "todo_update":
-            result = tool_todo_update(args.get("updates", []))
-        elif name == "todo_add":
-            result = tool_todo_add(args.get("items", []))
         elif name == "todo_read":
             result = tool_todo_read()
         elif name == "web_search":
