@@ -119,10 +119,25 @@ export function addAssistantMsgStatic(content, reasoning) {
     if (reasoning) {
         const wrapper = document.createElement('div');
         wrapper.className = 'thinking-wrapper';
-        const body = document.createElement('div');
-        body.className = 'thinking-body';
-        body.textContent = reasoning;
-        wrapper.appendChild(body);
+        wrapper.innerHTML = `
+            <div class="thinking-header">
+                <span class="thinking-header-icon">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>
+                    </svg>
+                </span>
+                <span class="thinking-header-label">Thought</span>
+                <svg class="thinking-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                    <polyline points="6 9 12 15 18 9"/>
+                </svg>
+            </div>
+            <div class="thinking-collapse">
+                <div class="thinking-body"></div>
+            </div>`;
+        wrapper.querySelector('.thinking-body').textContent = reasoning;
+        wrapper.querySelector('.thinking-header').addEventListener('click', () => {
+            wrapper.classList.toggle('open');
+        });
         div.appendChild(wrapper);
     }
     if (content) {
@@ -150,19 +165,54 @@ export function sealAssistant(div, text) {
     highlightCodeBlocks(div);
 }
 
-// ── Thinking block ─────────────────────────────────────────────────────
+// ── Thinking block (collapsible, DeepSeek-style) ───────────────────────
 
 export function createThinkingBlock() {
     const wrapper = document.createElement('div');
-    wrapper.className = 'thinking-wrapper';
-    wrapper.innerHTML = '<div class="thinking-body"></div>';
+    wrapper.className = 'thinking-wrapper active';
+
+    wrapper.innerHTML = `
+        <div class="thinking-header">
+            <span class="thinking-header-icon">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>
+                </svg>
+            </span>
+            <span class="thinking-header-label">Thinking…</span>
+            <svg class="thinking-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <polyline points="6 9 12 15 18 9"/>
+            </svg>
+        </div>
+        <div class="thinking-collapse">
+            <div class="thinking-body"></div>
+        </div>`;
+
+    // Default: open while streaming
+    wrapper.classList.add('open');
+
+    wrapper.querySelector('.thinking-header').addEventListener('click', () => {
+        wrapper.classList.toggle('open');
+    });
+
     chatEl.appendChild(wrapper);
     scrollBottom();
+
     const body = wrapper.querySelector('.thinking-body');
     return { wrapper, body };
 }
 
-export function sealThinking(block) {
+export function sealThinking(block, durationMs) {
+    const { wrapper } = block;
+    wrapper.classList.remove('active');
+    const label = wrapper.querySelector('.thinking-header-label');
+    if (label) {
+        const secs = durationMs ? Math.round(durationMs / 1000) : null;
+        label.textContent = secs && secs > 1
+            ? `Thought for ${secs} seconds`
+            : 'Thought';
+    }
+    // Collapse after sealing
+    wrapper.classList.remove('open');
 }
 
 // ── Tool pills ─────────────────────────────────────────────────────────
@@ -414,10 +464,25 @@ export function createSubagentPill(agentId, task, context, group) {
 export function addThinkingStatic(text) {
     const wrapper = document.createElement('div');
     wrapper.className = 'thinking-wrapper';
-    const body = document.createElement('div');
-    body.className = 'thinking-body';
-    body.textContent = text;
-    wrapper.appendChild(body);
+    wrapper.innerHTML = `
+        <div class="thinking-header">
+            <span class="thinking-header-icon">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>
+                </svg>
+            </span>
+            <span class="thinking-header-label">Thought</span>
+            <svg class="thinking-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <polyline points="6 9 12 15 18 9"/>
+            </svg>
+        </div>
+        <div class="thinking-collapse">
+            <div class="thinking-body"></div>
+        </div>`;
+    wrapper.querySelector('.thinking-body').textContent = text;
+    wrapper.querySelector('.thinking-header').addEventListener('click', () => {
+        wrapper.classList.toggle('open');
+    });
     chatEl.appendChild(wrapper);
 }
 

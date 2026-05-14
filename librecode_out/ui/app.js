@@ -144,19 +144,39 @@ async function syncWorkingDirs() {
 
 function renderChatList() {
     if (!chats.length) {
-        chatList.innerHTML = '<div class="chat-list-empty">no chats yet</div>';
+        chatList.innerHTML = '<div class="chat-list-empty">No chats yet.<br>Start one below.</div>';
         return;
     }
-    chatList.innerHTML = chats.map(c => {
+    const now  = Date.now();
+    const day  = 86400000;
+    const groups = { today: [], week: [], older: [] };
+    chats.forEach(c => {
+        const age = now - (c.updatedAt || c.createdAt || 0);
+        if (age < day)          groups.today.push(c);
+        else if (age < day * 7) groups.week.push(c);
+        else                    groups.older.push(c);
+    });
+
+    const makeItem = c => {
         const isSending = sendingChats.has(c.id);
-        return '<div class="chat-item ' + (c.id === activeChatId ? 'active' : '') + '" data-id="' + c.id + '">' +
+        const active    = c.id === activeChatId ? ' active' : '';
+        return '<div class="chat-item' + active + '" data-id="' + c.id + '">' +
             '<div class="chat-item-inner">' +
                 '<span class="chat-item-title">' + escHtml(c.title) + '</span>' +
-                (isSending ? '<span class="chat-item-responding">responding\u2026</span>' : '') +
-                (!isSending && c.workingDirs.length ? '<span class="chat-item-dir" title="' + escHtml(c.workingDirs[0]) + '">' + escHtml(truncatePath(c.workingDirs[0])) + '</span>' : '') +
+                (isSending ? '<span class="chat-item-responding">responding\u2026</span>' :
+                    (c.workingDirs && c.workingDirs.length
+                        ? '<span class="chat-item-dir" title="' + escHtml(c.workingDirs[0]) + '">' + escHtml(truncatePath(c.workingDirs[0])) + '</span>'
+                        : '')) +
             '</div>' +
         '</div>';
-    }).join('');
+    };
+
+    let html = '';
+    if (groups.today.length)  html += '<div class="chat-list-section-label">Today</div>'    + groups.today.map(makeItem).join('');
+    if (groups.week.length)   html += '<div class="chat-list-section-label">This week</div>' + groups.week.map(makeItem).join('');
+    if (groups.older.length)  html += '<div class="chat-list-section-label">Older</div>'     + groups.older.map(makeItem).join('');
+
+    chatList.innerHTML = html;
     chatList.querySelectorAll('.chat-item').forEach(el => {
         el.onclick = () => switchChat(el.dataset.id);
     });

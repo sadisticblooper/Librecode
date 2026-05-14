@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
     <title>LibreCode</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="ui/style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
@@ -57,8 +59,10 @@
         <div id="chat"></div>
 
         <div id="input-area">
-            <textarea id="input" placeholder="Message LibreCode..." rows="1"></textarea>
-            <button id="send"></button>
+            <div class="input-inner">
+                <textarea id="input" placeholder="Message LibreCode..." rows="1"></textarea>
+                <button id="send"></button>
+            </div>
         </div>
 
         <div id="model-bar">
