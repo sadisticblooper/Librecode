@@ -246,37 +246,112 @@ function _renderDiff(diffText) {
     }).join('');
 }
 
+// ── Steps bottom sheet (singleton) ────────────────────────────────────
+
+let _sheetEl = null;
+
+function _ensureSheet() {
+    if (_sheetEl) return;
+    const overlay = document.createElement('div');
+    overlay.className = 'steps-sheet-overlay';
+    overlay.innerHTML =
+        '<div class="steps-sheet">' +
+            '<div class="steps-sheet-drag"></div>' +
+            '<div class="steps-sheet-header">' +
+                '<span class="steps-sheet-title"></span>' +
+                '<button class="steps-sheet-close">' +
+                    '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">' +
+                        '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>' +
+                    '</svg>' +
+                '</button>' +
+            '</div>' +
+            '<div class="steps-sheet-body"></div>' +
+        '</div>';
+    overlay.addEventListener('click', e => { if (e.target === overlay) _closeSheet(); });
+    overlay.querySelector('.steps-sheet-close').addEventListener('click', _closeSheet);
+    document.body.appendChild(overlay);
+    _sheetEl = overlay;
+}
+
+function _renderStepDetail(step, el) {
+    if (el._rendered) return;
+    el._rendered = true;
+    if (step.name === '__thought__') {
+        el.innerHTML = '<pre class="act-detail-pre">' + escHtml(step.thoughtText || step.text || '') + '</pre>';
+    } else if (step.name === 'edit' || step.name === 'diff') {
+        const result = step.result || '';
+        const sepIdx = result.indexOf('\n\n<<<DIFF>>>\n');
+        const status  = sepIdx !== -1 ? result.slice(0, sepIdx) : result;
+        const rawDiff = sepIdx !== -1 ? result.slice(sepIdx + '\n\n<<<DIFF>>>\n'.length) : '';
+        el.innerHTML =
+            '<div class="act-detail-section"><span class="act-detail-label">file</span><pre class="act-detail-pre">' + escHtml(step.args.filePath || step.args.fileA || '') + '</pre></div>' +
+            (status ? '<div class="act-detail-section"><span class="act-detail-label">status</span><pre class="act-detail-pre">' + escHtml(status) + '</pre></div>' : '') +
+            '<div class="act-detail-section act-detail-diff"><div class="diff-view">' + _renderDiff(rawDiff) + '</div></div>';
+    } else {
+        const input = _actInputSummary(step.name, step.args || {});
+        el.innerHTML =
+            '<div class="act-detail-section"><span class="act-detail-label">input</span><pre class="act-detail-pre">' + escHtml(input) + '</pre></div>' +
+            (step.result != null ? '<div class="act-detail-section"><span class="act-detail-label">output</span><pre class="act-detail-pre">' + escHtml(String(step.result)) + '</pre></div>' : '');
+    }
+}
+
+function _openSheet(steps, title) {
+    _ensureSheet();
+    _sheetEl.querySelector('.steps-sheet-title').textContent = title;
+    const body = _sheetEl.querySelector('.steps-sheet-body');
+    body.innerHTML = '';
+    body.scrollTop = 0;
+
+    for (const step of steps) {
+        const row     = document.createElement('div');
+        row.className = 'act-step-row';
+
+        const rowMain = document.createElement('div');
+        rowMain.className = 'act-step-main';
+        rowMain.innerHTML =
+            _actStepIcon(step.name) +
+            '<span class="act-step-label">' + escHtml(_actLabel(step.name, step.args || {})) + '</span>' +
+            '<svg class="act-step-chevron" width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>';
+        row.appendChild(rowMain);
+
+        const detail  = document.createElement('div');
+        detail.className = 'act-step-detail';
+        row.appendChild(detail);
+
+        rowMain.addEventListener('click', () => {
+            const open = !detail.classList.contains('open');
+            detail.classList.toggle('open', open);
+            rowMain.classList.toggle('act-step-open', open);
+            _renderStepDetail(step, detail);
+        });
+
+        body.appendChild(row);
+    }
+
+    _sheetEl.classList.add('open');
+}
+
+function _closeSheet() {
+    if (_sheetEl) _sheetEl.classList.remove('open');
+}
+
+// ── Activity bar ───────────────────────────────────────────────────────
+
 export function createActivityBar(container) {
     const target = container || chatEl;
-    const steps  = [];   // { name, args, thoughtText, result, rowEl, detailEl }
+    const steps  = [];
     let sealed   = false;
-    let panelOpen = false;
 
-    // ── Outer wrapper
     const wrap = document.createElement('div');
     wrap.className = 'act-wrap';
 
-    // ── Single status row (the gray line)
     const bar = document.createElement('div');
     bar.className = 'act-bar';
     bar.innerHTML =
         '<span class="act-spinner"></span>' +
         '<span class="act-label">Thinking\u2026</span>' +
-        '<svg class="act-chevron" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>';
+        '<svg class="act-chevron" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="display:none"><polyline points="6 9 12 15 18 9"/></svg>';
     wrap.appendChild(bar);
-
-    // ── Expandable panel (step list)
-    const panel = document.createElement('div');
-    panel.className = 'act-panel';
-    wrap.appendChild(panel);
-
-    // Toggle panel on bar click
-    bar.addEventListener('click', () => {
-        panelOpen = !panelOpen;
-        panel.classList.toggle('open', panelOpen);
-        bar.classList.toggle('act-bar-open', panelOpen);
-    });
-
     target.appendChild(wrap);
     scrollBottom();
 
@@ -285,79 +360,24 @@ export function createActivityBar(container) {
     const chevronEl = bar.querySelector('.act-chevron');
 
     function _setBarLabel(text) {
-        // truncate long paths/queries for the bar
         const short = text.length > 60 ? text.slice(0, 58) + '\u2026' : text;
         labelEl.textContent = short;
     }
 
-    function _addStepRow(step) {
-        const row = document.createElement('div');
-        row.className = 'act-step-row';
-
-        const rowMain = document.createElement('div');
-        rowMain.className = 'act-step-main';
-        rowMain.innerHTML = _actStepIcon(step.name) + '<span class="act-step-label">' + escHtml(_actLabel(step.name, step.args || {})) + '</span>' +
-            '<svg class="act-step-chevron" width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>';
-        row.appendChild(rowMain);
-
-        const detail = document.createElement('div');
-        detail.className = 'act-step-detail';
-        row.appendChild(detail);
-
-        let detailOpen = false;
-        rowMain.addEventListener('click', (e) => {
-            e.stopPropagation();
-            detailOpen = !detailOpen;
-            detail.classList.toggle('open', detailOpen);
-            rowMain.classList.toggle('act-step-open', detailOpen);
-            _renderDetail(step, detail);
-        });
-
-        panel.appendChild(row);
-        step.rowEl   = rowMain;
-        step.detailEl = detail;
-        return row;
-    }
-
-    function _renderDetail(step, el) {
-        if (el._rendered) return;
-        el._rendered = true;
-        if (step.name === '__thought__') {
-            el.innerHTML = '<pre class="act-detail-pre">' + escHtml(step.thoughtText || '') + '</pre>';
-        } else if (step.name === 'edit' || step.name === 'diff') {
-            const result = step.result || '';
-            const sepIdx = result.indexOf('\n\n<<<DIFF>>>\n');
-            const status  = sepIdx !== -1 ? result.slice(0, sepIdx) : result;
-            const rawDiff = sepIdx !== -1 ? result.slice(sepIdx + '\n\n<<<DIFF>>>\n'.length) : '';
-            el.innerHTML =
-                '<div class="act-detail-section"><span class="act-detail-label">file</span><pre class="act-detail-pre">' + escHtml(step.args.filePath || step.args.fileA || '') + '</pre></div>' +
-                (status ? '<div class="act-detail-section"><span class="act-detail-label">status</span><pre class="act-detail-pre">' + escHtml(status) + '</pre></div>' : '') +
-                '<div class="act-detail-section act-detail-diff"><div class="diff-view">' + _renderDiff(rawDiff) + '</div></div>';
-        } else {
-            const input = _actInputSummary(step.name, step.args || {});
-            el.innerHTML =
-                '<div class="act-detail-section"><span class="act-detail-label">input</span><pre class="act-detail-pre">' + escHtml(input) + '</pre></div>' +
-                (step.result != null ? '<div class="act-detail-section"><span class="act-detail-label">output</span><pre class="act-detail-pre">' + escHtml(String(step.result)) + '</pre></div>' : '');
-        }
-    }
-
-    // Public API ──────────────────────────────────────────────────────────
+    bar.addEventListener('click', () => {
+        if (steps.length) _openSheet(steps, labelEl.textContent);
+    });
 
     const obj = {
         wrap,
 
         addThought(text) {
-            // find or create a thought step (merge consecutive thinking into one)
             let step = steps.length && steps[steps.length - 1].name === '__thought__' ? steps[steps.length - 1] : null;
             if (!step) {
                 step = { name: '__thought__', args: {}, thoughtText: '', result: null };
                 steps.push(step);
-                _addStepRow(step);
             }
             step.thoughtText += text;
-            if (step.detailEl && step.detailEl._rendered) {
-                step.detailEl.querySelector('pre').textContent = step.thoughtText;
-            }
             _setBarLabel('Thinking\u2026');
             scrollBottom();
         },
@@ -365,7 +385,6 @@ export function createActivityBar(container) {
         addTool(name, args) {
             const step = { name, args: args || {}, thoughtText: '', result: null };
             steps.push(step);
-            _addStepRow(step);
             _setBarLabel(_actLabel(name, args || {}));
             scrollBottom();
             return step;
@@ -373,13 +392,11 @@ export function createActivityBar(container) {
 
         setToolResult(step, result) {
             step.result = result;
-            // invalidate cached render so it re-renders with result next open
-            if (step.detailEl) step.detailEl._rendered = false;
         },
 
         seal() {
             sealed = true;
-            spinnerEl.className = '';   // remove spinner
+            spinnerEl.className = '';
             const n = steps.length;
             labelEl.textContent = n + (n === 1 ? ' step' : ' steps');
             chevronEl.style.display = '';
@@ -400,69 +417,17 @@ export function addActivityBarStatic(steps, container) {
     const wrap = document.createElement('div');
     wrap.className = 'act-wrap act-sealed';
 
-    const n   = steps.length;
-    const bar = document.createElement('div');
+    const n     = steps.length;
+    const title = n + (n === 1 ? ' step' : ' steps');
+    const bar   = document.createElement('div');
     bar.className = 'act-bar';
     bar.innerHTML =
-        '<span class="act-label">' + n + (n === 1 ? ' step' : ' steps') + '</span>' +
+        '<span class="act-label">' + title + '</span>' +
         '<svg class="act-chevron" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>';
     wrap.appendChild(bar);
 
-    const panel = document.createElement('div');
-    panel.className = 'act-panel';
+    bar.addEventListener('click', () => _openSheet(steps, title));
 
-    let panelOpen = false;
-    bar.addEventListener('click', () => {
-        panelOpen = !panelOpen;
-        panel.classList.toggle('open', panelOpen);
-        bar.classList.toggle('act-bar-open', panelOpen);
-    });
-
-    for (const step of steps) {
-        const row = document.createElement('div');
-        row.className = 'act-step-row';
-
-        const rowMain = document.createElement('div');
-        rowMain.className = 'act-step-main';
-        rowMain.innerHTML = _actStepIcon(step.name) + '<span class="act-step-label">' + escHtml(_actLabel(step.name, step.args || {})) + '</span>' +
-            '<svg class="act-step-chevron" width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>';
-        row.appendChild(rowMain);
-
-        const detail = document.createElement('div');
-        detail.className = 'act-step-detail';
-        row.appendChild(detail);
-
-        let detailOpen = false;
-        rowMain.addEventListener('click', () => {
-            detailOpen = !detailOpen;
-            detail.classList.toggle('open', detailOpen);
-            rowMain.classList.toggle('act-step-open', detailOpen);
-            if (!detail._rendered) {
-                detail._rendered = true;
-                if (step.name === '__thought__') {
-                    detail.innerHTML = '<pre class="act-detail-pre">' + escHtml(step.thoughtText || step.text || '') + '</pre>';
-                } else if (step.name === 'edit' || step.name === 'diff') {
-                    const result = step.result || '';
-                    const sepIdx = result.indexOf('\n\n<<<DIFF>>>\n');
-                    const status  = sepIdx !== -1 ? result.slice(0, sepIdx) : result;
-                    const rawDiff = sepIdx !== -1 ? result.slice(sepIdx + '\n\n<<<DIFF>>>\n'.length) : '';
-                    detail.innerHTML =
-                        '<div class="act-detail-section"><span class="act-detail-label">file</span><pre class="act-detail-pre">' + escHtml(step.args.filePath || step.args.fileA || '') + '</pre></div>' +
-                        (status ? '<div class="act-detail-section"><span class="act-detail-label">status</span><pre class="act-detail-pre">' + escHtml(status) + '</pre></div>' : '') +
-                        '<div class="act-detail-section act-detail-diff"><div class="diff-view">' + _renderDiff(rawDiff) + '</div></div>';
-                } else {
-                    const input = _actInputSummary(step.name, step.args || {});
-                    detail.innerHTML =
-                        '<div class="act-detail-section"><span class="act-detail-label">input</span><pre class="act-detail-pre">' + escHtml(input) + '</pre></div>' +
-                        (step.result != null ? '<div class="act-detail-section"><span class="act-detail-label">output</span><pre class="act-detail-pre">' + escHtml(String(step.result)) + '</pre></div>' : '');
-                }
-            }
-        });
-
-        panel.appendChild(row);
-    }
-
-    wrap.appendChild(panel);
     target.appendChild(wrap);
 }
 
