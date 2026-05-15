@@ -490,8 +490,12 @@ function _openDetailScreen(step) {
     const detailHeader = screen.querySelector('.step-detail-header');
     const sheetDrag = _sheetEl._sheetDragStart;
     if (sheetDrag) {
-        detailHeader.addEventListener('mousedown', sheetDrag);
-        detailHeader.addEventListener('touchstart', sheetDrag, { passive: false });
+        const detailDragStart = (e) => {
+            if (e.target === backBtn || backBtn.contains(e.target)) return;
+            sheetDrag(e);
+        };
+        detailHeader.addEventListener('mousedown', detailDragStart);
+        detailHeader.addEventListener('touchstart', detailDragStart, { passive: false });
     }
 
     sheet.appendChild(screen);
