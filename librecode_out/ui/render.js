@@ -271,11 +271,14 @@ function _ensureSheet() {
     overlay.querySelector('.steps-sheet-close').addEventListener('click', _closeSheet);
 
     // ── Drag-to-resize / drag-to-dismiss ─────────────────────────────────
-    const sheet = overlay.querySelector('.steps-sheet');
-    const dragPill = overlay.querySelector('.steps-sheet-drag');
+    const sheet     = overlay.querySelector('.steps-sheet');
+    const dragPill  = overlay.querySelector('.steps-sheet-drag');
+    const header    = overlay.querySelector('.steps-sheet-header');
+    const closeBtn  = overlay.querySelector('.steps-sheet-close');
     let _dragStartY = 0, _dragStartH = 0, _dragging = false;
     let _lastY = 0, _lastT = 0, _velocity = 0;
 
+    const SNAP_MIN     = () => window.innerHeight * 0.25;
     const SNAP_DEFAULT = () => window.innerHeight * 0.65;
     const SNAP_MAX     = () => window.innerHeight * 0.90;
 
@@ -299,42 +302,48 @@ function _ensureSheet() {
         if (!_dragging) return;
         const now   = Date.now();
         const dt    = now - _lastT || 1;
-        _velocity   = (_lastY - clientY) / dt;   // px/ms, positive = moving up
+        _velocity   = (_lastY - clientY) / dt;
         _lastY      = clientY;
         _lastT      = now;
         const delta = _dragStartY - clientY;
-        const newH  = Math.min(Math.max(_dragStartH + delta, 60), SNAP_MAX());
+        const newH  = Math.min(Math.max(_dragStartH + delta, 40), SNAP_MAX());
         sheet.style.height    = newH + 'px';
         sheet.style.maxHeight = newH + 'px';
     }
-    function _onDragEnd(clientY) {
+    function _onDragEnd() {
         if (!_dragging) return;
         _dragging = false;
         document.body.style.userSelect = '';
         const curH = sheet.getBoundingClientRect().height;
 
-        // Velocity thresholds: fast flick overrides position
-        if (_velocity < -0.5) { _closeSheet(); return; }     // fast flick down → close
-        if (_velocity >  0.5) { _snapTo(SNAP_MAX()); return; } // fast flick up → max
+        // Only close if user physically dragged it all the way to the bottom
+        if (curH < 60) { _closeSheet(); return; }
 
-        // Otherwise snap to nearest of the 3 positions
-        const def  = SNAP_DEFAULT();
-        const max  = SNAP_MAX();
-        const dists = [
-            { d: Math.abs(curH - 0),   fn: () => _closeSheet() },
-            { d: Math.abs(curH - def), fn: () => _snapTo(def)  },
-            { d: Math.abs(curH - max), fn: () => _snapTo(max)  },
-        ];
-        dists.sort((a, b) => a.d - b.d)[0].fn();
+        // Fast flick up → max; no momentum-close
+        if (_velocity > 0.5) { _snapTo(SNAP_MAX()); return; }
+
+        // Snap to nearest of min / default / max
+        const positions = [SNAP_MIN(), SNAP_DEFAULT(), SNAP_MAX()];
+        const nearest   = positions.reduce((a, b) => Math.abs(b - curH) < Math.abs(a - curH) ? b : a);
+        _snapTo(nearest);
     }
 
-    dragPill.addEventListener('mousedown', e => { e.preventDefault(); _onDragStart(e.clientY); });
-    window.addEventListener('mousemove', e => _onDragMove(e.clientY));
-    window.addEventListener('mouseup',   e => _onDragEnd(e.clientY));
+    // Attach to full header area (pill + title row), but not the close button
+    function _headerDragStart(e) {
+        if (e.target === closeBtn || closeBtn.contains(e.target)) return;
+        e.preventDefault();
+        _onDragStart(e.touches ? e.touches[0].clientY : e.clientY);
+    }
 
-    dragPill.addEventListener('touchstart', e => { e.preventDefault(); _onDragStart(e.touches[0].clientY); }, { passive: false });
-    window.addEventListener('touchmove',  e => { if (_dragging) { e.preventDefault(); _onDragMove(e.touches[0].clientY); } }, { passive: false });
-    window.addEventListener('touchend',   e => _onDragEnd(e.changedTouches[0].clientY));
+    dragPill.addEventListener('mousedown',   _headerDragStart);
+    header.addEventListener('mousedown',     _headerDragStart);
+    window.addEventListener('mousemove',     e => _onDragMove(e.clientY));
+    window.addEventListener('mouseup',       _onDragEnd);
+
+    dragPill.addEventListener('touchstart',  _headerDragStart, { passive: false });
+    header.addEventListener('touchstart',    _headerDragStart, { passive: false });
+    window.addEventListener('touchmove',     e => { if (_dragging) { e.preventDefault(); _onDragMove(e.touches[0].clientY); } }, { passive: false });
+    window.addEventListener('touchend',      _onDragEnd);
 
     document.body.appendChild(overlay);
     _sheetEl = overlay;
@@ -344,7 +353,21 @@ function _renderStepDetail(step, el) {
     if (el._rendered) return;
     el._rendered = true;
     if (step.name === '__thought__') {
-        el.innerHTML = '<pre class="act-detail-pre">' + escHtml(step.thoughtText || step.text || '') + '</pre>';
+        const pre = document.createElement('pre');
+        pre.className = 'act-detail-pre';
+        el.appendChild(pre);
+        const lines = (step.thoughtText || step.text || '').split('\n');
+        let i = 0;
+        const batch = Math.max(1, Math.ceil(lines.length / 80));
+        function tick() {
+            for (let b = 0; b < batch && i < lines.length; b++, i++) {
+                pre.textContent += (i > 0 ? '\n' : '') + lines[i];
+            }
+            // auto-scroll detail area as lines come in
+            el.scrollTop = el.scrollHeight;
+            if (i < lines.length) requestAnimationFrame(tick);
+        }
+        requestAnimationFrame(tick);
     } else if (step.name === 'edit' || step.name === 'diff') {
         const result = step.result || '';
         const sepIdx = result.indexOf('\n\n<<<DIFF>>>\n');
@@ -470,8 +493,7 @@ export function createActivityBar(container) {
         seal() {
             sealed = true;
             spinnerEl.className = '';
-            const n = steps.length;
-            labelEl.textContent = n + (n === 1 ? ' step' : ' steps');
+            // freeze whatever label was last shown, step count appended
             chevronEl.style.display = '';
             wrap.classList.add('act-sealed');
             scrollBottom();
@@ -491,7 +513,8 @@ export function addActivityBarStatic(steps, container) {
     wrap.className = 'act-wrap act-sealed';
 
     const n     = steps.length;
-    const title = n + (n === 1 ? ' step' : ' steps');
+    const last  = steps[n - 1];
+    const title = last ? _actLabel(last.name, last.args || {}) + '  \u00b7  step\u00a0' + n : n + ' steps';
     const bar   = document.createElement('div');
     bar.className = 'act-bar';
     bar.innerHTML =
