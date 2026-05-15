@@ -39,8 +39,7 @@ import {
     addUserMsgStatic, addUserMsg, addAssistantMsgStatic,
     createTurnWrapper, sealTurn,
     createAssistantShell, sealAssistant,
-    createThinkingBlock, sealThinking,
-    createToolGroup, createToolPill, createSubagentPill,
+    createActivityBar,
     addThinkingStatic, addToolGroupStatic, addSubagentStatic,
     showStatusBanner, highlightCodeBlocks,
 } from './render.js';
@@ -661,10 +660,8 @@ async function send() {
     // ──────────────────────────────────────────────────────────────────
 
     let turnDiv       = null;
-    let thinkingBlock = null;
+    let actBar        = null;   // unified activity bar
     let assistantDiv  = null;
-    let toolPill      = null;
-    let toolGroup     = null;
     let assistantText = '';
     let segmentText   = '';
     const activePills = {};
@@ -703,18 +700,16 @@ async function send() {
                 let ev;
                 try { ev = JSON.parse(raw); } catch { continue; }
 
-                const getTurn = () => { if (!turnDiv) turnDiv = createTurnWrapper(); return turnDiv; };
+                const getTurn   = () => { if (!turnDiv) turnDiv = createTurnWrapper(); return turnDiv; };
+                const getActBar = () => { if (!actBar)  actBar  = createActivityBar(getTurn());  return actBar;  };
                 switch (ev.type) {
                     case 'thinking': {
                         if (!_uiLiveThink) { _uiLiveThink = { type: 'thinking', text: '' }; if (chat) chat.uiEvents.push(_uiLiveThink); }
                         _uiLiveThink.text += ev.text;
                         if (!isActive()) break;
                         if (loadingDiv) { loadingDiv.remove(); loadingDiv = null; }
-                        if (toolPill) { toolPill.classList.add('done'); toolPill = null; }
-                        toolGroup = null;
                         if (assistantDiv) { sealAssistant(assistantDiv, segmentText); assistantDiv = null; segmentText = ''; }
-                        if (!thinkingBlock) { thinkingBlock = createThinkingBlock(getTurn()); }
-                        thinkingBlock.body.textContent += ev.text;
+                        getActBar().addThought(ev.text);
                         scrollBottom();
                         break;
                     }
@@ -731,8 +726,7 @@ async function send() {
                         }
                         if (!isActive()) break;
                         if (loadingDiv) { loadingDiv.remove(); loadingDiv = null; }
-                        if (thinkingBlock) { sealThinking(thinkingBlock); thinkingBlock = null; }
-                        if (toolPill) { toolPill.classList.add('done'); toolPill = null; toolGroup = null; }
+                        if (actBar) { actBar.seal(); actBar = null; }   // freeze activity bar when text starts
                         if (!assistantDiv) {
                             assistantDiv = chatEl.querySelector('[data-live="' + sendingChatId + '"]');
                             if (!assistantDiv) {
@@ -753,12 +747,9 @@ async function send() {
                         if (ev.tc_id) _uiToolMap[ev.tc_id] = _toolEntry;
                         if (!isActive()) break;
                         if (loadingDiv) { loadingDiv.remove(); loadingDiv = null; }
-                        if (thinkingBlock) { sealThinking(thinkingBlock); thinkingBlock = null; }
                         if (assistantDiv) { sealAssistant(assistantDiv, segmentText); assistantDiv = null; segmentText = ''; }
-                        if (!toolGroup) toolGroup = createToolGroup(getTurn());
-                        const pill = createToolPill(ev.name, ev.args, toolGroup);
-                        if (ev.tc_id) activePills[ev.tc_id] = pill;
-                        toolPill = pill;
+                        const _toolStep = getActBar().addTool(ev.name, ev.args || {});
+                        if (ev.tc_id) _uiToolMap[ev.tc_id]._actStep = _toolStep;
                         break;
                     }
                     case 'subagent_start': {
@@ -768,51 +759,32 @@ async function send() {
                         if (chat) chat.uiEvents.push(_uiSub);
                         if (ev.key) _uiSubMap[ev.key] = _subEntry;
                         if (!isActive()) break;
-                        if (!toolGroup) toolGroup = createToolGroup(getTurn());
-                        const spawnPill = (ev.key && activePills[ev.key]) || toolPill;
-                        if (spawnPill) {
-                            const sp = spawnPill.querySelector('.tool-spinner');
-                            if (sp) sp.outerHTML = '<span class="tool-check">\u2713</span>';
-                        }
-                        const sPill = createSubagentPill(ev.agent, ev.task || '', ev.context || '', toolGroup);
-                        if (ev.key) activePills[ev.key] = sPill;
-                        toolPill = sPill;
+                        if (loadingDiv) { loadingDiv.remove(); loadingDiv = null; }
+                        const _subStep = getActBar().addTool('spawn_agent', { agent_id: ev.agent, task: ev.task || '', context: ev.context || '' });
+                        if (ev.key) _uiSubMap[ev.key]._actStep = _subStep;
                         break;
                     }
                     case 'subagent_stream': {
-                        if (!isActive()) break;
-                        const target = ev.key && activePills[ev.key];
-                        if (target && typeof target._liveEvent === 'function') target._liveEvent(ev);
+                        // subagent streaming not shown in activity bar (detail only)
                         break;
                     }
                     case 'subagent_done': {
                         const _sr = (ev.key && _uiSubMap[ev.key]) || _uiSub;
-                        if (_sr) _sr.result = ev.result || '';
+                        if (_sr) {
+                            _sr.result = ev.result || '';
+                            if (_sr._actStep && actBar) actBar.setToolResult(_sr._actStep, ev.result || '');
+                        }
                         _flushSub();
                         if (ev.key) delete _uiSubMap[ev.key];
-                        if (!isActive()) break;
-                        const dPill = (ev.key && activePills[ev.key]) || toolPill;
-                        if (dPill) {
-                            if (typeof dPill._setResult === 'function') dPill._setResult(ev.result || '');
-                            const sp = dPill.querySelector('.tool-spinner');
-                            if (sp) sp.outerHTML = '<span class="tool-check">\u2713</span>';
-                            dPill.classList.add('done');
-                        }
-                        if (ev.key) delete activePills[ev.key];
                         break;
                     }
                     case 'tool_done': {
                         const _tr = ev.tc_id && _uiToolMap[ev.tc_id];
-                        if (_tr) _tr.result = ev.result || '';
-                        if (ev.tc_id) delete _uiToolMap[ev.tc_id];
-                        if (!isActive()) break;
-                        const tPill = (ev.tc_id && activePills[ev.tc_id]) || toolPill;
-                        if (tPill) {
-                            if (typeof tPill._setResult === 'function') tPill._setResult(ev.result || '');
-                            const spinner = tPill.querySelector('.tool-spinner');
-                            if (spinner) spinner.outerHTML = '<span class="tool-check">\u2713</span>';
+                        if (_tr) {
+                            _tr.result = ev.result || '';
+                            if (_tr._actStep && actBar) actBar.setToolResult(_tr._actStep, ev.result || '');
                         }
-                        if (ev.tc_id) delete activePills[ev.tc_id];
+                        if (ev.tc_id) delete _uiToolMap[ev.tc_id];
                         break;
                     }
                     case 'heartbeat': break;
@@ -828,8 +800,8 @@ async function send() {
                         _flushThink(); _flushText(); _flushGroup(); _flushSub();
                         if (chat) chat.uiEvents.push({ type: 'error', text: ev.text });
                         if (!isActive()) break;
-                        if (thinkingBlock) { sealThinking(thinkingBlock); thinkingBlock = null; }
-                        if (!assistantDiv) assistantDiv = createAssistantShell();
+                        if (actBar) { actBar.seal(); actBar = null; }
+                        if (!assistantDiv) assistantDiv = createAssistantShell(getTurn());
                         assistantDiv.classList.remove('streaming');
                         assistantDiv.innerHTML = '<span class="error-msg">\u26a0 ' + escHtml(ev.text) + '</span>';
                         assistantDiv = null;
@@ -839,10 +811,9 @@ async function send() {
                         _flushThink(); _flushText(); _flushGroup(); _flushSub();
                         if (chat) saveChats();
                         if (isActive()) {
-                            if (thinkingBlock) { sealThinking(thinkingBlock); thinkingBlock = null; }
-                            if (assistantDiv)  { sealAssistant(assistantDiv, segmentText); assistantDiv = null; }
-                            if (toolPill)      { toolPill.classList.add('done'); toolPill = null; toolGroup = null; }
-                            if (turnDiv)       { sealTurn(turnDiv); turnDiv = null; }
+                            if (actBar)       { actBar.seal(); actBar = null; }
+                            if (assistantDiv) { sealAssistant(assistantDiv, segmentText); assistantDiv = null; }
+                            if (turnDiv)      { sealTurn(turnDiv); turnDiv = null; }
                         }
                         break;
                     }
@@ -851,9 +822,8 @@ async function send() {
         }
 
         if (isActive()) {
-            if (thinkingBlock) sealThinking(thinkingBlock);
-            if (assistantDiv)  sealAssistant(assistantDiv, segmentText);
-            if (toolPill)      toolPill.classList.add('done');
+            if (actBar)       { actBar.seal(); actBar = null; }
+            if (assistantDiv) sealAssistant(assistantDiv, segmentText);
         }
 
     } catch (e) {

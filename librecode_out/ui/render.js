@@ -184,112 +184,53 @@ export function sealAssistant(div, text) {
     highlightCodeBlocks(div);
 }
 
-// ── Thinking block (collapsible, DeepSeek-style) ───────────────────────
+// ── Activity bar (unified thinking + tools, Claude-style) ─────────────
+//
+//  createActivityBar(container)  → bar object
+//  bar.addThought(text)          → append/update thinking text
+//  bar.addTool(name, args)       → add tool step, returns step obj
+//  bar.setToolResult(step, res)  → attach result to step
+//  bar.seal()                    → freeze, show "N steps"
+//  addActivityBarStatic(steps)   → replay from history
 
-export function createThinkingBlock(container) {
-    const target = container || chatEl;
-    const wrapper = document.createElement('div');
-    wrapper.className = 'thinking-wrapper active';
-
-    wrapper.innerHTML = `
-        <div class="thinking-header">
-            <span class="thinking-header-icon">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>
-                </svg>
-            </span>
-            <span class="thinking-header-label">Thinking…</span>
-            <svg class="thinking-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-                <polyline points="6 9 12 15 18 9"/>
-            </svg>
-        </div>
-        <div class="thinking-collapse">
-            <div class="thinking-body"></div>
-        </div>`;
-
-    // Default: open while streaming
-    wrapper.classList.add('open');
-
-    wrapper.querySelector('.thinking-header').addEventListener('click', () => {
-        wrapper.classList.toggle('open');
-    });
-
-    target.appendChild(wrapper);
-    scrollBottom();
-
-    const body = wrapper.querySelector('.thinking-body');
-    return { wrapper, body };
+function _actLabel(name, args) {
+    if (name === '__thought__')  return 'Thinking\u2026';
+    if (name === 'web_search')   return 'Searching \u201c' + (args.query   || '') + '\u201d';
+    if (name === 'glob')         return 'Finding '   + (args.pattern || '');
+    if (name === 'grep')         return 'Searching ' + (args.pattern || '');
+    if (name === 'read')         return 'Reading '   + (args.filePath || '');
+    if (name === 'write')        return 'Writing '   + (args.filePath || '');
+    if (name === 'edit')         return 'Editing '   + (args.filePath || '');
+    if (name === 'diff')         return 'Diffing '   + (args.fileA    || '');
+    if (name === 'shell')        return 'Running '   + (args.command  || '');
+    if (name === 'web_fetch')    return 'Fetching '  + (args.url      || '');
+    if (name === 'spawn_agent')  return 'Spawning agent ' + (args.agent_id || '');
+    return 'Running ' + name;
 }
 
-export function sealThinking(block, durationMs) {
-    const { wrapper } = block;
-    wrapper.classList.remove('active');
-    const label = wrapper.querySelector('.thinking-header-label');
-    if (label) {
-        const secs = durationMs ? Math.round(durationMs / 1000) : null;
-        label.textContent = secs && secs > 1
-            ? `Thought for ${secs} seconds`
-            : 'Thought';
-    }
-    // Collapse after sealing
-    wrapper.classList.remove('open');
-}
-
-// ── Tool pills ─────────────────────────────────────────────────────────
-
-export function createToolGroup(container) {
-    const target = container || chatEl;
-    const group = document.createElement('div');
-    group.className = 'tool-group';
-    target.appendChild(group);
-    scrollBottom();
-    return group;
-}
-
-function _toolPillIcon(name) {
-    const s = 'width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" style="flex-shrink:0"';
+function _actStepIcon(name) {
+    if (name === '__thought__')
+        return '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;opacity:.6"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>';
     if (name === 'web_search' || name === 'grep')
-        return `<svg ${s} stroke-width="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>`;
-    if (name === 'glob')
-        return `<svg ${s} stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>`;
+        return '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="flex-shrink:0;opacity:.6"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>';
     if (name === 'read')
-        return `<svg ${s} stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>`;
+        return '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;opacity:.6"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>';
     if (name === 'write' || name === 'edit')
-        return `<svg ${s} stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>`;
-    if (name === 'diff')
-        return `<svg ${s} stroke-width="2"><path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v10m0 0H5m4 0h4m6-10v10m0 0h-4m4 0h-2"/><line x1="3" y1="15" x2="9" y2="15"/><line x1="15" y1="15" x2="21" y2="15"/></svg>`;
+        return '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;opacity:.6"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>';
     if (name === 'shell')
-        return `<svg ${s} stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>`;
-    if (name === 'web_fetch')
-        return `<svg ${s} stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>`;
-    return `<svg ${s} stroke-width="2"><circle cx="12" cy="12" r="10"/></svg>`;
+        return '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;opacity:.6"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>';
+    return '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;opacity:.6"><circle cx="12" cy="12" r="10"/></svg>';
 }
 
-function _toolPillLabel(name, args) {
-    if (name === 'web_search')  return 'searching&nbsp;<em>' + escHtml(args.query   || '') + '</em>';
-    if (name === 'glob')        return 'finding&nbsp;<em>'   + escHtml(args.pattern || '') + '</em>';
-    if (name === 'grep')        return 'searching&nbsp;<em>' + escHtml(args.pattern || '') + '</em>';
-    if (name === 'read')        return 'reading&nbsp;<em>'   + escHtml(args.filePath || '') + '</em>';
-    if (name === 'write')       return 'writing&nbsp;<em>'   + escHtml(args.filePath || '') + '</em>';
-    if (name === 'edit')        return 'editing&nbsp;<em>'   + escHtml(args.filePath || '') + '</em>';
-    if (name === 'diff')        return 'diffing&nbsp;<em>'   + escHtml(args.fileA    || '') + '</em>&nbsp;→&nbsp;<em>' + escHtml(args.fileB || '') + '</em>';
-    if (name === 'shell')       return 'running&nbsp;<em>'   + escHtml(args.command  || '') + '</em>';
-    if (name === 'web_fetch')   return 'fetching&nbsp;<em>'  + escHtml(args.url      || '') + '</em>';
-    if (name === 'github_walk') return 'github&nbsp;<em>'    + escHtml(args.repo     || '') + '</em>';
-    if (name === 'spawn_agent') return 'spawning&nbsp;<em>'  + escHtml(args.agent_id || 'agent') + '</em>';
-    return 'running&nbsp;<em>' + escHtml(name) + '</em>';
-}
-
-function _toolInputSummary(name, args) {
-    if (name === 'web_search')  return args.query || '';
-    if (name === 'glob')        return (args.pattern || '') + (args.path    ? '\nin: '      + args.path    : '');
-    if (name === 'grep')        return (args.pattern || '') + (args.path    ? '\nin: '      + args.path    : '') + (args.include ? '\ninclude: ' + args.include : '');
-    if (name === 'read')        return (args.filePath || '') + (args.offset != null ? '\noffset: ' + args.offset : '') + (args.limit != null ? '  limit: ' + args.limit : '');
-    if (name === 'write')       return (args.filePath || '') + '\n\n' + (args.content  || '');
+function _actInputSummary(name, args) {
+    if (name === 'web_search')  return args.query    || '';
+    if (name === 'glob')        return (args.pattern || '') + (args.path ? '\nin: ' + args.path : '');
+    if (name === 'grep')        return (args.pattern || '') + (args.path ? '\nin: ' + args.path : '');
+    if (name === 'read')        return args.filePath || '';
+    if (name === 'write')       return (args.filePath || '') + '\n\n' + (args.content || '');
     if (name === 'edit')        return (args.filePath || '') + '\n\n--- old ---\n' + (args.oldString || '') + '\n\n--- new ---\n' + (args.newString || '');
-    if (name === 'shell')       return (args.command  || '') + (args.cwd    ? '\ncwd: '     + args.cwd     : '');
+    if (name === 'shell')       return (args.command || '') + (args.cwd ? '\ncwd: ' + args.cwd : '');
     if (name === 'web_fetch')   return args.url || '';
-    if (name === 'github_walk') return (args.action || 'tree') + '  ' + (args.repo || '') + (args.file_path ? '\n' + args.file_path : '');
     if (name === 'diff')        return (args.fileA || '') + '\n' + (args.fileB || '');
     return JSON.stringify(args, null, 2);
 }
@@ -297,277 +238,248 @@ function _toolInputSummary(name, args) {
 function _renderDiff(diffText) {
     if (!diffText) return '<span class="diff-empty">no changes</span>';
     return diffText.split('\n').map(line => {
-        if (line.startsWith('+++') || line.startsWith('---')) {
-            return '<div class="diff-line diff-meta">' + escHtml(line) + '</div>';
-        }
-        if (line.startsWith('@@')) {
-            return '<div class="diff-line diff-hunk">' + escHtml(line) + '</div>';
-        }
-        if (line.startsWith('+')) {
-            return '<div class="diff-line diff-add">' + escHtml(line) + '</div>';
-        }
-        if (line.startsWith('-')) {
-            return '<div class="diff-line diff-del">' + escHtml(line) + '</div>';
-        }
+        if (line.startsWith('+++') || line.startsWith('---')) return '<div class="diff-line diff-meta">' + escHtml(line) + '</div>';
+        if (line.startsWith('@@'))  return '<div class="diff-line diff-hunk">' + escHtml(line) + '</div>';
+        if (line.startsWith('+'))   return '<div class="diff-line diff-add">'  + escHtml(line) + '</div>';
+        if (line.startsWith('-'))   return '<div class="diff-line diff-del">'  + escHtml(line) + '</div>';
         return '<div class="diff-line diff-ctx">' + escHtml(line) + '</div>';
     }).join('');
 }
 
-function _makeDiffExpandPanel(filePath, resultText) {
-    const panel = document.createElement('div');
-    panel.className = 'tool-expand-panel';
-    const sepIdx  = resultText.indexOf('\n\n<<<DIFF>>>\n');
-    const status  = sepIdx !== -1 ? resultText.slice(0, sepIdx) : resultText;
-    const rawDiff = sepIdx !== -1 ? resultText.slice(sepIdx + '\n\n<<<DIFF>>>\n'.length) : '';
-    panel.innerHTML =
-        '<div class="tool-expand-section diff-file-row">'
-      +   '<span class="diff-filepath">' + escHtml(filePath) + '</span>'
-      +   '<span class="diff-status-badge">' + escHtml(status) + '</span>'
-      + '</div>'
-      + '<div class="tool-expand-section diff-section">'
-      +   '<div class="diff-view">' + _renderDiff(rawDiff) + '</div>'
-      + '</div>';
-    return panel;
-}
+export function createActivityBar(container) {
+    const target = container || chatEl;
+    const steps  = [];   // { name, args, thoughtText, result, rowEl, detailEl }
+    let sealed   = false;
+    let panelOpen = false;
 
-function _makeExpandPanel(inputText, outputText) {
+    // ── Outer wrapper
+    const wrap = document.createElement('div');
+    wrap.className = 'act-wrap';
+
+    // ── Single status row (the gray line)
+    const bar = document.createElement('div');
+    bar.className = 'act-bar';
+    bar.innerHTML =
+        '<span class="act-spinner"></span>' +
+        '<span class="act-label">Thinking\u2026</span>' +
+        '<svg class="act-chevron" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>';
+    wrap.appendChild(bar);
+
+    // ── Expandable panel (step list)
     const panel = document.createElement('div');
-    panel.className = 'tool-expand-panel';
-    let html = '<div class="tool-expand-section">'
-             + '<div class="tool-expand-label">input</div>'
-             + '<pre class="tool-expand-pre">' + escHtml(inputText) + '</pre>'
-             + '</div>';
-    if (outputText != null) {
-        html += '<div class="tool-expand-section">'
-              + '<div class="tool-expand-label">output</div>'
-              + '<pre class="tool-expand-pre">' + escHtml(String(outputText)) + '</pre>'
-              + '</div>';
+    panel.className = 'act-panel';
+    wrap.appendChild(panel);
+
+    // Toggle panel on bar click
+    bar.addEventListener('click', () => {
+        panelOpen = !panelOpen;
+        panel.classList.toggle('open', panelOpen);
+        bar.classList.toggle('act-bar-open', panelOpen);
+    });
+
+    target.appendChild(wrap);
+    scrollBottom();
+
+    const labelEl   = bar.querySelector('.act-label');
+    const spinnerEl = bar.querySelector('.act-spinner');
+    const chevronEl = bar.querySelector('.act-chevron');
+
+    function _setBarLabel(text) {
+        // truncate long paths/queries for the bar
+        const short = text.length > 60 ? text.slice(0, 58) + '\u2026' : text;
+        labelEl.textContent = short;
     }
-    panel.innerHTML = html;
-    return panel;
-}
 
-export function createToolPill(name, args, group) {
-    const container = group || chatEl;
-    const wrapper   = document.createElement('div');
-    wrapper.className = 'tool-pill-wrapper';
+    function _addStepRow(step) {
+        const row = document.createElement('div');
+        row.className = 'act-step-row';
 
-    const div = document.createElement('div');
-    div.className  = 'tool-pill';
-    div.style.cursor = 'pointer';
-    div.innerHTML  = '<span class="tool-spinner"></span>' + _toolPillIcon(name) + '<span>' + _toolPillLabel(name, args) + '</span>' +
-        '<svg class="tool-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>';
-    wrapper.appendChild(div);
+        const rowMain = document.createElement('div');
+        rowMain.className = 'act-step-main';
+        rowMain.innerHTML = _actStepIcon(step.name) + '<span class="act-step-label">' + escHtml(_actLabel(step.name, step.args || {})) + '</span>' +
+            '<svg class="act-step-chevron" width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>';
+        row.appendChild(rowMain);
 
-    let expanded = false;
-    let panel    = null;
+        const detail = document.createElement('div');
+        detail.className = 'act-step-detail';
+        row.appendChild(detail);
 
-    div.onclick = () => {
-        if (!panel) return;
-        expanded = !expanded;
-        panel.classList.toggle('open', expanded);
-        div.classList.toggle('tool-pill-open', expanded);
-    };
+        let detailOpen = false;
+        rowMain.addEventListener('click', (e) => {
+            e.stopPropagation();
+            detailOpen = !detailOpen;
+            detail.classList.toggle('open', detailOpen);
+            rowMain.classList.toggle('act-step-open', detailOpen);
+            _renderDetail(step, detail);
+        });
 
-    div._setResult = (result) => {
-        if (name === 'edit') {
-            panel = _makeDiffExpandPanel(args.filePath || '', result);
-        } else if (name === 'diff') {
-            const label = (args.fileA || '') + ' → ' + (args.fileB || '');
-            panel = _makeDiffExpandPanel(label, result);
+        panel.appendChild(row);
+        step.rowEl   = rowMain;
+        step.detailEl = detail;
+        return row;
+    }
+
+    function _renderDetail(step, el) {
+        if (el._rendered) return;
+        el._rendered = true;
+        if (step.name === '__thought__') {
+            el.innerHTML = '<pre class="act-detail-pre">' + escHtml(step.thoughtText || '') + '</pre>';
+        } else if (step.name === 'edit' || step.name === 'diff') {
+            const result = step.result || '';
+            const sepIdx = result.indexOf('\n\n<<<DIFF>>>\n');
+            const status  = sepIdx !== -1 ? result.slice(0, sepIdx) : result;
+            const rawDiff = sepIdx !== -1 ? result.slice(sepIdx + '\n\n<<<DIFF>>>\n'.length) : '';
+            el.innerHTML =
+                '<div class="act-detail-section"><span class="act-detail-label">file</span><pre class="act-detail-pre">' + escHtml(step.args.filePath || step.args.fileA || '') + '</pre></div>' +
+                (status ? '<div class="act-detail-section"><span class="act-detail-label">status</span><pre class="act-detail-pre">' + escHtml(status) + '</pre></div>' : '') +
+                '<div class="act-detail-section act-detail-diff"><div class="diff-view">' + _renderDiff(rawDiff) + '</div></div>';
         } else {
-            panel = _makeExpandPanel(_toolInputSummary(name, args), result);
+            const input = _actInputSummary(step.name, step.args || {});
+            el.innerHTML =
+                '<div class="act-detail-section"><span class="act-detail-label">input</span><pre class="act-detail-pre">' + escHtml(input) + '</pre></div>' +
+                (step.result != null ? '<div class="act-detail-section"><span class="act-detail-label">output</span><pre class="act-detail-pre">' + escHtml(String(step.result)) + '</pre></div>' : '');
         }
-        wrapper.appendChild(panel);
+    }
+
+    // Public API ──────────────────────────────────────────────────────────
+
+    const obj = {
+        wrap,
+
+        addThought(text) {
+            // find or create a thought step (merge consecutive thinking into one)
+            let step = steps.length && steps[steps.length - 1].name === '__thought__' ? steps[steps.length - 1] : null;
+            if (!step) {
+                step = { name: '__thought__', args: {}, thoughtText: '', result: null };
+                steps.push(step);
+                _addStepRow(step);
+            }
+            step.thoughtText += text;
+            if (step.detailEl && step.detailEl._rendered) {
+                step.detailEl.querySelector('pre').textContent = step.thoughtText;
+            }
+            _setBarLabel('Thinking\u2026');
+            scrollBottom();
+        },
+
+        addTool(name, args) {
+            const step = { name, args: args || {}, thoughtText: '', result: null };
+            steps.push(step);
+            _addStepRow(step);
+            _setBarLabel(_actLabel(name, args || {}));
+            scrollBottom();
+            return step;
+        },
+
+        setToolResult(step, result) {
+            step.result = result;
+            // invalidate cached render so it re-renders with result next open
+            if (step.detailEl) step.detailEl._rendered = false;
+        },
+
+        seal() {
+            sealed = true;
+            spinnerEl.className = '';   // remove spinner
+            const n = steps.length;
+            labelEl.textContent = n + (n === 1 ? ' step' : ' steps');
+            chevronEl.style.display = '';
+            wrap.classList.add('act-sealed');
+            scrollBottom();
+        },
     };
 
-    container.appendChild(wrapper);
-    scrollBottom();
-    return div;
+    return obj;
 }
 
-export function createSubagentPill(agentId, task, context, group) {
-    const container = group || chatEl;
-    const wrapper   = document.createElement('div');
-    wrapper.className = 'tool-pill-wrapper';
+// ── Static replay ───────────────────────────────────────────────────────
 
-    const s    = 'width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="flex-shrink:0"';
-    const icon = `<svg ${s}><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>`;
-    const div  = document.createElement('div');
-    div.className  = 'tool-pill subagent-pill';
-    div.style.cursor = 'pointer';
-    div.innerHTML  = '<span class="tool-spinner"></span>' + icon + '<span>\u26a1&nbsp;<em>' + escHtml(agentId) + '</em>&nbsp;subagent</span>' +
-        '<svg class="tool-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>';
-    wrapper.appendChild(div);
+export function addActivityBarStatic(steps, container) {
+    const target = container || chatEl;
+    if (!steps || !steps.length) return;
 
-    let expanded = false;
-    let panel    = null;
-    let liveBody = null;
+    const wrap = document.createElement('div');
+    wrap.className = 'act-wrap act-sealed';
 
-    const _ensurePanel = () => {
-        if (panel) return;
-        panel    = document.createElement('div');
-        panel.className = 'tool-expand-panel';
-        liveBody = document.createElement('div');
-        liveBody.className = 'subagent-live-body';
-        panel.appendChild(liveBody);
-        wrapper.appendChild(panel);
-    };
+    const n   = steps.length;
+    const bar = document.createElement('div');
+    bar.className = 'act-bar';
+    bar.innerHTML =
+        '<span class="act-label">' + n + (n === 1 ? ' step' : ' steps') + '</span>' +
+        '<svg class="act-chevron" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>';
+    wrap.appendChild(bar);
 
-    div.onclick = () => {
-        _ensurePanel();
-        expanded = !expanded;
-        panel.classList.toggle('open', expanded);
-        div.classList.toggle('tool-pill-open', expanded);
-    };
+    const panel = document.createElement('div');
+    panel.className = 'act-panel';
 
-    div._liveEvent = (ev) => {
-        _ensurePanel();
-        const sub = ev.subtype;
-        if (sub === 'text' && ev.data) {
-            let textNode = liveBody._lastText;
-            if (!textNode) {
-                textNode = document.createElement('div');
-                textNode.className = 'subagent-live-text';
-                liveBody.appendChild(textNode);
-                liveBody._lastText = textNode;
+    let panelOpen = false;
+    bar.addEventListener('click', () => {
+        panelOpen = !panelOpen;
+        panel.classList.toggle('open', panelOpen);
+        bar.classList.toggle('act-bar-open', panelOpen);
+    });
+
+    for (const step of steps) {
+        const row = document.createElement('div');
+        row.className = 'act-step-row';
+
+        const rowMain = document.createElement('div');
+        rowMain.className = 'act-step-main';
+        rowMain.innerHTML = _actStepIcon(step.name) + '<span class="act-step-label">' + escHtml(_actLabel(step.name, step.args || {})) + '</span>' +
+            '<svg class="act-step-chevron" width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>';
+        row.appendChild(rowMain);
+
+        const detail = document.createElement('div');
+        detail.className = 'act-step-detail';
+        row.appendChild(detail);
+
+        let detailOpen = false;
+        rowMain.addEventListener('click', () => {
+            detailOpen = !detailOpen;
+            detail.classList.toggle('open', detailOpen);
+            rowMain.classList.toggle('act-step-open', detailOpen);
+            if (!detail._rendered) {
+                detail._rendered = true;
+                if (step.name === '__thought__') {
+                    detail.innerHTML = '<pre class="act-detail-pre">' + escHtml(step.thoughtText || step.text || '') + '</pre>';
+                } else if (step.name === 'edit' || step.name === 'diff') {
+                    const result = step.result || '';
+                    const sepIdx = result.indexOf('\n\n<<<DIFF>>>\n');
+                    const status  = sepIdx !== -1 ? result.slice(0, sepIdx) : result;
+                    const rawDiff = sepIdx !== -1 ? result.slice(sepIdx + '\n\n<<<DIFF>>>\n'.length) : '';
+                    detail.innerHTML =
+                        '<div class="act-detail-section"><span class="act-detail-label">file</span><pre class="act-detail-pre">' + escHtml(step.args.filePath || step.args.fileA || '') + '</pre></div>' +
+                        (status ? '<div class="act-detail-section"><span class="act-detail-label">status</span><pre class="act-detail-pre">' + escHtml(status) + '</pre></div>' : '') +
+                        '<div class="act-detail-section act-detail-diff"><div class="diff-view">' + _renderDiff(rawDiff) + '</div></div>';
+                } else {
+                    const input = _actInputSummary(step.name, step.args || {});
+                    detail.innerHTML =
+                        '<div class="act-detail-section"><span class="act-detail-label">input</span><pre class="act-detail-pre">' + escHtml(input) + '</pre></div>' +
+                        (step.result != null ? '<div class="act-detail-section"><span class="act-detail-label">output</span><pre class="act-detail-pre">' + escHtml(String(step.result)) + '</pre></div>' : '');
+                }
             }
-            textNode.textContent += ev.data;
-        } else if (sub === 'thinking' && ev.data) {
-            liveBody._lastText = null;
-            let thinkNode = liveBody._lastThink;
-            if (!thinkNode) {
-                thinkNode = document.createElement('div');
-                thinkNode.className = 'subagent-live-think';
-                liveBody.appendChild(thinkNode);
-                liveBody._lastThink = thinkNode;
-            }
-            thinkNode.textContent += ev.data;
-        } else if (sub === 'tool_use') {
-            liveBody._lastText  = null;
-            liveBody._lastThink = null;
-            const pill = document.createElement('div');
-            pill.className = 'subagent-live-tool';
-            pill.textContent = '\u2022 ' + (ev.name || '?');
-            pill.dataset.tcId = ev.tc_id || '';
-            liveBody.appendChild(pill);
-            liveBody._lastToolPill = pill;
-        } else if (sub === 'tool_done') {
-            const existing = ev.tc_id && liveBody.querySelector(`[data-tc-id="${ev.tc_id}"]`);
-            const p = existing || liveBody._lastToolPill;
-            if (p) p.classList.add('done');
-        }
-        if (expanded) scrollBottom();
-    };
+        });
 
-    div._setResult = (result) => {
-        _ensurePanel();
-        panel.innerHTML = '';
-        const inputText = (context ? 'context:\n' + context + '\n\n---\n\ntask:\n' : 'task:\n') + task;
-        const sec1 = document.createElement('div');
-        sec1.className = 'tool-expand-section';
-        sec1.innerHTML = '<div class="tool-expand-label">input</div><pre class="tool-expand-pre">' + escHtml(inputText) + '</pre>';
-        const sec2 = document.createElement('div');
-        sec2.className = 'tool-expand-section';
-        sec2.innerHTML = '<div class="tool-expand-label">output</div><pre class="tool-expand-pre">' + escHtml(result) + '</pre>';
-        panel.appendChild(sec1);
-        panel.appendChild(sec2);
-    };
+        panel.appendChild(row);
+    }
 
-    container.appendChild(wrapper);
-    scrollBottom();
-    return div;
+    wrap.appendChild(panel);
+    target.appendChild(wrap);
 }
 
-
-// ── Static replay builders (from saved uiEvents) ───────────────────────
+// Legacy shims — keep app.js callers working ────────────────────────────
 
 export function addThinkingStatic(text) {
-    const wrapper = document.createElement('div');
-    wrapper.className = 'thinking-wrapper';
-    wrapper.innerHTML = `
-        <div class="thinking-header">
-            <span class="thinking-header-icon">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>
-                </svg>
-            </span>
-            <span class="thinking-header-label">Thought</span>
-            <svg class="thinking-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-                <polyline points="6 9 12 15 18 9"/>
-            </svg>
-        </div>
-        <div class="thinking-collapse">
-            <div class="thinking-body"></div>
-        </div>`;
-    wrapper.querySelector('.thinking-body').textContent = text;
-    wrapper.querySelector('.thinking-header').addEventListener('click', () => {
-        wrapper.classList.toggle('open');
-    });
-    chatEl.appendChild(wrapper);
+    addActivityBarStatic([{ name: '__thought__', args: {}, thoughtText: text }]);
 }
 
-export function addToolGroupStatic(tools) {
-    const group = document.createElement('div');
-    group.className = 'tool-group';
-    for (const t of tools) {
-        const wrapper = document.createElement('div');
-        wrapper.className = 'tool-pill-wrapper';
-        const div = document.createElement('div');
-        div.className = 'tool-pill done';
-        div.style.cursor = 'pointer';
-        div.innerHTML =
-            '<span class="tool-check">\u2713</span>' +
-            _toolPillIcon(t.name) +
-            '<span>' + _toolPillLabel(t.name, t.args || {}) + '</span>' +
-            '<svg class="tool-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>';
-        wrapper.appendChild(div);
-        let expanded = false;
-        const panel = _makeExpandPanel(_toolInputSummary(t.name, t.args || {}), t.result ?? null);
-        wrapper.appendChild(panel);
-        div.onclick = () => {
-            expanded = !expanded;
-            panel.classList.toggle('open', expanded);
-            div.classList.toggle('tool-pill-open', expanded);
-        };
-        group.appendChild(wrapper);
-    }
-    chatEl.appendChild(group);
+export function addToolGroupStatic(tools, container) {
+    addActivityBarStatic(tools.map(t => ({ name: t.name, args: t.args || {}, result: t.result ?? null })), container);
 }
 
 export function addSubagentStatic(agentId, task, context, result) {
-    const wrapper = document.createElement('div');
-    wrapper.className = 'tool-pill-wrapper';
-    const s    = 'width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="flex-shrink:0"';
-    const icon = `<svg ${s}><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>`;
-    const div  = document.createElement('div');
-    div.className = 'tool-pill subagent-pill done';
-    div.style.cursor = 'pointer';
-    div.innerHTML =
-        '<span class="tool-check">\u2713</span>' + icon +
-        '<span>\u26a1&nbsp;<em>' + escHtml(agentId) + '</em>&nbsp;subagent</span>' +
-        '<svg class="tool-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>';
-    wrapper.appendChild(div);
-    const panel = document.createElement('div');
-    panel.className = 'tool-expand-panel';
-    const inputText = (context ? 'context:\n' + context + '\n\n---\n\ntask:\n' : 'task:\n') + task;
-    const sec1 = document.createElement('div');
-    sec1.className = 'tool-expand-section';
-    sec1.innerHTML = '<div class="tool-expand-label">input</div><pre class="tool-expand-pre">' + escHtml(inputText) + '</pre>';
-    const sec2 = document.createElement('div');
-    sec2.className = 'tool-expand-section';
-    sec2.innerHTML = '<div class="tool-expand-label">output</div><pre class="tool-expand-pre">' + escHtml(result || '') + '</pre>';
-    panel.appendChild(sec1);
-    panel.appendChild(sec2);
-    wrapper.appendChild(panel);
-    let expanded = false;
-    div.onclick = () => {
-        expanded = !expanded;
-        panel.classList.toggle('open', expanded);
-        div.classList.toggle('tool-pill-open', expanded);
-    };
-    chatEl.appendChild(wrapper);
+    addActivityBarStatic([{ name: 'spawn_agent', args: { agent_id: agentId, task, context }, result }]);
 }
+
 
 // ── Status banner ──────────────────────────────────────────────────────
 
