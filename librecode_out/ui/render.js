@@ -345,6 +345,9 @@ function _ensureSheet() {
     window.addEventListener('touchmove',     e => { if (_dragging) { e.preventDefault(); _onDragMove(e.touches[0].clientY); } }, { passive: false });
     window.addEventListener('touchend',      _onDragEnd);
 
+    // Expose drag start so detail screen headers can forward to it
+    overlay._sheetDragStart = _headerDragStart;
+
     document.body.appendChild(overlay);
     _sheetEl = overlay;
 }
@@ -441,6 +444,14 @@ function _openDetailScreen(step) {
 
     const detailBody = screen.querySelector('.step-detail-body');
     screen.querySelector('.step-detail-back').addEventListener('click', () => _closeDetailScreen(screen));
+
+    const detailHeader = screen.querySelector('.step-detail-header');
+    // Forward drag events on the detail header to the sheet's drag handler
+    const sheetDrag = _sheetEl._sheetDragStart;
+    if (sheetDrag) {
+        detailHeader.addEventListener('mousedown', sheetDrag);
+        detailHeader.addEventListener('touchstart', sheetDrag, { passive: false });
+    }
 
     sheet.appendChild(screen);
     // Trigger animation

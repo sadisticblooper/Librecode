@@ -285,14 +285,8 @@ body { display: flex; }
 
 /* ─── Activity bar (unified thinking + tools) ───────────── */
 
-@keyframes blue-shine {
-    0%   { box-shadow: 0 0 0px rgba(34,211,238,0), 0 0 0px rgba(34,211,238,0); background-position: 200% center; }
-    50%  { box-shadow: 0 0 8px rgba(34,211,238,.35), 0 0 2px rgba(34,211,238,.2); }
-    100% { box-shadow: 0 0 0px rgba(34,211,238,0), 0 0 0px rgba(34,211,238,0); background-position: -200% center; }
-}
-@keyframes shimmer-move {
-    0%   { background-position: 200% center; }
-    100% { background-position: -200% center; }
+@keyframes shine {
+    to { background-position: -200% 0; }
 }
 
 .act-wrap {
@@ -302,37 +296,32 @@ body { display: flex; }
 }
 .act-bar {
     display: inline-flex; align-items: center; gap: 7px;
-    cursor: pointer; padding: 4px 9px 4px 7px;
+    cursor: pointer; padding: 3px 0;
     color: var(--text-dim); font-size: 13.5px;
-    user-select: none; transition: color .2s, box-shadow .3s, background .2s; max-width: 100%;
-    border-radius: 20px;
-    border: 1px solid transparent;
+    user-select: none; transition: color .15s; max-width: 100%;
 }
-.act-bar:hover { color: var(--text-muted); background: var(--surface2); }
+.act-bar:hover { color: var(--text-muted); }
 
 /* Active (not sealed) pill — blue shimmer */
 .act-wrap:not(.act-sealed) .act-bar {
-    border-color: rgba(34,211,238,.22);
-    background: linear-gradient(
-        90deg,
-        rgba(34,211,238,.04) 0%,
-        rgba(34,211,238,.12) 40%,
-        rgba(34,211,238,.04) 100%
-    );
-    background-size: 200% auto;
-    animation: blue-shine 2.4s ease-in-out infinite, shimmer-move 2.4s ease-in-out infinite;
-    color: rgba(34,211,238,.85);
+    background: linear-gradient(105deg, #555 25%, #fff 40%, #aaa 55%, #fff 70%, #555 85%);
+    background-size: 200% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    animation: shine 2.8s linear infinite;
 }
 .act-wrap:not(.act-sealed) .act-bar:hover {
-    border-color: rgba(34,211,238,.4);
-    color: rgba(34,211,238,1);
+    -webkit-text-fill-color: transparent;
 }
 
 .act-spinner {
     width: 9px; height: 9px; flex-shrink: 0;
-    border: 1.5px solid rgba(34,211,238,.3);
-    border-top-color: rgba(34,211,238,.9);
+    border: 1.5px solid var(--border-mid);
+    border-top-color: var(--text-dim);
     border-radius: 50%; animation: spin .8s linear infinite;
+    /* escape parent -webkit-text-fill-color: transparent */
+    -webkit-text-fill-color: initial;
 }
 .act-sealed .act-spinner { display: none; }
 .act-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 340px; }
@@ -369,7 +358,7 @@ body { display: flex; }
     transform: translateY(100%) scale(0.98);
     opacity: 0;
     transition:
-        transform .32s cubic-bezier(.34,1.56,.64,1),
+        transform .32s cubic-bezier(.34,1.28,.64,1),
         opacity .25s ease;
     box-shadow: 0 -12px 60px rgba(0,0,0,.45), 0 -2px 12px rgba(0,0,0,.2);
     will-change: transform, opacity;
@@ -394,7 +383,7 @@ body { display: flex; }
     display: flex; flex-direction: column;
     transform: translateX(100%);
     opacity: 0;
-    transition: transform .28s cubic-bezier(.34,1.2,.64,1), opacity .2s ease;
+    transition: transform .28s cubic-bezier(.34,1.1,.64,1), opacity .2s ease;
     overflow: hidden;
     pointer-events: none;
 }
@@ -413,7 +402,9 @@ body { display: flex; }
     display: flex; align-items: center; gap: 8px;
     padding: 10px 16px 8px; flex-shrink: 0;
     border-bottom: 1px solid var(--border);
+    cursor: grab;
 }
+.step-detail-header:active { cursor: grabbing; }
 .step-detail-back {
     background: none; border: none; color: var(--text-dim); cursor: pointer;
     width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;
