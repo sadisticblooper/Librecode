@@ -26,7 +26,7 @@
     --radius-xs:      5px;
     --radius-sm:      9px;
     --radius-md:      13px;
-    --font:           'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --font:           'Cormorant Garamond', 'Garamond', 'Georgia', serif;
     --font-mono:      'Geist Mono', 'SF Mono', 'Cascadia Code', monospace;
     --shadow:         0 8px 32px rgba(0,0,0,.6);
     --shadow-sm:      0 2px 12px rgba(0,0,0,.4);
@@ -261,9 +261,10 @@ body { display: flex; }
 .msg.assistant.streaming { border-bottom-color: transparent; }
 
 .agent-label {
-    font-size: 10px; font-weight: 700; letter-spacing: .1em;
-    text-transform: uppercase; color: var(--accent);
-    opacity: .4; padding: 4px 0 4px; user-select: none;
+    font-size: 11px; font-weight: 600; letter-spacing: .12em;
+    text-transform: uppercase; color: var(--green);
+    opacity: .7; padding: 0 0 8px; user-select: none;
+    font-family: var(--font-mono);
 }
 
 /* loading indicator */
@@ -513,13 +514,13 @@ body { display: flex; }
     display: flex; align-items: flex-end;
     justify-content: center;
     flex-shrink: 0;
+    border-top: 1px solid var(--border-mid);
 }
 
 .input-inner {
     width: 100%; max-width: var(--chat-max);
     display: flex; align-items: flex-end; gap: 10px;
-    border-top: 1px solid var(--border-mid);
-    padding: 10px 0 2px;
+    padding: 12px 0 2px;
     background: transparent;
 }
 

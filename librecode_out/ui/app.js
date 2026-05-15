@@ -37,6 +37,7 @@ import {
 import {
     escHtml, parseMarkdown, scrollBottom, forceScrollBottom,
     addUserMsgStatic, addUserMsg, addAssistantMsgStatic,
+    createTurnWrapper, sealTurn,
     createAssistantShell, sealAssistant,
     createThinkingBlock, sealThinking,
     createToolGroup, createToolPill, createSubagentPill,
@@ -659,6 +660,7 @@ async function send() {
     const _flushSub   = () => { _uiSub   = null; };
     // ──────────────────────────────────────────────────────────────────
 
+    let turnDiv       = null;
     let thinkingBlock = null;
     let assistantDiv  = null;
     let toolPill      = null;
@@ -701,6 +703,7 @@ async function send() {
                 let ev;
                 try { ev = JSON.parse(raw); } catch { continue; }
 
+                const getTurn = () => { if (!turnDiv) turnDiv = createTurnWrapper(); return turnDiv; };
                 switch (ev.type) {
                     case 'thinking': {
                         if (!_uiLiveThink) { _uiLiveThink = { type: 'thinking', text: '' }; if (chat) chat.uiEvents.push(_uiLiveThink); }
@@ -710,7 +713,7 @@ async function send() {
                         if (toolPill) { toolPill.classList.add('done'); toolPill = null; }
                         toolGroup = null;
                         if (assistantDiv) { sealAssistant(assistantDiv, segmentText); assistantDiv = null; segmentText = ''; }
-                        if (!thinkingBlock) thinkingBlock = createThinkingBlock();
+                        if (!thinkingBlock) { thinkingBlock = createThinkingBlock(getTurn()); }
                         thinkingBlock.body.textContent += ev.text;
                         scrollBottom();
                         break;
@@ -733,7 +736,7 @@ async function send() {
                         if (!assistantDiv) {
                             assistantDiv = chatEl.querySelector('[data-live="' + sendingChatId + '"]');
                             if (!assistantDiv) {
-                                assistantDiv = createAssistantShell();
+                                assistantDiv = createAssistantShell(getTurn());
                                 assistantDiv.dataset.live = sendingChatId;
                             }
                         }
@@ -752,7 +755,7 @@ async function send() {
                         if (loadingDiv) { loadingDiv.remove(); loadingDiv = null; }
                         if (thinkingBlock) { sealThinking(thinkingBlock); thinkingBlock = null; }
                         if (assistantDiv) { sealAssistant(assistantDiv, segmentText); assistantDiv = null; segmentText = ''; }
-                        if (!toolGroup) toolGroup = createToolGroup();
+                        if (!toolGroup) toolGroup = createToolGroup(getTurn());
                         const pill = createToolPill(ev.name, ev.args, toolGroup);
                         if (ev.tc_id) activePills[ev.tc_id] = pill;
                         toolPill = pill;
@@ -765,7 +768,7 @@ async function send() {
                         if (chat) chat.uiEvents.push(_uiSub);
                         if (ev.key) _uiSubMap[ev.key] = _subEntry;
                         if (!isActive()) break;
-                        if (!toolGroup) toolGroup = createToolGroup();
+                        if (!toolGroup) toolGroup = createToolGroup(getTurn());
                         const spawnPill = (ev.key && activePills[ev.key]) || toolPill;
                         if (spawnPill) {
                             const sp = spawnPill.querySelector('.tool-spinner');
@@ -839,6 +842,7 @@ async function send() {
                             if (thinkingBlock) { sealThinking(thinkingBlock); thinkingBlock = null; }
                             if (assistantDiv)  { sealAssistant(assistantDiv, segmentText); assistantDiv = null; }
                             if (toolPill)      { toolPill.classList.add('done'); toolPill = null; toolGroup = null; }
+                            if (turnDiv)       { sealTurn(turnDiv); turnDiv = null; }
                         }
                         break;
                     }

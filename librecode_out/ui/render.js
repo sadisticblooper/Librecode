@@ -92,6 +92,24 @@ export function forceScrollBottom() {
     chatEl.scrollTop = chatEl.scrollHeight;
 }
 
+// ── Turn wrapper — one per assistant reply ─────────────────────────────
+
+export function createTurnWrapper() {
+    const div = document.createElement('div');
+    div.className = 'msg assistant streaming';
+    const label = document.createElement('div');
+    label.className = 'agent-label';
+    label.textContent = 'Agent';
+    div.appendChild(label);
+    chatEl.appendChild(div);
+    scrollBottom();
+    return div;
+}
+
+export function sealTurn(div) {
+    div.classList.remove('streaming');
+}
+
 // ── Message DOM builders ───────────────────────────────────────────────
 
 export function addUserMsgStatic(content) {
@@ -149,11 +167,12 @@ export function addAssistantMsgStatic(content, reasoning) {
     highlightCodeBlocks(div);
 }
 
-export function createAssistantShell() {
+export function createAssistantShell(container) {
+    const target = container || chatEl;
     const div = document.createElement('div');
-    div.className = 'msg assistant streaming';
-    div.innerHTML = '<span class="reply-marker">&gt;</span><span class="cursor"></span>';
-    chatEl.appendChild(div);
+    div.className = 'assistant-text-block';
+    div.innerHTML = '<span class="cursor"></span>';
+    target.appendChild(div);
     scrollBottom();
     return div;
 }
@@ -161,13 +180,14 @@ export function createAssistantShell() {
 export function sealAssistant(div, text) {
     div.classList.remove('streaming');
     div.removeAttribute('data-live');
-    div.innerHTML = '<span class="reply-marker">&gt;</span>' + parseMarkdown(text);
+    div.innerHTML = parseMarkdown(text);
     highlightCodeBlocks(div);
 }
 
 // ── Thinking block (collapsible, DeepSeek-style) ───────────────────────
 
-export function createThinkingBlock() {
+export function createThinkingBlock(container) {
+    const target = container || chatEl;
     const wrapper = document.createElement('div');
     wrapper.className = 'thinking-wrapper active';
 
@@ -194,7 +214,7 @@ export function createThinkingBlock() {
         wrapper.classList.toggle('open');
     });
 
-    chatEl.appendChild(wrapper);
+    target.appendChild(wrapper);
     scrollBottom();
 
     const body = wrapper.querySelector('.thinking-body');
@@ -217,10 +237,11 @@ export function sealThinking(block, durationMs) {
 
 // ── Tool pills ─────────────────────────────────────────────────────────
 
-export function createToolGroup() {
+export function createToolGroup(container) {
+    const target = container || chatEl;
     const group = document.createElement('div');
     group.className = 'tool-group';
-    chatEl.appendChild(group);
+    target.appendChild(group);
     scrollBottom();
     return group;
 }
