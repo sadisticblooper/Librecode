@@ -392,6 +392,10 @@ function _openSheet(steps, title) {
     body.innerHTML = '';
     body.scrollTop = 0;
 
+    // Hide any leftover detail screen
+    const existingDetail = _sheetEl.querySelector('.step-detail-screen');
+    if (existingDetail) existingDetail.remove();
+
     for (const step of steps) {
         const row     = document.createElement('div');
         row.className = 'act-step-row';
@@ -401,33 +405,78 @@ function _openSheet(steps, title) {
         rowMain.innerHTML =
             _actStepIcon(step.name) +
             '<span class="act-step-label">' + escHtml(_actLabel(step.name, step.args || {})) + '</span>' +
-            '<svg class="act-step-chevron" width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>';
+            '<svg class="act-step-chevron" width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 6 15 12 9 18"/></svg>';
         row.appendChild(rowMain);
 
-        const detail  = document.createElement('div');
-        detail.className = 'act-step-detail';
-        row.appendChild(detail);
-
         rowMain.addEventListener('click', () => {
-            const open = !detail.classList.contains('open');
-            detail.classList.toggle('open', open);
-            rowMain.classList.toggle('act-step-open', open);
-            _renderStepDetail(step, detail);
+            _openDetailScreen(step);
         });
 
         body.appendChild(row);
     }
 
+    _sheetEl.classList.remove('closing');
     _sheetEl.classList.add('open');
+}
+
+function _openDetailScreen(step) {
+    const sheet = _sheetEl.querySelector('.steps-sheet');
+
+    // Remove any existing detail screen
+    const old = sheet.querySelector('.step-detail-screen');
+    if (old) old.remove();
+
+    const screen = document.createElement('div');
+    screen.className = 'step-detail-screen';
+
+    const label = _actLabel(step.name, step.args || {});
+    screen.innerHTML =
+        '<div class="step-detail-header">' +
+            '<button class="step-detail-back" aria-label="Back">' +
+                '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>' +
+            '</button>' +
+            '<span class="step-detail-title">' + escHtml(label) + '</span>' +
+        '</div>' +
+        '<div class="step-detail-body"></div>';
+
+    const detailBody = screen.querySelector('.step-detail-body');
+    screen.querySelector('.step-detail-back').addEventListener('click', () => _closeDetailScreen(screen));
+
+    sheet.appendChild(screen);
+    // Trigger animation
+    requestAnimationFrame(() => {
+        requestAnimationFrame(() => screen.classList.add('visible'));
+    });
+
+    // Render content into a plain div (reuse _renderStepDetail)
+    const el = document.createElement('div');
+    el.style.cssText = 'padding: 4px 0;';
+    detailBody.appendChild(el);
+    _renderStepDetail(step, el);
+}
+
+function _closeDetailScreen(screen) {
+    screen.classList.remove('visible');
+    screen.classList.add('hiding');
+    screen.addEventListener('transitionend', () => screen.remove(), { once: true });
 }
 
 function _closeSheet() {
     if (!_sheetEl) return;
+    _sheetEl.classList.add('closing');
     _sheetEl.classList.remove('open');
     const sheet = _sheetEl.querySelector('.steps-sheet');
-    // reset explicit height so next open starts fresh from CSS default
-    sheet.style.height = '';
-    sheet.style.maxHeight = '';
+    // reset explicit height after animation
+    setTimeout(() => {
+        if (!_sheetEl.classList.contains('open')) {
+            sheet.style.height = '';
+            sheet.style.maxHeight = '';
+            _sheetEl.classList.remove('closing');
+            // Remove any open detail screen
+            const ds = sheet.querySelector('.step-detail-screen');
+            if (ds) ds.remove();
+        }
+    }, 300);
 }
 
 // ── Activity bar ───────────────────────────────────────────────────────
