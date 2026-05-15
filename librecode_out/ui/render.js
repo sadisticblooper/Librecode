@@ -66,12 +66,6 @@ export function parseMarkdown(text) {
     }).join('');
 }
 
-
-export function renderMarkdownInto(el, text) {
-    el.innerHTML = parseMarkdown(text || '');
-    highlightCodeBlocks(el);
-}
-
 window.copyCode = function(btn) {
     const code = btn.closest('.code-block').querySelector('code');
     navigator.clipboard.writeText(code.textContent).then(() => {
@@ -362,20 +356,25 @@ function _renderStepDetail(step, container) {
     // For thought steps that are still active, we need live updating.
     // We store state on the container element itself.
     if (step.name === '__thought__') {
-        if (!container._thoughtBody) {
+        if (!container._thoughtPre) {
             container.style.cssText = 'padding: 10px 14px;';
-            const body = document.createElement('div');
-            body.className = 'act-detail-md';
-            container.appendChild(body);
-            container._thoughtBody = body;
-            container._thoughtText = '';
+            const pre = document.createElement('pre');
+            pre.className = 'act-detail-pre';
+            pre.style.cssText = 'max-height: none; padding: 0;';
+            container.appendChild(pre);
+            container._thoughtPre = pre;
+            container._thoughtRendered = 0;
         }
-
+        // Append only new content since last render
+        const pre = container._thoughtPre;
         const fullText = step.thoughtText || step.text || '';
-
-        if (fullText !== container._thoughtText) {
-            container._thoughtText = fullText;
-            renderMarkdownInto(container._thoughtBody, fullText);
+        const lines = fullText.split('\n');
+        const already = container._thoughtRendered;
+        if (lines.length > already) {
+            for (let i = already; i < lines.length; i++) {
+                pre.textContent += (i > 0 ? '\n' : '') + lines[i];
+            }
+            container._thoughtRendered = lines.length;
             container.scrollTop = container.scrollHeight;
         }
     } else if (step.name === 'edit' || step.name === 'diff') {
@@ -394,8 +393,8 @@ function _renderStepDetail(step, container) {
         container._rendered = true;
         const input = _actInputSummary(step.name, step.args || {});
         container.innerHTML =
-            '<div class="act-detail-section"><span class="act-detail-label">input</span><div class="act-detail-md">' + parseMarkdown(input) + '</div></div>' +
-            ((step.streaming != null || step.result != null) ? '<div class="act-detail-section"><span class="act-detail-label">output</span><div class="act-detail-md">' + parseMarkdown(String(step.streaming != null ? step.streaming : step.result)) + '</div></div>' : '');
+            '<div class="act-detail-section"><span class="act-detail-label">input</span><pre class="act-detail-pre">' + escHtml(input) + '</pre></div>' +
+            (step.result != null ? '<div class="act-detail-section"><span class="act-detail-label">output</span><pre class="act-detail-pre">' + escHtml(String(step.result)) + '</pre></div>' : '');
     }
 }
 
@@ -415,7 +414,6 @@ function _refreshSheetList(steps) {
         const step = steps[i];
         const row = document.createElement('div');
         row.className = 'act-step-row';
-        if (!step.result) row.classList.add('active');
         const rowMain = document.createElement('div');
         rowMain.className = 'act-step-main';
         rowMain.innerHTML =
@@ -442,7 +440,6 @@ function _openSheet(steps, title) {
     for (const step of steps) {
         const row     = document.createElement('div');
         row.className = 'act-step-row';
-        if (!step.result) row.classList.add('active');
 
         const rowMain = document.createElement('div');
         rowMain.className = 'act-step-main';
@@ -596,14 +593,6 @@ export function createActivityBar(container) {
 
         setToolResult(step, result) {
             step.result = result;
-            step.streaming = null;
-            _refreshOpenDetail(step);
-            const active = _sheetEl?.querySelector('.act-step-row.active');
-            if (active) active.classList.remove('active');
-        },
-
-        setToolStreaming(step, text) {
-            step.streaming = text;
             _refreshOpenDetail(step);
         },
 
