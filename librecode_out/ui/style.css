@@ -36,7 +36,7 @@
 
 html, body {
     height: 100%; background: var(--bg); color: var(--text);
-    font-family: var(--font); font-size: 14px; font-weight: 400;
+    font-family: var(--font); font-size: 15.5px; font-weight: 500;
     line-height: 1.6; overflow: hidden;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
@@ -509,31 +509,31 @@ body { display: flex; }
 
 /* ─── Input area — centered ────────────────────────────── */
 #input-area {
-    padding: 0 20px 10px;
+    padding: 8px 20px 12px;
     background: var(--bg);
     display: flex; align-items: flex-end;
     justify-content: center;
     flex-shrink: 0;
-    border-top: 1px solid var(--border-mid);
 }
 
 .input-inner {
     width: 100%; max-width: var(--chat-max);
-    display: flex; align-items: flex-end; gap: 10px;
-    padding: 12px 0 2px;
+    display: flex; align-items: flex-end; gap: 8px;
     background: transparent;
 }
 
 #input {
-    flex: 1; padding: 4px 0;
+    flex: 1; padding: 10px 16px;
     background: none; border: none;
-    color: var(--text);
+    border-bottom: 1px solid var(--border-mid);
+    border-radius: 0; color: var(--text);
     font-size: 15px; font-family: var(--font); line-height: 1.55;
-    resize: none; min-height: 28px; max-height: 160px; overflow-y: auto;
+    resize: none; min-height: 42px; max-height: 140px; overflow-y: auto;
+    transition: border-color .15s;
 }
-#input:focus { outline: none; }
+#input:focus { outline: none; border-bottom-color: var(--accent); }
 #input::placeholder { color: var(--text-dim); }
-#input::-webkit-scrollbar { width: 3px; }
+#input::-webkit-scrollbar { width: 4px; }
 #input::-webkit-scrollbar-thumb { background: var(--border-mid); border-radius: 4px; }
 #input::-webkit-scrollbar-track { background: transparent; }
 
