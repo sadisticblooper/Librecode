@@ -501,6 +501,9 @@ function _openDetailScreen(step) {
     sheet.appendChild(screen);
     requestAnimationFrame(() => requestAnimationFrame(() => screen.classList.add('visible')));
 
+    // Snap sheet to max height when opening a detail
+    _snapTo(SNAP_MAX());
+
     _renderStepDetail(step, screen.querySelector('.step-detail-body'));
 }
 
