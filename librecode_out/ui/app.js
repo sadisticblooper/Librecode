@@ -765,11 +765,7 @@ async function send() {
                         break;
                     }
                     case 'subagent_stream': {
-                        const _sr = (ev.key && _uiSubMap[ev.key]) || _uiSub;
-                        if (_sr) {
-                            _sr.result = (_sr.result || '') + (ev.text || '');
-                            if (_sr._actStep && actBar) actBar.setToolResult(_sr._actStep, _sr.result);
-                        }
+                        // subagent streaming not shown in activity bar (detail only)
                         break;
                     }
                     case 'subagent_done': {

@@ -474,7 +474,7 @@ body { display: flex; }
 .act-detail-section { padding: 8px 12px; border-top: 1px solid var(--border); }
 .act-detail-section:first-child { border-top: none; }
 .act-detail-label { font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: #6e8aad; margin-bottom: 4px; }
-.act-detail-pre { margin: 0; white-space: pre-wrap; word-break: break-word; overflow-wrap: break-word; color: #c4c4c4; font-family: var(--font-mono); font-size: 12.5px; line-height: 1.5; }
+.act-detail-pre { margin: 0; white-space: pre-wrap; word-break: break-all; color: #c4c4c4; font-family: var(--font-mono); font-size: 12.5px; line-height: 1.5; }
 .act-detail-pre::-webkit-scrollbar { width: 3px; }
 .act-detail-pre::-webkit-scrollbar-thumb { background: var(--border-mid); border-radius: 3px; }
 .act-detail-diff { padding: 0; }
