@@ -39,7 +39,7 @@ import {
     addUserMsgStatic, addUserMsg, addAssistantMsgStatic,
     createTurnWrapper, sealTurn,
     createAssistantShell, sealAssistant,
-    createActivityBar,
+    createActivityBar, addActivityBarStatic,
     addThinkingStatic, addToolGroupStatic, addSubagentStatic,
     showStatusBanner, highlightCodeBlocks,
 } from './render.js';
@@ -231,14 +231,12 @@ function renderHistory() {
         let actBuf = [];
         const flushActBuf = () => {
             if (!actBuf.length) return;
-
             const frozen = actBuf.map(s => ({
                 name: s.name,
                 args: structuredClone(s.args || {}),
                 thoughtText: s.thoughtText || '',
                 result: s.result ?? null,
             }));
-
             addActivityBarStatic(frozen);
             actBuf = [];
         };
@@ -246,7 +244,7 @@ function renderHistory() {
             if (ev.type === 'thinking') {
                 actBuf.push({ name: '__thought__', args: {}, thoughtText: ev.text, result: null });
             } else if (ev.type === 'tool_group') {
-                for (const t of ev.tools)
+                for (const t of (ev.tools || []))
                     actBuf.push({ name: t.name, args: t.args || {}, result: t.result ?? null });
             } else if (ev.type === 'subagent') {
                 actBuf.push({ name: 'spawn_agent', args: { agent_id: ev.agentId, task: ev.task || '', context: ev.context || '' }, result: ev.result ?? null });
