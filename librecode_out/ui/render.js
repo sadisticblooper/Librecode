@@ -352,39 +352,77 @@ function _ensureSheet() {
     _sheetEl = overlay;
 }
 
-function _renderStepDetail(step, el) {
-    if (el._rendered) return;
-    el._rendered = true;
+function _renderStepDetail(step, container) {
+    // For thought steps that are still active, we need live updating.
+    // We store state on the container element itself.
     if (step.name === '__thought__') {
-        const pre = document.createElement('pre');
-        pre.className = 'act-detail-pre';
-        el.appendChild(pre);
-        const lines = (step.thoughtText || step.text || '').split('\n');
-        let i = 0;
-        const batch = Math.max(1, Math.ceil(lines.length / 80));
-        function tick() {
-            for (let b = 0; b < batch && i < lines.length; b++, i++) {
+        if (!container._thoughtPre) {
+            container.style.cssText = 'padding: 10px 14px;';
+            const pre = document.createElement('pre');
+            pre.className = 'act-detail-pre';
+            pre.style.cssText = 'max-height: none; padding: 0;';
+            container.appendChild(pre);
+            container._thoughtPre = pre;
+            container._thoughtRendered = 0;
+        }
+        // Append only new content since last render
+        const pre = container._thoughtPre;
+        const fullText = step.thoughtText || step.text || '';
+        const lines = fullText.split('\n');
+        const already = container._thoughtRendered;
+        if (lines.length > already) {
+            for (let i = already; i < lines.length; i++) {
                 pre.textContent += (i > 0 ? '\n' : '') + lines[i];
             }
-            // auto-scroll detail area as lines come in
-            el.scrollTop = el.scrollHeight;
-            if (i < lines.length) requestAnimationFrame(tick);
+            container._thoughtRendered = lines.length;
+            container.scrollTop = container.scrollHeight;
         }
-        requestAnimationFrame(tick);
     } else if (step.name === 'edit' || step.name === 'diff') {
+        if (container._rendered) return;
+        container._rendered = true;
         const result = step.result || '';
         const sepIdx = result.indexOf('\n\n<<<DIFF>>>\n');
         const status  = sepIdx !== -1 ? result.slice(0, sepIdx) : result;
         const rawDiff = sepIdx !== -1 ? result.slice(sepIdx + '\n\n<<<DIFF>>>\n'.length) : '';
-        el.innerHTML =
+        container.innerHTML =
             '<div class="act-detail-section"><span class="act-detail-label">file</span><pre class="act-detail-pre">' + escHtml(step.args.filePath || step.args.fileA || '') + '</pre></div>' +
             (status ? '<div class="act-detail-section"><span class="act-detail-label">status</span><pre class="act-detail-pre">' + escHtml(status) + '</pre></div>' : '') +
             '<div class="act-detail-section act-detail-diff"><div class="diff-view">' + _renderDiff(rawDiff) + '</div></div>';
     } else {
+        if (container._rendered && step.result == null) return;
+        container._rendered = true;
         const input = _actInputSummary(step.name, step.args || {});
-        el.innerHTML =
+        container.innerHTML =
             '<div class="act-detail-section"><span class="act-detail-label">input</span><pre class="act-detail-pre">' + escHtml(input) + '</pre></div>' +
             (step.result != null ? '<div class="act-detail-section"><span class="act-detail-label">output</span><pre class="act-detail-pre">' + escHtml(String(step.result)) + '</pre></div>' : '');
+    }
+}
+
+function _refreshOpenDetail(step) {
+    if (!_sheetEl) return;
+    const screen = _sheetEl.querySelector('.step-detail-screen');
+    if (!screen || screen._step !== step) return;
+    _renderStepDetail(step, screen.querySelector('.step-detail-body'));
+}
+
+function _refreshSheetList(steps) {
+    if (!_sheetEl || !_sheetEl.classList.contains('open')) return;
+    // only add rows for steps that don't have a row yet
+    const body = _sheetEl.querySelector('.steps-sheet-body');
+    const existingRows = body.querySelectorAll('.act-step-row');
+    for (let i = existingRows.length; i < steps.length; i++) {
+        const step = steps[i];
+        const row = document.createElement('div');
+        row.className = 'act-step-row';
+        const rowMain = document.createElement('div');
+        rowMain.className = 'act-step-main';
+        rowMain.innerHTML =
+            _actStepIcon(step.name) +
+            '<span class="act-step-label">' + escHtml(_actLabel(step.name, step.args || {})) + '</span>' +
+            '<svg class="act-step-chevron" width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 6 15 12 9 18"/></svg>';
+        rowMain.addEventListener('click', () => _openDetailScreen(step));
+        row.appendChild(rowMain);
+        body.appendChild(row);
     }
 }
 
@@ -425,12 +463,13 @@ function _openSheet(steps, title) {
 function _openDetailScreen(step) {
     const sheet = _sheetEl.querySelector('.steps-sheet');
 
-    // Remove any existing detail screen
+    // Remove any existing detail screen instantly
     const old = sheet.querySelector('.step-detail-screen');
     if (old) old.remove();
 
     const screen = document.createElement('div');
     screen.className = 'step-detail-screen';
+    screen._step = step; // store ref for live updates
 
     const label = _actLabel(step.name, step.args || {});
     screen.innerHTML =
@@ -442,11 +481,13 @@ function _openDetailScreen(step) {
         '</div>' +
         '<div class="step-detail-body"></div>';
 
-    const detailBody = screen.querySelector('.step-detail-body');
-    screen.querySelector('.step-detail-back').addEventListener('click', () => _closeDetailScreen(screen));
+    const backBtn = screen.querySelector('.step-detail-back');
+    backBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        _closeDetailScreen(screen);
+    });
 
     const detailHeader = screen.querySelector('.step-detail-header');
-    // Forward drag events on the detail header to the sheet's drag handler
     const sheetDrag = _sheetEl._sheetDragStart;
     if (sheetDrag) {
         detailHeader.addEventListener('mousedown', sheetDrag);
@@ -454,38 +495,33 @@ function _openDetailScreen(step) {
     }
 
     sheet.appendChild(screen);
-    // Trigger animation
-    requestAnimationFrame(() => {
-        requestAnimationFrame(() => screen.classList.add('visible'));
-    });
+    requestAnimationFrame(() => requestAnimationFrame(() => screen.classList.add('visible')));
 
-    // Render content into a plain div (reuse _renderStepDetail)
-    const el = document.createElement('div');
-    el.style.cssText = 'padding: 4px 0;';
-    detailBody.appendChild(el);
-    _renderStepDetail(step, el);
+    _renderStepDetail(step, screen.querySelector('.step-detail-body'));
 }
 
 function _closeDetailScreen(screen) {
     screen.classList.remove('visible');
     screen.classList.add('hiding');
-    screen.addEventListener('transitionend', () => screen.remove(), { once: true });
+    // fallback timeout in case transitionend doesn't fire
+    const cleanup = () => { if (screen.parentNode) screen.remove(); };
+    screen.addEventListener('transitionend', cleanup, { once: true });
+    setTimeout(cleanup, 350);
 }
 
 function _closeSheet() {
     if (!_sheetEl) return;
+    // if detail screen open, go back to list instead of closing
+    const detail = _sheetEl.querySelector('.step-detail-screen');
+    if (detail) { _closeDetailScreen(detail); return; }
     _sheetEl.classList.add('closing');
     _sheetEl.classList.remove('open');
     const sheet = _sheetEl.querySelector('.steps-sheet');
-    // reset explicit height after animation
     setTimeout(() => {
         if (!_sheetEl.classList.contains('open')) {
             sheet.style.height = '';
             sheet.style.maxHeight = '';
             _sheetEl.classList.remove('closing');
-            // Remove any open detail screen
-            const ds = sheet.querySelector('.step-detail-screen');
-            if (ds) ds.remove();
         }
     }, 300);
 }
@@ -535,6 +571,8 @@ export function createActivityBar(container) {
             }
             step.thoughtText += text;
             _setBarLabel('Thinking\u2026');
+            // live-update open detail screen if it's showing this step
+            _refreshOpenDetail(step);
             scrollBottom();
         },
 
@@ -542,12 +580,15 @@ export function createActivityBar(container) {
             const step = { name, args: args || {}, thoughtText: '', result: null };
             steps.push(step);
             _setBarLabel(_actLabel(name, args || {}));
+            // also refresh list rows if sheet is open
+            _refreshSheetList(steps);
             scrollBottom();
             return step;
         },
 
         setToolResult(step, result) {
             step.result = result;
+            _refreshOpenDetail(step);
         },
 
         seal() {
