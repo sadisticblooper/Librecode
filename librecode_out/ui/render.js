@@ -518,9 +518,10 @@ function _closeSheet() {
     // if detail screen open, go back to list instead of closing
     const detail = _sheetEl.querySelector('.step-detail-screen');
     if (detail) { _closeDetailScreen(detail); return; }
+    const sheet = _sheetEl.querySelector('.steps-sheet');
+    sheet.style.transition = ''; // clear inline transition from drag so CSS closing animation plays
     _sheetEl.classList.add('closing');
     _sheetEl.classList.remove('open');
-    const sheet = _sheetEl.querySelector('.steps-sheet');
     setTimeout(() => {
         if (!_sheetEl.classList.contains('open')) {
             sheet.style.height = '';
