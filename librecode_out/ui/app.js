@@ -226,19 +226,35 @@ function renderHistory() {
     if (!chat) { updateContextBadge(); return; }
     const events = chat.uiEvents && chat.uiEvents.length ? chat.uiEvents : null;
     if (events) {
+        // Buffer consecutive thinking/tool_group/subagent events so they render
+        // as ONE unified activity bar pill, matching how they appear during live streaming.
+        let actBuf = [];
+        const flushActBuf = () => {
+            if (!actBuf.length) return;
+            addActivityBarStatic(actBuf);
+            actBuf = [];
+        };
         for (const ev of events) {
-            if      (ev.type === 'user')       addUserMsgStatic(ev.content);
-            else if (ev.type === 'thinking')   addThinkingStatic(ev.text);
-            else if (ev.type === 'assistant')  addAssistantMsgStatic(ev.content, ev.reasoning || null);
-            else if (ev.type === 'tool_group') addToolGroupStatic(ev.tools);
-            else if (ev.type === 'subagent')   addSubagentStatic(ev.agentId, ev.task, ev.context, ev.result);
-            else if (ev.type === 'error') {
-                const errDiv = document.createElement('div');
-                errDiv.className = 'msg assistant';
-                errDiv.innerHTML = '<span class="error-msg">⚠ ' + escHtml(ev.text) + '</span>';
-                chatEl.appendChild(errDiv);
+            if (ev.type === 'thinking') {
+                actBuf.push({ name: '__thought__', args: {}, thoughtText: ev.text, result: null });
+            } else if (ev.type === 'tool_group') {
+                for (const t of ev.tools)
+                    actBuf.push({ name: t.name, args: t.args || {}, result: t.result ?? null });
+            } else if (ev.type === 'subagent') {
+                actBuf.push({ name: 'spawn_agent', args: { agent_id: ev.agentId, task: ev.task || '', context: ev.context || '' }, result: ev.result ?? null });
+            } else {
+                flushActBuf();
+                if      (ev.type === 'user')      addUserMsgStatic(ev.content);
+                else if (ev.type === 'assistant') addAssistantMsgStatic(ev.content, ev.reasoning || null);
+                else if (ev.type === 'error') {
+                    const errDiv = document.createElement('div');
+                    errDiv.className = 'msg assistant';
+                    errDiv.innerHTML = '<span class="error-msg">⚠ ' + escHtml(ev.text) + '</span>';
+                    chatEl.appendChild(errDiv);
+                }
             }
         }
+        flushActBuf();
     } else if (chat.history && chat.history.length) {
         for (const msg of chat.history) {
             if (msg.role === 'user') {
