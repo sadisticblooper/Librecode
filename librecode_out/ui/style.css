@@ -297,7 +297,7 @@ body { display: flex; }
 .act-bar {
     display: inline-flex; align-items: center; gap: 7px;
     cursor: pointer; padding: 3px 0;
-    color: var(--text-dim); font-size: 13.5px;
+    color: #b8c2d9; font-size: 13.5px;
     user-select: none; transition: color .15s; max-width: 100%;
 }
 .act-bar:hover { color: var(--text-muted); }
@@ -487,7 +487,7 @@ body { display: flex; }
 .diff-hunk { background: rgba(74,158,255,.06);  color: var(--accent); }
 .diff-meta { color: var(--text-dim); }
 .diff-ctx  { color: var(--text-muted); }
-.diff-empty { display: block; padding: 8px 10px; color: var(--text-dim); font-size: 13.5px; }
+.diff-empty { display: block; padding: 8px 10px; color: #b8c2d9; font-size: 13.5px; }
 
 /* ─── Markdown content ─────────────────────────────────── */
 .msg p { margin-bottom: 5px; }
@@ -881,3 +881,7 @@ body { display: flex; }
 .scripts-action-btn.primary { color: var(--text); border-color: var(--border-light); }
 .scripts-action-btn.danger { color: var(--red); }
 .scripts-dir-hint { font-size: 10px; color: var(--text-muted); font-family: var(--font-mono); font-weight: 400; margin-left: 8px; }
+
+.act-detail-markdown pre { margin: 0; }
+.act-detail-markdown .code-block { margin-top: 8px; }
+.steps-sheet-body { padding-bottom: 24px; }

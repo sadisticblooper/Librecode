@@ -278,9 +278,8 @@ function _ensureSheet() {
     let _dragStartY = 0, _dragStartH = 0, _dragging = false;
     let _lastY = 0, _lastT = 0, _velocity = 0;
 
-    const SNAP_MIN     = () => window.innerHeight * 0.25;
-    const SNAP_DEFAULT = () => window.innerHeight * 0.65;
-    const SNAP_MAX     = () => window.innerHeight * 0.90;
+    const SNAP_DEFAULT = () => window.innerHeight * 0.68;
+    const SNAP_MAX     = () => window.innerHeight * 0.94;
 
     function _snapTo(targetH) {
         sheet.style.transition = 'height .35s cubic-bezier(.25,.46,.45,.94), max-height .35s cubic-bezier(.25,.46,.45,.94)';
@@ -306,7 +305,7 @@ function _ensureSheet() {
         _lastY      = clientY;
         _lastT      = now;
         const delta = _dragStartY - clientY;
-        const newH  = Math.min(Math.max(_dragStartH + delta, 40), SNAP_MAX());
+        const newH  = Math.min(Math.max(_dragStartH + delta, SNAP_DEFAULT() - 90), SNAP_MAX());
         sheet.style.height    = newH + 'px';
         sheet.style.maxHeight = newH + 'px';
     }
@@ -322,8 +321,8 @@ function _ensureSheet() {
         // Fast flick up → max; no momentum-close
         if (_velocity > 0.5) { _snapTo(SNAP_MAX()); return; }
 
-        // Snap to nearest of min / default / max
-        const positions = [SNAP_MIN(), SNAP_DEFAULT(), SNAP_MAX()];
+        // Snap only to default or max
+        const positions = [SNAP_DEFAULT(), SNAP_MAX()];
         const nearest   = positions.reduce((a, b) => Math.abs(b - curH) < Math.abs(a - curH) ? b : a);
         _snapTo(nearest);
     }
@@ -394,7 +393,9 @@ function _renderStepDetail(step, container) {
         const input = _actInputSummary(step.name, step.args || {});
         container.innerHTML =
             '<div class="act-detail-section"><span class="act-detail-label">input</span><pre class="act-detail-pre">' + escHtml(input) + '</pre></div>' +
-            (step.result != null ? '<div class="act-detail-section"><span class="act-detail-label">output</span><pre class="act-detail-pre">' + escHtml(String(step.result)) + '</pre></div>' : '');
+            (step.result != null ? '<div class="act-detail-section"><span class="act-detail-label">output</span><div class="act-detail-markdown">' + parseMarkdown(String(step.result)) + '</div></div>' : '');
+
+        highlightCodeBlocks(container);
     }
 }
 
