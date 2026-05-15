@@ -282,7 +282,7 @@ function _ensureSheet() {
     const SNAP_MAX     = () => window.innerHeight * 0.94;
 
     function _snapTo(targetH) {
-        sheet.style.transition = 'height .35s cubic-bezier(.25,.46,.45,.94), max-height .35s cubic-bezier(.25,.46,.45,.94)';
+        sheet.style.transition = 'height .22s cubic-bezier(.2,.8,.2,1), max-height .22s cubic-bezier(.2,.8,.2,1)';
         sheet.style.height     = targetH + 'px';
         sheet.style.maxHeight  = targetH + 'px';
     }
@@ -305,7 +305,7 @@ function _ensureSheet() {
         _lastY      = clientY;
         _lastT      = now;
         const delta = _dragStartY - clientY;
-        const newH  = Math.min(Math.max(_dragStartH + delta, SNAP_DEFAULT() - 90), SNAP_MAX());
+        const newH  = Math.min(Math.max(_dragStartH + delta, SNAP_DEFAULT()), SNAP_MAX());
         sheet.style.height    = newH + 'px';
         sheet.style.maxHeight = newH + 'px';
     }
@@ -317,9 +317,6 @@ function _ensureSheet() {
 
         // Only close if user physically dragged it all the way to the bottom
         if (curH < 60) { _closeSheet(); return; }
-
-        // Fast flick up → max; no momentum-close
-        if (_velocity > 0.5) { _snapTo(SNAP_MAX()); return; }
 
         // Snap only to default or max
         const positions = [SNAP_DEFAULT(), SNAP_MAX()];
