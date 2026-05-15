@@ -274,32 +274,58 @@ function _ensureSheet() {
     const sheet = overlay.querySelector('.steps-sheet');
     const dragPill = overlay.querySelector('.steps-sheet-drag');
     let _dragStartY = 0, _dragStartH = 0, _dragging = false;
+    let _lastY = 0, _lastT = 0, _velocity = 0;
+
+    const SNAP_DEFAULT = () => window.innerHeight * 0.65;
+    const SNAP_MAX     = () => window.innerHeight * 0.90;
+
+    function _snapTo(targetH) {
+        sheet.style.transition = 'height .35s cubic-bezier(.25,.46,.45,.94), max-height .35s cubic-bezier(.25,.46,.45,.94)';
+        sheet.style.height     = targetH + 'px';
+        sheet.style.maxHeight  = targetH + 'px';
+    }
 
     function _onDragStart(clientY) {
-        _dragging = true;
-        _dragStartY = clientY;
-        _dragStartH = sheet.getBoundingClientRect().height;
+        _dragging    = true;
+        _dragStartY  = clientY;
+        _dragStartH  = sheet.getBoundingClientRect().height;
+        _lastY       = clientY;
+        _lastT       = Date.now();
+        _velocity    = 0;
         sheet.style.transition = 'none';
         document.body.style.userSelect = 'none';
     }
     function _onDragMove(clientY) {
         if (!_dragging) return;
+        const now   = Date.now();
+        const dt    = now - _lastT || 1;
+        _velocity   = (_lastY - clientY) / dt;   // px/ms, positive = moving up
+        _lastY      = clientY;
+        _lastT      = now;
         const delta = _dragStartY - clientY;
-        const newH  = Math.min(_dragStartH + delta, window.innerHeight * 0.9);
-        if (newH < 80) return;
-        sheet.style.height = newH + 'px';
+        const newH  = Math.min(Math.max(_dragStartH + delta, 60), SNAP_MAX());
+        sheet.style.height    = newH + 'px';
         sheet.style.maxHeight = newH + 'px';
     }
     function _onDragEnd(clientY) {
         if (!_dragging) return;
         _dragging = false;
         document.body.style.userSelect = '';
-        sheet.style.transition = '';
-        const delta = _dragStartY - clientY;
-        if (delta < -60) { _closeSheet(); return; }
-        const cur = parseFloat(sheet.style.height) || sheet.getBoundingClientRect().height;
-        sheet.style.height = Math.max(cur, 120) + 'px';
-        sheet.style.maxHeight = Math.max(cur, 120) + 'px';
+        const curH = sheet.getBoundingClientRect().height;
+
+        // Velocity thresholds: fast flick overrides position
+        if (_velocity < -0.5) { _closeSheet(); return; }     // fast flick down → close
+        if (_velocity >  0.5) { _snapTo(SNAP_MAX()); return; } // fast flick up → max
+
+        // Otherwise snap to nearest of the 3 positions
+        const def  = SNAP_DEFAULT();
+        const max  = SNAP_MAX();
+        const dists = [
+            { d: Math.abs(curH - 0),   fn: () => _closeSheet() },
+            { d: Math.abs(curH - def), fn: () => _snapTo(def)  },
+            { d: Math.abs(curH - max), fn: () => _snapTo(max)  },
+        ];
+        dists.sort((a, b) => a.d - b.d)[0].fn();
     }
 
     dragPill.addEventListener('mousedown', e => { e.preventDefault(); _onDragStart(e.clientY); });
@@ -406,8 +432,9 @@ export function createActivityBar(container) {
     const chevronEl = bar.querySelector('.act-chevron');
 
     function _setBarLabel(text) {
-        const short = text.length > 60 ? text.slice(0, 58) + '\u2026' : text;
-        labelEl.textContent = short;
+        const n = steps.length;
+        const full = n > 0 ? text + '  \u00b7  step\u00a0' + n : text;
+        labelEl.textContent = full.length > 70 ? full.slice(0, 68) + '\u2026' : full;
     }
 
     bar.addEventListener('click', () => {
