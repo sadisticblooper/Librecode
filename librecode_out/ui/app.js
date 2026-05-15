@@ -232,7 +232,7 @@ function renderHistory() {
         let actBuf = [];
         const flushActBuf = () => {
             if (!actBuf.length) return;
-            addActivityBarStatic(actBuf);
+            addActivityBarStatic(actBuf.slice());
             actBuf = [];
         };
         for (const ev of events) {
