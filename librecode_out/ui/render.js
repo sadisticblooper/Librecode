@@ -269,6 +269,47 @@ function _ensureSheet() {
         '</div>';
     overlay.addEventListener('click', e => { if (e.target === overlay) _closeSheet(); });
     overlay.querySelector('.steps-sheet-close').addEventListener('click', _closeSheet);
+
+    // ── Drag-to-resize / drag-to-dismiss ─────────────────────────────────
+    const sheet = overlay.querySelector('.steps-sheet');
+    const dragPill = overlay.querySelector('.steps-sheet-drag');
+    let _dragStartY = 0, _dragStartH = 0, _dragging = false;
+
+    function _onDragStart(clientY) {
+        _dragging = true;
+        _dragStartY = clientY;
+        _dragStartH = sheet.getBoundingClientRect().height;
+        sheet.style.transition = 'none';
+        document.body.style.userSelect = 'none';
+    }
+    function _onDragMove(clientY) {
+        if (!_dragging) return;
+        const delta = _dragStartY - clientY;
+        const newH  = Math.min(_dragStartH + delta, window.innerHeight * 0.9);
+        if (newH < 80) return;
+        sheet.style.height = newH + 'px';
+        sheet.style.maxHeight = newH + 'px';
+    }
+    function _onDragEnd(clientY) {
+        if (!_dragging) return;
+        _dragging = false;
+        document.body.style.userSelect = '';
+        sheet.style.transition = '';
+        const delta = _dragStartY - clientY;
+        if (delta < -60) { _closeSheet(); return; }
+        const cur = parseFloat(sheet.style.height) || sheet.getBoundingClientRect().height;
+        sheet.style.height = Math.max(cur, 120) + 'px';
+        sheet.style.maxHeight = Math.max(cur, 120) + 'px';
+    }
+
+    dragPill.addEventListener('mousedown', e => { e.preventDefault(); _onDragStart(e.clientY); });
+    window.addEventListener('mousemove', e => _onDragMove(e.clientY));
+    window.addEventListener('mouseup',   e => _onDragEnd(e.clientY));
+
+    dragPill.addEventListener('touchstart', e => { e.preventDefault(); _onDragStart(e.touches[0].clientY); }, { passive: false });
+    window.addEventListener('touchmove',  e => { if (_dragging) { e.preventDefault(); _onDragMove(e.touches[0].clientY); } }, { passive: false });
+    window.addEventListener('touchend',   e => _onDragEnd(e.changedTouches[0].clientY));
+
     document.body.appendChild(overlay);
     _sheetEl = overlay;
 }
@@ -332,7 +373,12 @@ function _openSheet(steps, title) {
 }
 
 function _closeSheet() {
-    if (_sheetEl) _sheetEl.classList.remove('open');
+    if (!_sheetEl) return;
+    _sheetEl.classList.remove('open');
+    const sheet = _sheetEl.querySelector('.steps-sheet');
+    // reset explicit height so next open starts fresh from CSS default
+    sheet.style.height = '';
+    sheet.style.maxHeight = '';
 }
 
 // ── Activity bar ───────────────────────────────────────────────────────
