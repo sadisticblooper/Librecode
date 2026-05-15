@@ -40,6 +40,7 @@ import {
     createTurnWrapper, sealTurn,
     createAssistantShell, sealAssistant,
     createActivityBar,
+    addActivityBarStatic,
     addThinkingStatic, addToolGroupStatic, addSubagentStatic,
     showStatusBanner, highlightCodeBlocks,
 } from './render.js';
@@ -228,7 +229,58 @@ function renderHistory() {
     if (events) {
         // Buffer consecutive thinking/tool_group/subagent events so they render
         // as ONE unified activity bar pill, matching how they appear during live streaming.
-                
+        let actBuf = [];
+        const flushActBuf = () => {
+            if (!actBuf.length) return;
+            addActivityBarStatic(actBuf);
+            actBuf = [];
+        };
+        for (const ev of events) {
+            if (ev.type === 'thinking') {
+                actBuf.push({ name: '__thought__', args: {}, thoughtText: ev.text, result: null });
+            } else if (ev.type === 'tool_group') {
+                for (const t of ev.tools)
+                    actBuf.push({ name: t.name, args: t.args || {}, result: t.result ?? null });
+            } else if (ev.type === 'subagent') {
+                actBuf.push({ name: 'spawn_agent', args: { agent_id: ev.agentId, task: ev.task || '', context: ev.context || '' }, result: ev.result ?? null });
+            } else {
+                flushActBuf();
+                if      (ev.type === 'user')      addUserMsgStatic(ev.content);
+                else if (ev.type === 'assistant') addAssistantMsgStatic(ev.content, ev.reasoning || null);
+                else if (ev.type === 'error') {
+                    const errDiv = document.createElement('div');
+                    errDiv.className = 'msg assistant';
+                    errDiv.innerHTML = '<span class="error-msg">⚠ ' + escHtml(ev.text) + '</span>';
+                    chatEl.appendChild(errDiv);
+                }
+            }
+        }
+        flushActBuf();
+    } else if (chat.history && chat.history.length) {
+        for (const msg of chat.history) {
+            if (msg.role === 'user') {
+                addUserMsgStatic(msg.content);
+            } else if (msg.role === 'assistant' && (msg.content || msg.reasoning_content)) {
+                addAssistantMsgStatic(msg.content, msg.reasoning_content);
+            }
+        }
+    }
+    updateContextBadge();
+    forceScrollBottom();
+}
+
+// ── Folder picker ──────────────────────────────────────────────────────
+
+folderBtn.onclick = () => {
+    const android = window.Android;
+    if (android && android.openFolderPicker) {
+        android.openFolderPicker();
+    } else {
+        const path = prompt('Enter absolute folder path:');
+        if (path && path.trim()) addFolder(path.trim());
+    }
+};
+
 async function addFolder(path) {
     let chat = activeChat();
     if (!chat) { chat = createChat(); setActiveChatId(chat.id); }
