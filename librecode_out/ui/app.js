@@ -40,6 +40,7 @@ import {
     createTurnWrapper, sealTurn,
     createAssistantShell, sealAssistant,
     createActivityBar,
+    addActivityBarStatic,
     addThinkingStatic, addToolGroupStatic, addSubagentStatic,
     showStatusBanner, highlightCodeBlocks,
 } from './render.js';
@@ -238,7 +239,7 @@ function renderHistory() {
             if (ev.type === 'thinking') {
                 actBuf.push({ name: '__thought__', args: {}, thoughtText: ev.text, result: null });
             } else if (ev.type === 'tool_group') {
-                for (const t of ev.tools)
+                for (const t of (ev.tools || []))
                     actBuf.push({ name: t.name, args: t.args || {}, result: t.result ?? null });
             } else if (ev.type === 'subagent') {
                 actBuf.push({ name: 'spawn_agent', args: { agent_id: ev.agentId, task: ev.task || '', context: ev.context || '' }, result: ev.result ?? null });
