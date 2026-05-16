@@ -97,10 +97,6 @@ export function forceScrollBottom() {
 export function createTurnWrapper() {
     const div = document.createElement('div');
     div.className = 'msg assistant streaming';
-    const label = document.createElement('div');
-    label.className = 'agent-label';
-    label.textContent = 'Agent';
-    div.appendChild(label);
     chatEl.appendChild(div);
     scrollBottom();
     return div;
@@ -130,10 +126,6 @@ export function addUserMsg(content) {
 export function addAssistantMsgStatic(content, reasoning) {
     const div    = document.createElement('div');
     div.className = 'msg assistant';
-    const label = document.createElement('div');
-    label.className = 'agent-label';
-    label.textContent = 'Agent';
-    div.appendChild(label);
     if (reasoning) {
         const wrapper = document.createElement('div');
         wrapper.className = 'thinking-wrapper';
