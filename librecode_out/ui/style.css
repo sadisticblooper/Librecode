@@ -900,17 +900,17 @@ body { display: flex; }
     align-items: center;
     gap: 5px;
     z-index: 20;
-    max-height: 60vh;
+    max-height: 171px; /* 9 × (14+5) = 171 */
     overflow-y: scroll;
-    scrollbar-width: none; /* Firefox */
+    scrollbar-width: none;
     justify-content: flex-start;
 }
-
-#msg-rail::-webkit-scrollbar { display: none; } /* Chrome/Safari */
 
 #msg-rail.visible {
     display: flex;
 }
+
+#msg-rail::-webkit-scrollbar { display: none; }
 
 .rail-pip {
     width: 3px;
