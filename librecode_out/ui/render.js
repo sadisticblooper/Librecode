@@ -232,7 +232,36 @@ function _actInputSummary(name, args) {
     if (name === 'shell')       return (args.command || '') + (args.cwd ? '\ncwd: ' + args.cwd : '');
     if (name === 'web_fetch')   return args.url || '';
     if (name === 'diff')        return (args.fileA || '') + '\n' + (args.fileB || '');
+    if (name === 'spawn_agent') return (args.task || '') + (args.context ? '\n\nContext:\n' + args.context : '');
     return JSON.stringify(args, null, 2);
+}
+
+function _langFromPath(path) {
+    if (!path) return '';
+    const ext = (path.split('.').pop() || '').toLowerCase();
+    const map = {
+        js: 'javascript', jsx: 'javascript', ts: 'typescript', tsx: 'typescript',
+        py: 'python', rb: 'ruby', go: 'go', rs: 'rust', java: 'java',
+        cpp: 'cpp', cc: 'cpp', c: 'c', h: 'c', cs: 'csharp',
+        sh: 'bash', bash: 'bash', zsh: 'bash',
+        css: 'css', scss: 'css', html: 'html', xml: 'xml',
+        json: 'json', yaml: 'yaml', yml: 'yaml', toml: 'toml',
+        md: 'markdown', sql: 'sql', kt: 'kotlin', swift: 'swift',
+    };
+    return map[ext] || '';
+}
+
+function _buildHighlightedPre(code, lang) {
+    const codeEl = document.createElement('code');
+    if (lang) codeEl.className = lang;
+    codeEl.textContent = code;
+    const pre = document.createElement('pre');
+    pre.className = 'act-detail-pre act-detail-code';
+    pre.appendChild(codeEl);
+    if (lang && typeof hljs !== 'undefined') {
+        try { hljs.highlightElement(codeEl); } catch {}
+    }
+    return pre;
 }
 
 function _renderDiff(diffText) {
@@ -384,22 +413,110 @@ function _renderStepDetail(step, container) {
         const sepIdx = result.indexOf('\n\n<<<DIFF>>>\n');
         const status  = sepIdx !== -1 ? result.slice(0, sepIdx) : result;
         const rawDiff = sepIdx !== -1 ? result.slice(sepIdx + '\n\n<<<DIFF>>>\n'.length) : '';
-        container.innerHTML =
-            '<div class="act-detail-section"><span class="act-detail-label">file</span><pre class="act-detail-pre">' + escHtml(step.args.filePath || step.args.fileA || '') + '</pre></div>' +
-            (status ? '<div class="act-detail-section"><span class="act-detail-label">status</span><pre class="act-detail-pre">' + escHtml(status) + '</pre></div>' : '') +
-            '<div class="act-detail-section act-detail-diff"><div class="diff-view">' + _renderDiff(rawDiff) + '</div></div>';
+        container.innerHTML = '';
+        const fileSection = document.createElement('div');
+        fileSection.className = 'act-detail-section';
+        fileSection.innerHTML = '<span class="act-detail-label">file</span>';
+        fileSection.appendChild(_buildHighlightedPre(step.args.filePath || step.args.fileA || '', ''));
+        container.appendChild(fileSection);
+        if (status) {
+            const statusSection = document.createElement('div');
+            statusSection.className = 'act-detail-section';
+            statusSection.innerHTML = '<span class="act-detail-label">status</span>';
+            statusSection.appendChild(_buildHighlightedPre(status, ''));
+            container.appendChild(statusSection);
+        }
+        const diffSection = document.createElement('div');
+        diffSection.className = 'act-detail-section act-detail-diff';
+        diffSection.innerHTML = '<div class="diff-view">' + _renderDiff(rawDiff) + '</div>';
+        container.appendChild(diffSection);
+    } else if (step.name === 'spawn_agent') {
+        if (container._rendered && step.result == null) return;
+        container._rendered = true;
+        container.innerHTML = '';
+        const agentSection = document.createElement('div');
+        agentSection.className = 'act-detail-section';
+        agentSection.innerHTML = '<span class="act-detail-label">agent</span>';
+        agentSection.appendChild(_buildHighlightedPre(step.args.agent_id || '', ''));
+        container.appendChild(agentSection);
+        const taskSection = document.createElement('div');
+        taskSection.className = 'act-detail-section';
+        taskSection.innerHTML = '<span class="act-detail-label">task</span>';
+        taskSection.appendChild(_buildHighlightedPre(step.args.task || '', ''));
+        container.appendChild(taskSection);
+        if (step.result != null) {
+            const resultSection = document.createElement('div');
+            resultSection.className = 'act-detail-section';
+            resultSection.innerHTML = '<span class="act-detail-label">result</span><div class="act-detail-md-body">' + parseMarkdown(String(step.result)) + '</div>';
+            highlightCodeBlocks(resultSection);
+            container.appendChild(resultSection);
+        }
+    } else if (step.name === 'shell') {
+        if (container._rendered && step.result == null) return;
+        container._rendered = true;
+        container.innerHTML = '';
+        const cmdSection = document.createElement('div');
+        cmdSection.className = 'act-detail-section';
+        cmdSection.innerHTML = '<span class="act-detail-label">command</span>';
+        cmdSection.appendChild(_buildHighlightedPre(step.args.command || '', 'bash'));
+        container.appendChild(cmdSection);
+        if (step.args.cwd) {
+            const cwdSection = document.createElement('div');
+            cwdSection.className = 'act-detail-section';
+            cwdSection.innerHTML = '<span class="act-detail-label">cwd</span>';
+            cwdSection.appendChild(_buildHighlightedPre(step.args.cwd, ''));
+            container.appendChild(cwdSection);
+        }
+        if (step.result != null) {
+            const outSection = document.createElement('div');
+            outSection.className = 'act-detail-section';
+            outSection.innerHTML = '<span class="act-detail-label">output</span>';
+            outSection.appendChild(_buildHighlightedPre(String(step.result), ''));
+            container.appendChild(outSection);
+        }
+    } else if (step.name === 'write' || step.name === 'read') {
+        if (container._rendered && step.result == null) return;
+        container._rendered = true;
+        const filePath = step.args.filePath || '';
+        const lang = _langFromPath(filePath);
+        container.innerHTML = '';
+        const fileSection = document.createElement('div');
+        fileSection.className = 'act-detail-section';
+        fileSection.innerHTML = '<span class="act-detail-label">file</span>';
+        fileSection.appendChild(_buildHighlightedPre(filePath, ''));
+        container.appendChild(fileSection);
+        const content = step.name === 'write' ? (step.args.content || '') : (step.result != null ? String(step.result) : null);
+        if (content != null) {
+            const contentSection = document.createElement('div');
+            contentSection.className = 'act-detail-section';
+            contentSection.innerHTML = '<span class="act-detail-label">' + (step.name === 'write' ? 'content' : 'output') + '</span>';
+            contentSection.appendChild(_buildHighlightedPre(content, lang));
+            container.appendChild(contentSection);
+        }
+        if (step.name === 'write' && step.result != null) {
+            const statusSection = document.createElement('div');
+            statusSection.className = 'act-detail-section';
+            statusSection.innerHTML = '<span class="act-detail-label">status</span>';
+            statusSection.appendChild(_buildHighlightedPre(String(step.result), ''));
+            container.appendChild(statusSection);
+        }
     } else {
+        if (container._rendered && step.result == null) return;
+        container._rendered = true;
         const input = _actInputSummary(step.name, step.args || {});
-        const renderedOutput = step.result != null
-            ? parseMarkdown(String(step.result))
-            : '<div class="act-detail-streaming">Streaming response…</div>';
-
-        container.innerHTML =
-            '<div class="act-detail-section"><span class="act-detail-label">input</span><pre class="act-detail-pre">' + escHtml(input) + '</pre></div>' +
-            '<div class="act-detail-section"><span class="act-detail-label">output</span><div class="act-detail-markdown">' + renderedOutput + '</div></div>';
-
-        highlightCodeBlocks(container);
-        container.scrollTop = container.scrollHeight;
+        container.innerHTML = '';
+        const inputSection = document.createElement('div');
+        inputSection.className = 'act-detail-section';
+        inputSection.innerHTML = '<span class="act-detail-label">input</span>';
+        inputSection.appendChild(_buildHighlightedPre(input, ''));
+        container.appendChild(inputSection);
+        if (step.result != null) {
+            const outputSection = document.createElement('div');
+            outputSection.className = 'act-detail-section';
+            outputSection.innerHTML = '<span class="act-detail-label">output</span>';
+            outputSection.appendChild(_buildHighlightedPre(String(step.result), ''));
+            container.appendChild(outputSection);
+        }
     }
 }
 
@@ -599,7 +716,6 @@ export function createActivityBar(container) {
         setToolResult(step, result) {
             step.result = result;
             _refreshOpenDetail(step);
-            _refreshSheetList(steps);
         },
 
         seal() {
@@ -654,7 +770,31 @@ export function addSubagentStatic(agentId, task, context, result) {
 }
 
 
-// ── Status banner ──────────────────────────────────────────────────────
+// ── Subagent live stream block ─────────────────────────────────────────
+
+export function createSubagentStreamBlock(container) {
+    const target = container || chatEl;
+    const wrap = document.createElement('div');
+    wrap.className = 'subagent-stream-block';
+
+    const header = document.createElement('div');
+    header.className = 'subagent-stream-header';
+    header.innerHTML =
+        '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="flex-shrink:0;opacity:.5"><circle cx="12" cy="12" r="10"/><polyline points="8 12 12 8 16 12"/><line x1="12" y1="8" x2="12" y2="16"/></svg>' +
+        '<span class="subagent-stream-label">Subagent</span>' +
+        '<span class="subagent-stream-cursor"></span>';
+
+    const content = document.createElement('div');
+    content.className = 'subagent-stream-content';
+
+    wrap.appendChild(header);
+    wrap.appendChild(content);
+    target.appendChild(wrap);
+    scrollBottom();
+    return { wrap, content };
+}
+
+
 
 export function showStatusBanner(text, kind = 'info') {
     const old = document.getElementById('status-banner');
