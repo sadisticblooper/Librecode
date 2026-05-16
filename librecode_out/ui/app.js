@@ -54,10 +54,7 @@ const _rail = document.getElementById('msg-rail');
 function updateMsgRail() {
     if (!_rail) return;
     const msgs = Array.from(chatEl.querySelectorAll('.msg.user'));
-    // Rebuild pips — one per user message, newest at bottom
-    // Excess old ones clip off the top via overflow:hidden + justify-content:flex-end
     const existing = _rail.querySelectorAll('.rail-pip');
-    // Add pips for any new messages
     const delta = msgs.length - existing.length;
     if (delta > 0) {
         for (let i = 0; i < delta; i++) {
@@ -66,28 +63,49 @@ function updateMsgRail() {
             _rail.appendChild(pip);
         }
     } else if (delta < 0) {
-        // Chat was cleared — remove extra pips
         for (let i = 0; i < -delta; i++) _rail.firstChild && _rail.removeChild(_rail.firstChild);
     }
-    // Wire click targets (re-query after potential DOM changes)
+    // Wire click targets
     const pips = _rail.querySelectorAll('.rail-pip');
     pips.forEach((pip, i) => {
         pip.onclick = () => msgs[i] && msgs[i].scrollIntoView({ behavior: 'smooth', block: 'center' });
     });
+    _updateRailVisibility();
     _updateRailActive();
+}
+
+function _updateRailVisibility() {
+    if (!_rail) return;
+    // Only show the rail when there's actually something to scroll
+    const scrollable = chatEl.scrollHeight > chatEl.clientHeight + 20;
+    _rail.classList.toggle('visible', scrollable);
 }
 
 function _updateRailActive() {
     if (!_rail) return;
-    const pips = _rail.querySelectorAll('.rail-pip');
+    const pips = Array.from(_rail.querySelectorAll('.rail-pip'));
     const msgs = Array.from(chatEl.querySelectorAll('.msg.user'));
-    const chatRect = chatEl.getBoundingClientRect();
-    let best = -1, bestDist = Infinity;
-    msgs.forEach((msg, i) => {
-        const rect = msg.getBoundingClientRect();
-        const dist = Math.abs(rect.top + rect.height / 2 - (chatRect.top + chatRect.height / 2));
-        if (dist < bestDist) { bestDist = dist; best = i; }
-    });
+    if (!msgs.length || !pips.length) return;
+
+    const scrollTop    = chatEl.scrollTop;
+    const scrollHeight = chatEl.scrollHeight;
+    const clientHeight = chatEl.clientHeight;
+    const atTop        = scrollTop < 8;
+    const atBottom     = scrollHeight - scrollTop - clientHeight < 8;
+
+    let best = 0;
+    if (atTop) {
+        best = 0;
+    } else if (atBottom) {
+        best = msgs.length - 1;
+    } else {
+        // Find the last user message whose top edge is above the upper third of the viewport
+        const threshold = scrollTop + clientHeight * 0.35;
+        for (let i = 0; i < msgs.length; i++) {
+            if (msgs[i].offsetTop <= threshold) best = i;
+            else break;
+        }
+    }
     pips.forEach((pip, i) => pip.classList.toggle('active', i === best));
 }
 
@@ -110,8 +128,8 @@ if (_rail) {
     _rail.addEventListener('pointercancel', () => { _railDrag = false; });
 }
 
-// Update active pip on scroll
-chatEl.addEventListener('scroll', _updateRailActive, { passive: true });
+// Update on scroll
+chatEl.addEventListener('scroll', () => { _updateRailActive(); _updateRailVisibility(); }, { passive: true });
 
 
 

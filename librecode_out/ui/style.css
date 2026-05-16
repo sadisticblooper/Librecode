@@ -227,9 +227,7 @@ body { display: flex; }
     align-items: center;
     scroll-behavior: smooth;
 }
-#chat::-webkit-scrollbar { width: 5px; }
-#chat::-webkit-scrollbar-thumb { background: var(--border-mid); border-radius: 6px; }
-#chat::-webkit-scrollbar-track { background: transparent; }
+#chat::-webkit-scrollbar { width: 0; background: transparent; }
 
 /* ─── Messages ─────────────────────────────────────────── */
 .msg {
@@ -893,19 +891,22 @@ body { display: flex; }
 /* ─── Message Rail ──────────────────────────────────────── */
 #msg-rail {
     position: fixed;
-    right: 5px;
+    right: 12px;
     top: 50%;
     transform: translateY(-50%);
     width: 4px;
-    display: flex;
+    display: none;
     flex-direction: column;
     align-items: center;
     gap: 5px;
     z-index: 20;
-    /* Show newest at bottom; older ones clip off the top */
     max-height: 171px; /* 9 × (14+5) = 171 */
     overflow: hidden;
     justify-content: flex-end;
+}
+
+#msg-rail.visible {
+    display: flex;
 }
 
 .rail-pip {
