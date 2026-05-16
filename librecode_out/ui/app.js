@@ -107,20 +107,27 @@ function _updateRailActive() {
         }
     }
     pips.forEach((pip, i) => pip.classList.toggle('active', i === best));
+
+    // Keep the active pip visible inside the rail by scrolling it into view
+    const activePip = pips[best];
+    if (activePip) {
+        const pipTop    = activePip.offsetTop;
+        const pipHeight = activePip.offsetHeight;
+        const railH     = _rail.clientHeight;
+        _rail.scrollTop = pipTop - railH / 2 + pipHeight / 2;
+    }
 }
 
 // Touch-drag on rail to scrub between messages
 let _railDrag = false;
 if (_rail) {
+    // Map drag position proportionally to chatEl.scrollTop — no snapping,
+    // no smooth animation fighting. Instant and fine-grained.
     const _scrubToY = (clientY) => {
-        const msgs = Array.from(chatEl.querySelectorAll('.msg.user'));
-        if (!msgs.length) return;
-        const pips = Array.from(_rail.querySelectorAll('.rail-pip'));
-        if (!pips.length) return;
         const railRect = _rail.getBoundingClientRect();
         const ratio = Math.max(0, Math.min(1, (clientY - railRect.top) / railRect.height));
-        const idx = Math.round(ratio * (pips.length - 1));
-        msgs[idx] && msgs[idx].scrollIntoView({ behavior: 'smooth', block: 'center' });
+        const maxScroll = chatEl.scrollHeight - chatEl.clientHeight;
+        chatEl.scrollTop = ratio * maxScroll;
     };
     _rail.addEventListener('pointerdown', e => { _railDrag = true; _rail.setPointerCapture(e.pointerId); _scrubToY(e.clientY); });
     _rail.addEventListener('pointermove', e => { if (_railDrag) _scrubToY(e.clientY); });

@@ -900,10 +900,13 @@ body { display: flex; }
     align-items: center;
     gap: 5px;
     z-index: 20;
-    max-height: 171px; /* 9 × (14+5) = 171 */
-    overflow: hidden;
-    justify-content: flex-end;
+    max-height: 60vh;
+    overflow-y: scroll;
+    scrollbar-width: none; /* Firefox */
+    justify-content: flex-start;
 }
+
+#msg-rail::-webkit-scrollbar { display: none; } /* Chrome/Safari */
 
 #msg-rail.visible {
     display: flex;
@@ -921,7 +924,7 @@ body { display: flex; }
 }
 
 .rail-pip.active {
-    background: var(--accent);
+    background: #f02951;
     width: 4px;
     height: 22px;
     animation: railPop .25s cubic-bezier(.34,1.56,.64,1) both;
