@@ -883,15 +883,17 @@ body { display: flex; }
 .scripts-dir-hint { font-size: 10px; color: var(--text-muted); font-family: var(--font-mono); font-weight: 400; margin-left: 8px; }
 
 
-/* Improved readability for step pills */
-.act-bar,
-.act-step-main {
-    background: rgba(255,255,255,0.06);
-    border-color: rgba(255,255,255,0.08);
+/* Improved readability for step text only */
+.act-step-label,
+.steps-sheet-title,
+.act-detail-label,
+.act-detail-markdown,
+.act-detail-pre,
+.act-thought-inline {
+    color: #c7d0dc !important;
 }
 
 .act-step-label {
-    color: #b8c0cc !important;
     font-weight: 500;
 }
 
