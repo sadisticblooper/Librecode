@@ -407,8 +407,10 @@ async function addFolder(path) {
     renderChatList();
 }
 
-// Called by Android after the user selects a folder in the native picker.
-window.onFolderSelected = (path) => {
+// Called by Android (evaluateJavascript) after the user picks a folder.
+// Writes into the active chat's workingDirs and saves to chat.json.
+// This is per-chat — not global state.
+window.setWorkingDir = (path) => {
     if (path && path.trim()) addFolder(path.trim());
 };
 

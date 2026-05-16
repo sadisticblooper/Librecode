@@ -1,6 +1,6 @@
 // ── API helpers — every fetch call in one place ────────────────────────
 
-import { chats, activeChatId, setChats, setActiveChatId } from './state.js';
+import { chats, activeChatId, getActiveChatId, setChats, setActiveChatId } from './state.js';
 
 export let storageDir = '';
 
@@ -17,7 +17,7 @@ export async function saveChats() {
         await fetch('/save_chats', {
             method:  'POST',
             headers: { 'Content-Type': 'application/json' },
-            body:    JSON.stringify({ chats, activeChatId }),
+            body:    JSON.stringify({ chats, activeChatId: getActiveChatId() }),
         });
     } catch {}
 }
