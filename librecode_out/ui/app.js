@@ -39,7 +39,7 @@ import {
     addUserMsgStatic, addUserMsg, addAssistantMsgStatic,
     createTurnWrapper, sealTurn,
     createAssistantShell, sealAssistant,
-    createActivityBar,
+    createActivityBar, addActivityBarStatic,
     addThinkingStatic, addToolGroupStatic, addSubagentStatic,
     showStatusBanner, highlightCodeBlocks,
 } from './render.js';
