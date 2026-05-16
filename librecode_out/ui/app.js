@@ -226,19 +226,42 @@ function renderHistory() {
     if (!chat) { updateContextBadge(); return; }
     const events = chat.uiEvents && chat.uiEvents.length ? chat.uiEvents : null;
     if (events) {
+        // During live streaming, thinking + tools share one activity bar (one pill).
+        // On replay we must batch consecutive thinking/tool_group/subagent events
+        // into a single addActivityBarStatic call so they render as one pill, not many.
+        let pendingSteps = [];
+
+        const flushActivity = () => {
+            if (pendingSteps.length > 0) {
+                addActivityBarStatic(pendingSteps);
+                pendingSteps = [];
+            }
+        };
+
         for (const ev of events) {
-            if      (ev.type === 'user')       addUserMsgStatic(ev.content);
-            else if (ev.type === 'thinking')   addThinkingStatic(ev.text);
-            else if (ev.type === 'assistant')  addAssistantMsgStatic(ev.content, ev.reasoning || null);
-            else if (ev.type === 'tool_group') addToolGroupStatic(ev.tools);
-            else if (ev.type === 'subagent')   addSubagentStatic(ev.agentId, ev.task, ev.context, ev.result);
-            else if (ev.type === 'error') {
+            if (ev.type === 'user') {
+                flushActivity();
+                addUserMsgStatic(ev.content);
+            } else if (ev.type === 'thinking') {
+                pendingSteps.push({ name: '__thought__', args: {}, thoughtText: ev.text });
+            } else if (ev.type === 'tool_group') {
+                (ev.tools || []).forEach(t =>
+                    pendingSteps.push({ name: t.name, args: t.args || {}, result: t.result ?? null })
+                );
+            } else if (ev.type === 'subagent') {
+                pendingSteps.push({ name: 'spawn_agent', args: { agent_id: ev.agentId, task: ev.task || '', context: ev.context || '' }, result: ev.result ?? null });
+            } else if (ev.type === 'assistant') {
+                flushActivity();
+                addAssistantMsgStatic(ev.content, ev.reasoning || null);
+            } else if (ev.type === 'error') {
+                flushActivity();
                 const errDiv = document.createElement('div');
                 errDiv.className = 'msg assistant';
                 errDiv.innerHTML = '<span class="error-msg">⚠ ' + escHtml(ev.text) + '</span>';
                 chatEl.appendChild(errDiv);
             }
         }
+        flushActivity(); // flush any trailing activity (e.g. response still in progress)
     } else if (chat.history && chat.history.length) {
         for (const msg of chat.history) {
             if (msg.role === 'user') {
