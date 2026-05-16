@@ -297,7 +297,7 @@ body { display: flex; }
 .act-bar {
     display: inline-flex; align-items: center; gap: 7px;
     cursor: pointer; padding: 3px 0;
-    color: #b8c2d9; font-size: 13.5px;
+    color: var(--text-dim); font-size: 13.5px;
     user-select: none; transition: color .15s; max-width: 100%;
 }
 .act-bar:hover { color: var(--text-muted); }
@@ -358,12 +358,10 @@ body { display: flex; }
     transform: translateY(100%) scale(0.98);
     opacity: 0;
     transition:
-        transform .18s cubic-bezier(.2,.8,.2,1),
-        opacity .18s ease;
+        transform .32s cubic-bezier(.34,1.28,.64,1),
+        opacity .25s ease;
     box-shadow: 0 -12px 60px rgba(0,0,0,.45), 0 -2px 12px rgba(0,0,0,.2);
     will-change: transform, opacity;
-    backface-visibility: hidden;
-    contain: layout style paint;
 }
 .steps-sheet-overlay.open .steps-sheet {
     transform: translateY(0) scale(1);
@@ -373,8 +371,8 @@ body { display: flex; }
     transform: translateY(100%) scale(0.98);
     opacity: 0;
     transition:
-        transform .16s cubic-bezier(.2,.8,.2,1),
-        opacity .16s ease;
+        transform .28s cubic-bezier(.4,0,.6,1),
+        opacity .22s ease;
 }
 
 /* ── Detail drill-in screen ── */
@@ -457,9 +455,7 @@ body { display: flex; }
 }
 .steps-sheet-close:hover { color: var(--text-muted); background: var(--surface3); }
 .steps-sheet-body {
-    flex: 1; overflow-y: auto; padding: 6px 0 0;
-    overscroll-behavior: contain;
-    -webkit-overflow-scrolling: touch;
+    flex: 1; overflow-y: auto; padding: 6px 0 24px;
 }
 .steps-sheet-body::-webkit-scrollbar { width: 3px; }
 .steps-sheet-body::-webkit-scrollbar-thumb { background: var(--border-mid); border-radius: 3px; }
@@ -491,7 +487,7 @@ body { display: flex; }
 .diff-hunk { background: rgba(74,158,255,.06);  color: var(--accent); }
 .diff-meta { color: var(--text-dim); }
 .diff-ctx  { color: var(--text-muted); }
-.diff-empty { display: block; padding: 8px 10px; color: #b8c2d9; font-size: 13.5px; }
+.diff-empty { display: block; padding: 8px 10px; color: var(--text-dim); font-size: 13.5px; }
 
 /* ─── Markdown content ─────────────────────────────────── */
 .msg p { margin-bottom: 5px; }
@@ -886,6 +882,30 @@ body { display: flex; }
 .scripts-action-btn.danger { color: var(--red); }
 .scripts-dir-hint { font-size: 10px; color: var(--text-muted); font-family: var(--font-mono); font-weight: 400; margin-left: 8px; }
 
-.act-detail-markdown pre { margin: 0; }
-.act-detail-markdown .code-block { margin-top: 8px; }
 
+/* Improved readability for step pills */
+.act-bar,
+.act-step-main {
+    background: rgba(255,255,255,0.06);
+    border-color: rgba(255,255,255,0.08);
+}
+
+.act-step-label {
+    color: #b8c0cc !important;
+    font-weight: 500;
+}
+
+.act-detail-markdown {
+    line-height: 1.6;
+    color: var(--text);
+    overflow-wrap: anywhere;
+}
+
+.act-detail-markdown pre {
+    margin: 10px 0;
+}
+
+.act-detail-streaming {
+    opacity: 0.7;
+    font-style: italic;
+}
