@@ -431,25 +431,31 @@ function _renderStepDetail(step, container) {
         diffSection.innerHTML = '<div class="diff-view">' + _renderDiff(rawDiff) + '</div>';
         container.appendChild(diffSection);
     } else if (step.name === 'spawn_agent') {
-        if (container._rendered && step.result == null) return;
-        container._rendered = true;
-        container.innerHTML = '';
-        const agentSection = document.createElement('div');
-        agentSection.className = 'act-detail-section';
-        agentSection.innerHTML = '<span class="act-detail-label">agent</span>';
-        agentSection.appendChild(_buildHighlightedPre(step.args.agent_id || '', ''));
-        container.appendChild(agentSection);
-        const taskSection = document.createElement('div');
-        taskSection.className = 'act-detail-section';
-        taskSection.innerHTML = '<span class="act-detail-label">task</span>';
-        taskSection.appendChild(_buildHighlightedPre(step.args.task || '', ''));
-        container.appendChild(taskSection);
+        if (!container._headerRendered) {
+            container._headerRendered = true;
+            const agentSection = document.createElement('div');
+            agentSection.className = 'act-detail-section';
+            agentSection.innerHTML = '<span class="act-detail-label">agent</span>';
+            agentSection.appendChild(_buildHighlightedPre(step.args.agent_id || '', ''));
+            container.appendChild(agentSection);
+            const taskSection = document.createElement('div');
+            taskSection.className = 'act-detail-section';
+            taskSection.innerHTML = '<span class="act-detail-label">task</span>';
+            taskSection.appendChild(_buildHighlightedPre(step.args.task || '', ''));
+            container.appendChild(taskSection);
+            const liveSection = document.createElement('div');
+            liveSection.className = 'act-detail-section act-detail-subagent-live';
+            container.appendChild(liveSection);
+            container._liveSection = liveSection;
+        }
+        const live = container._liveSection;
         if (step.result != null) {
-            const resultSection = document.createElement('div');
-            resultSection.className = 'act-detail-section';
-            resultSection.innerHTML = '<span class="act-detail-label">result</span><div class="act-detail-md-body">' + parseMarkdown(String(step.result)) + '</div>';
-            highlightCodeBlocks(resultSection);
-            container.appendChild(resultSection);
+            live.innerHTML = '<span class="act-detail-label">result</span><div class="act-detail-md-body">' + parseMarkdown(String(step.result)) + '</div>';
+            highlightCodeBlocks(live);
+        } else if (step.streamText) {
+            live.innerHTML = '<span class="act-detail-label">responding\u2026</span><div class="act-detail-md-body act-detail-md-streaming">' + parseMarkdown(step.streamText) + '<span class="cursor"></span></div>';
+            highlightCodeBlocks(live);
+            live.scrollTop = live.scrollHeight;
         }
     } else if (step.name === 'shell') {
         if (container._rendered && step.result == null) return;
@@ -715,6 +721,12 @@ export function createActivityBar(container) {
 
         setToolResult(step, result) {
             step.result = result;
+            _refreshOpenDetail(step);
+        },
+
+        updateSubagentStream(step, text) {
+            if (!step.streamText) step.streamText = '';
+            step.streamText += text;
             _refreshOpenDetail(step);
         },
 

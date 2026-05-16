@@ -42,7 +42,6 @@ import {
     createActivityBar,
     addThinkingStatic, addToolGroupStatic, addSubagentStatic,
     showStatusBanner, highlightCodeBlocks,
-    createSubagentStreamBlock,
 } from './render.js';
 
 
@@ -653,7 +652,7 @@ async function send() {
     // This keeps uiEvents authoritative at all times so renderHistory() is always
     // the source of truth when switching chats mid-stream.
     let _uiLiveThink = null, _uiLiveText = null, _uiGroup = null, _uiSub = null;
-    const _uiToolMap = {}, _uiSubMap = {}, _uiSubStreamMap = {};
+    const _uiToolMap = {}, _uiSubMap = {};
     const _flushThink = () => { _uiLiveThink = null; };
     const _flushText  = () => { _uiLiveText  = null; };
     const _flushGroup = () => { _uiGroup = null; };
@@ -763,20 +762,13 @@ async function send() {
                         if (loadingDiv) { loadingDiv.remove(); loadingDiv = null; }
                         const _subStep = getActBar().addTool('spawn_agent', { agent_id: ev.agent, task: ev.task || '', context: ev.context || '' });
                         if (ev.key) _uiSubMap[ev.key]._actStep = _subStep;
-                        const _streamBlock = createSubagentStreamBlock(getTurn());
-                        if (ev.key) _uiSubStreamMap[ev.key] = { contentDiv: _streamBlock.content, wrap: _streamBlock.wrap, text: '' };
                         break;
                     }
                     case 'subagent_stream': {
                         if (ev.subtype === 'text' && ev.data) {
-                            const _ss = ev.key && _uiSubStreamMap[ev.key];
-                            if (_ss) {
-                                _ss.text += ev.data;
-                                if (isActive()) {
-                                    _ss.contentDiv.innerHTML = parseMarkdown(_ss.text) + '<span class="cursor"></span>';
-                                    highlightCodeBlocks(_ss.contentDiv);
-                                    scrollBottom();
-                                }
+                            const _sr = ev.key && _uiSubMap[ev.key];
+                            if (_sr && _sr._actStep && actBar) {
+                                actBar.updateSubagentStream(_sr._actStep, ev.data);
                             }
                         }
                         break;
@@ -786,16 +778,6 @@ async function send() {
                         if (_sr) {
                             _sr.result = ev.result || '';
                             if (_sr._actStep && actBar) actBar.setToolResult(_sr._actStep, ev.result || '');
-                        }
-                        if (ev.key && _uiSubStreamMap[ev.key]) {
-                            const _ss = _uiSubStreamMap[ev.key];
-                            if (isActive()) {
-                                const finalText = ev.result || _ss.text || '';
-                                _ss.contentDiv.innerHTML = parseMarkdown(finalText);
-                                highlightCodeBlocks(_ss.contentDiv);
-                                _ss.wrap.classList.add('subagent-stream-sealed');
-                            }
-                            delete _uiSubStreamMap[ev.key];
                         }
                         _flushSub();
                         if (ev.key) delete _uiSubMap[ev.key];

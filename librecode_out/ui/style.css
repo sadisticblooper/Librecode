@@ -484,45 +484,7 @@ body { display: flex; }
 .act-detail-md-body code { font-family: var(--font-mono); font-size: 12px; background: rgba(255,255,255,.07); padding: 1px 4px; border-radius: 3px; }
 .act-detail-md-body pre { margin: 6px 0; border-radius: 4px; overflow-x: auto; }
 .act-detail-md-body pre code { background: none; padding: 0; display: block; }
-
-/* ── Subagent streaming block ─────────────────────────────────────────── */
-.subagent-stream-block {
-    margin: 6px 0 2px;
-    border: 1px solid var(--border-mid);
-    border-radius: var(--radius-sm);
-    overflow: hidden;
-    animation: fadeIn .15s ease both;
-}
-.subagent-stream-header {
-    display: flex; align-items: center; gap: 6px;
-    padding: 6px 10px;
-    background: rgba(255,255,255,.025);
-    border-bottom: 1px solid var(--border);
-    font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em;
-    color: var(--text-dim);
-}
-.subagent-stream-label { flex: 1; }
-.subagent-stream-cursor {
-    display: inline-block; width: 6px; height: 6px; border-radius: 50%;
-    background: var(--accent); opacity: .8;
-    animation: pulse 1.2s ease-in-out infinite;
-}
-.subagent-stream-sealed .subagent-stream-cursor { display: none; }
-.subagent-stream-sealed .subagent-stream-header { border-bottom-color: transparent; }
-.subagent-stream-content {
-    padding: 10px 12px;
-    font-size: 13.5px; line-height: 1.65; color: var(--text-muted);
-}
-.subagent-stream-sealed .subagent-stream-content { color: var(--text); }
-.subagent-stream-content p { margin-bottom: 6px; }
-.subagent-stream-content p:last-child { margin-bottom: 0; }
-.subagent-stream-content ul, .subagent-stream-content ol { padding-left: 18px; margin-bottom: 6px; }
-.subagent-stream-content code { font-family: var(--font-mono); font-size: 12.5px; background: rgba(255,255,255,.07); padding: 1px 4px; border-radius: 3px; }
-.subagent-stream-content pre { margin: 6px 0; border-radius: 4px; overflow-x: auto; }
-.subagent-stream-content pre code { background: none; padding: 0; display: block; }
-.subagent-stream-content h1, .subagent-stream-content h2, .subagent-stream-content h3 { color: var(--text); font-weight: 600; margin: 8px 0 4px; }
-.subagent-stream-content .code-block { margin: 6px 0; }
-@keyframes pulse { 0%, 100% { opacity: .4; } 50% { opacity: 1; } }
+.act-detail-md-streaming { color: var(--text-muted); }
 .act-detail-diff { padding: 0; }
 .diff-view { font-family: var(--font-mono); font-size: 12px; line-height: 1.55; overflow-x: auto; }
 .diff-view::-webkit-scrollbar { width: 3px; height: 3px; }
