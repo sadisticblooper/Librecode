@@ -237,6 +237,7 @@ body { display: flex; }
     display: flex; flex-direction: column;
     align-items: center;
     scroll-behavior: smooth;
+    background: #0c0c10;
 }
 #chat::-webkit-scrollbar { width: 0; background: transparent; }
 
@@ -361,7 +362,7 @@ body { display: flex; }
 }
 .steps-sheet {
     width: 60%; min-width: 420px; max-width: 900px;
-    background: #1c2233;
+    background: #0f1018;
     border: 1px solid var(--border-mid);
     border-bottom: none;
     border-radius: 18px 18px 0 0;
@@ -390,7 +391,7 @@ body { display: flex; }
 /* ── Detail drill-in screen ── */
 .step-detail-screen {
     position: absolute; inset: 0;
-    background: var(--surface);
+    background: #0f1018;
     border-radius: inherit;
     display: flex; flex-direction: column;
     transform: translateX(100%);
