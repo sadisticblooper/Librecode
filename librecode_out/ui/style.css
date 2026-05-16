@@ -68,8 +68,8 @@ body { display: flex; }
     gap: 8px;
 }
 .sidebar-brand {
-    font-size: 14.5px; font-weight: 600; color: #4DC68C;
-    letter-spacing: .03em; user-select: none;
+    font-family: "Iceberg", sans-serif; font-weight: 400;
+    font-size: 19px; letter-spacing: .04em; user-select: none;
 }
 
 .new-chat-btn {
@@ -85,7 +85,7 @@ body { display: flex; }
 /* Sidebar section labels */
 .chat-list-section-label {
     font-size: 11.5px; font-weight: 600; letter-spacing: .08em;
-    text-transform: uppercase; color: var(--text-dim);
+    text-transform: uppercase; color: #9578de;
     padding: 14px 14px 6px;
     user-select: none;
 }
@@ -301,12 +301,13 @@ body { display: flex; }
 .act-wrap {
     width: 100%; max-width: var(--chat-max);
     margin: 2px auto 6px;
+    padding-left: 30px;
     animation: fadeIn .15s ease both;
 }
 .act-bar {
     display: inline-flex; align-items: center; gap: 7px;
     cursor: pointer; padding: 3px 0;
-    color: #b3dcfc; font-size: 13.5px;
+    color: #9578de; font-size: 13.5px;
     user-select: none; transition: color .15s; max-width: 100%;
 }
 .act-bar:hover { color: #6aab94; }
@@ -327,7 +328,7 @@ body { display: flex; }
 .act-spinner {
     width: 9px; height: 9px; flex-shrink: 0;
     border: 1.5px solid rgba(80,145,122,.3);
-    border-top-color: #b3dcfc;
+    border-top-color: #9578de;
     border-radius: 50%; animation: spin .8s linear infinite;
     /* escape parent -webkit-text-fill-color: transparent */
     -webkit-text-fill-color: initial;
