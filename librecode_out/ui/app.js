@@ -231,7 +231,7 @@ function renderFolderBar() {
         if (android && android.clearWorkingDir) android.clearWorkingDir();
         await syncWorkingDirs();
         renderFolderBar();
-        saveChats();
+        await saveChats();
     };
 }
 
@@ -293,6 +293,8 @@ function renderChatList() {
 
 async function switchChat(id) {
     if (id === activeChatId) { sidebar.classList.add('collapsed'); return; }
+    const android = window.Android;
+    if (android && android.clearWorkingDir) android.clearWorkingDir();
     setActiveChatId(id);
     const chat = activeChat();
     chatTitle.textContent = chat ? chat.title : 'new chat';
@@ -410,10 +412,10 @@ setInterval(async () => {
     if (!android || !android.getWorkingDir) return;
     const newPath = android.getWorkingDir();
     if (!newPath) return;
+    if (android.clearWorkingDir) android.clearWorkingDir();
     const chat = activeChat();
     if (chat && !chat.workingDirs.includes(newPath)) {
         await addFolder(newPath);
-        if (android.clearWorkingDir) android.clearWorkingDir();
     }
 }, 1000);
 
