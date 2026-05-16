@@ -330,7 +330,11 @@ function renderHistory() {
     const chat = activeChat();
     chatEl.innerHTML = '';
     if (!chat) { updateContextBadge(); return; }
-    const events = chat.uiEvents && chat.uiEvents.length ? chat.uiEvents : null;
+    // Only use uiEvents if this chat is currently streaming — otherwise
+    // use history which is always clean. Stale uiEvents from previous sessions
+    // can have empty-content entries that render as blank.
+    const isStreaming = sendingChats.has(chat.id);
+    const events = isStreaming && chat.uiEvents && chat.uiEvents.length ? chat.uiEvents : null;
     if (events) {
         // During live streaming, thinking + tools share one activity bar (one pill).
         // On replay we must batch consecutive thinking/tool_group/subagent events
