@@ -748,8 +748,10 @@ async function send() {
                         if (!isActive()) break;
                         if (loadingDiv) { loadingDiv.remove(); loadingDiv = null; }
                         if (assistantDiv) { sealAssistant(assistantDiv, segmentText); assistantDiv = null; segmentText = ''; }
-                        const _toolStep = getActBar().addTool(ev.name, ev.args || {});
-                        if (ev.tc_id) _uiToolMap[ev.tc_id]._actStep = _toolStep;
+                        if (ev.name !== 'spawn_agent') {
+                            const _toolStep = getActBar().addTool(ev.name, ev.args || {});
+                            if (ev.tc_id) _uiToolMap[ev.tc_id]._actStep = _toolStep;
+                        }
                         break;
                     }
                     case 'subagent_start': {
@@ -762,6 +764,7 @@ async function send() {
                         if (loadingDiv) { loadingDiv.remove(); loadingDiv = null; }
                         const _subStep = getActBar().addTool('spawn_agent', { agent_id: ev.agent, task: ev.task || '', context: ev.context || '' });
                         if (ev.key) _uiSubMap[ev.key]._actStep = _subStep;
+                        if (ev.key && _uiToolMap[ev.key]) _uiToolMap[ev.key]._actStep = _subStep;
                         break;
                     }
                     case 'subagent_stream': {

@@ -297,7 +297,7 @@ body { display: flex; }
 .act-bar {
     display: inline-flex; align-items: center; gap: 7px;
     cursor: pointer; padding: 3px 0;
-    color: #b3dcfc; font-size: 13.5px;
+    color: #50917a; font-size: 13.5px;
     user-select: none; transition: color .15s; max-width: 100%;
 }
 .act-bar:hover { color: #6aab94; }
@@ -318,7 +318,7 @@ body { display: flex; }
 .act-spinner {
     width: 9px; height: 9px; flex-shrink: 0;
     border: 1.5px solid rgba(80,145,122,.3);
-    border-top-color: #b3dcfc;
+    border-top-color: #50917a;
     border-radius: 50%; animation: spin .8s linear infinite;
     /* escape parent -webkit-text-fill-color: transparent */
     -webkit-text-fill-color: initial;
