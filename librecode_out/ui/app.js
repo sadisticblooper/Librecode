@@ -191,29 +191,48 @@ function updateSendButton() {
 
 // ── Folder bar ─────────────────────────────────────────────────────────
 
+const FOLDER_BTN_DEFAULT =
+    '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg>' +
+    '<span>add folder</span>';
+
 function renderFolderBar() {
     const chat = activeChat();
     const dirs = chat ? chat.workingDirs : [];
-    if (!dirs.length) { folderBar.classList.add('hidden'); return; }
-    folderBar.classList.remove('hidden');
-    folderBar.innerHTML = dirs.map(d =>
-        '<span class="folder-chip-tag" title="' + escHtml(d) + '">' +
-            '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>' +
-            escHtml(truncatePath(d)) +
-            '<button class="folder-remove" data-path="' + escHtml(d) + '" title="Remove folder">x</button>' +
-        '</span>'
-    ).join('');
-    folderBar.querySelectorAll('.folder-remove').forEach(btn => {
-        btn.onclick = async (e) => {
-            e.stopPropagation();
-            const chat = activeChat();
-            if (!chat) return;
-            chat.workingDirs = chat.workingDirs.filter(d => d !== btn.dataset.path);
-            await syncWorkingDirs();
-            renderFolderBar();
-            saveChats();
-        };
-    });
+
+    // The old bar is never shown — everything lives in the header button now.
+    folderBar.classList.add('hidden');
+
+    if (!dirs.length) {
+        folderBtn.innerHTML = FOLDER_BTN_DEFAULT;
+        folderBtn.title = 'Add folder';
+        folderBtn.style.pointerEvents = '';
+        return;
+    }
+
+    // Show the first dir inline; ✕ removes it.
+    const d = dirs[0];
+    folderBtn.innerHTML =
+        '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>' +
+        '<span class="folder-chip-path" title="' + escHtml(d) + '">' + escHtml(truncatePath(d)) + '</span>' +
+        '<span class="folder-chip-remove" title="Remove folder">✕</span>';
+
+    // Clicking the button itself does nothing while a folder is active.
+    folderBtn.style.pointerEvents = 'none';
+
+    const removeBtn = folderBtn.querySelector('.folder-chip-remove');
+    removeBtn.style.pointerEvents = 'auto';
+    removeBtn.onclick = async (e) => {
+        e.stopPropagation();
+        const c = activeChat();
+        if (!c) return;
+        c.workingDirs = c.workingDirs.filter(x => x !== d);
+        // Tell Android to forget the path so the 1-second poll doesn't re-add it.
+        const android = window.Android;
+        if (android && android.clearWorkingDir) android.clearWorkingDir();
+        await syncWorkingDirs();
+        renderFolderBar();
+        saveChats();
+    };
 }
 
 async function syncWorkingDirs() {
@@ -982,6 +1001,8 @@ input.oninput = () => {
 async function init() {
     await getStorageDir();
     await loadChats();
+    // Ensure every loaded chat has its own workingDirs array (backend may omit it).
+    chats.forEach(c => { if (!Array.isArray(c.workingDirs)) c.workingDirs = []; });
     await loadAgents();
     await loadModels();
 
