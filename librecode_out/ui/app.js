@@ -206,6 +206,7 @@ function renderFolderBar() {
         folderBtn.innerHTML = FOLDER_BTN_DEFAULT;
         folderBtn.title = 'Add folder';
         folderBtn.style.pointerEvents = '';
+        folderBtn.onclick = openFolderPicker;
         return;
     }
 
@@ -229,6 +230,9 @@ function renderFolderBar() {
         // Tell Android to forget the path so the 1-second poll doesn't re-add it.
         const android = window.Android;
         if (android && android.clearWorkingDir) android.clearWorkingDir();
+        // Suppress the poll for 3s so clearWorkingDir has time to take effect
+        // before the next tick — otherwise the folder reappears immediately.
+        _folderPollSuppressUntil = Date.now() + 3000;
         await syncWorkingDirs();
         renderFolderBar();
         await saveChats();
@@ -387,7 +391,7 @@ function renderHistory() {
     updateMsgRail();
 }
 
-folderBtn.onclick = () => {
+function openFolderPicker() {
     const android = window.Android;
     if (android && android.openFolderPicker) {
         android.openFolderPicker();
@@ -395,7 +399,9 @@ folderBtn.onclick = () => {
         const path = prompt('Enter absolute folder path:');
         if (path && path.trim()) addFolder(path.trim());
     }
-};
+}
+
+folderBtn.onclick = openFolderPicker;
 
 async function addFolder(path) {
     let chat = activeChat();
@@ -407,11 +413,16 @@ async function addFolder(path) {
     saveChats();
 }
 
+let _folderPollSuppressUntil = 0;
+
 setInterval(async () => {
     const android = window.Android;
     if (!android || !android.getWorkingDir) return;
+    if (Date.now() < _folderPollSuppressUntil) return;
     const newPath = android.getWorkingDir();
     if (!newPath) return;
+    // Clear IMMEDIATELY after reading so the path is consumed before the
+    // next tick fires — prevents the folder from bleeding into other chats.
     if (android.clearWorkingDir) android.clearWorkingDir();
     const chat = activeChat();
     if (chat && !chat.workingDirs.includes(newPath)) {
