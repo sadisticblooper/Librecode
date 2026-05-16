@@ -889,3 +889,44 @@ body { display: flex; }
 .scripts-action-btn.primary { color: var(--text); border-color: var(--border-light); }
 .scripts-action-btn.danger { color: var(--red); }
 .scripts-dir-hint { font-size: 10px; color: var(--text-muted); font-family: var(--font-mono); font-weight: 400; margin-left: 8px; }
+
+/* ─── Message Rail ──────────────────────────────────────── */
+#msg-rail {
+    position: fixed;
+    right: 5px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 4px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 5px;
+    z-index: 20;
+    /* Show newest at bottom; older ones clip off the top */
+    max-height: 171px; /* 9 × (14+5) = 171 */
+    overflow: hidden;
+    justify-content: flex-end;
+}
+
+.rail-pip {
+    width: 3px;
+    height: 14px;
+    border-radius: 99px;
+    background: rgba(255,255,255,0.13);
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: background .2s, width .2s, height .2s;
+    touch-action: none;
+}
+
+.rail-pip.active {
+    background: var(--accent);
+    width: 4px;
+    height: 22px;
+    animation: railPop .25s cubic-bezier(.34,1.56,.64,1) both;
+}
+
+@keyframes railPop {
+    from { height: 14px; }
+    to   { height: 22px; }
+}

@@ -48,7 +48,72 @@ import {
 // Auto-save every 500 ms
 setInterval(saveChats, 500);
 
-// ── Chat helpers ───────────────────────────────────────────────────────
+// ── Message rail (right-side user message position indicator) ──────────
+const _rail = document.getElementById('msg-rail');
+
+function updateMsgRail() {
+    if (!_rail) return;
+    const msgs = Array.from(chatEl.querySelectorAll('.msg.user'));
+    // Rebuild pips — one per user message, newest at bottom
+    // Excess old ones clip off the top via overflow:hidden + justify-content:flex-end
+    const existing = _rail.querySelectorAll('.rail-pip');
+    // Add pips for any new messages
+    const delta = msgs.length - existing.length;
+    if (delta > 0) {
+        for (let i = 0; i < delta; i++) {
+            const pip = document.createElement('div');
+            pip.className = 'rail-pip';
+            _rail.appendChild(pip);
+        }
+    } else if (delta < 0) {
+        // Chat was cleared — remove extra pips
+        for (let i = 0; i < -delta; i++) _rail.firstChild && _rail.removeChild(_rail.firstChild);
+    }
+    // Wire click targets (re-query after potential DOM changes)
+    const pips = _rail.querySelectorAll('.rail-pip');
+    pips.forEach((pip, i) => {
+        pip.onclick = () => msgs[i] && msgs[i].scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+    _updateRailActive();
+}
+
+function _updateRailActive() {
+    if (!_rail) return;
+    const pips = _rail.querySelectorAll('.rail-pip');
+    const msgs = Array.from(chatEl.querySelectorAll('.msg.user'));
+    const chatRect = chatEl.getBoundingClientRect();
+    let best = -1, bestDist = Infinity;
+    msgs.forEach((msg, i) => {
+        const rect = msg.getBoundingClientRect();
+        const dist = Math.abs(rect.top + rect.height / 2 - (chatRect.top + chatRect.height / 2));
+        if (dist < bestDist) { bestDist = dist; best = i; }
+    });
+    pips.forEach((pip, i) => pip.classList.toggle('active', i === best));
+}
+
+// Touch-drag on rail to scrub between messages
+let _railDrag = false;
+if (_rail) {
+    const _scrubToY = (clientY) => {
+        const msgs = Array.from(chatEl.querySelectorAll('.msg.user'));
+        if (!msgs.length) return;
+        const pips = Array.from(_rail.querySelectorAll('.rail-pip'));
+        if (!pips.length) return;
+        const railRect = _rail.getBoundingClientRect();
+        const ratio = Math.max(0, Math.min(1, (clientY - railRect.top) / railRect.height));
+        const idx = Math.round(ratio * (pips.length - 1));
+        msgs[idx] && msgs[idx].scrollIntoView({ behavior: 'smooth', block: 'center' });
+    };
+    _rail.addEventListener('pointerdown', e => { _railDrag = true; _rail.setPointerCapture(e.pointerId); _scrubToY(e.clientY); });
+    _rail.addEventListener('pointermove', e => { if (_railDrag) _scrubToY(e.clientY); });
+    _rail.addEventListener('pointerup',   () => { _railDrag = false; });
+    _rail.addEventListener('pointercancel', () => { _railDrag = false; });
+}
+
+// Update active pip on scroll
+chatEl.addEventListener('scroll', _updateRailActive, { passive: true });
+
+
 
 function activeChat() {
     return chats.find(c => c.id === activeChatId) || null;
@@ -273,9 +338,8 @@ function renderHistory() {
     }
     updateContextBadge();
     forceScrollBottom();
+    updateMsgRail();
 }
-
-// ── Folder picker ──────────────────────────────────────────────────────
 
 folderBtn.onclick = () => {
     const android = window.Android;
@@ -316,6 +380,7 @@ newChatBtn.onclick = async () => {
     setActiveChatId(chat.id);
     chatTitle.textContent = chat.title;
     chatEl.innerHTML = '';
+    if (_rail) _rail.innerHTML = '';
     await switchChatApi(chat.id, []);
     await syncWorkingDirs();
     renderChatList();
@@ -650,6 +715,7 @@ async function send() {
     input.value = '';
     input.style.height = 'auto';
     if (isActive()) addUserMsg(userMsg);
+    if (isActive()) updateMsgRail();
     autoTitle(sendingChatId, userMsg);
 
     sendingChats.add(sendingChatId);
