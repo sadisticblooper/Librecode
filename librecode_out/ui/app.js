@@ -18,7 +18,7 @@ import {
     selectedModel, selectedModelCtx, selectedAgent,
     setSelectedModel, setSelectedModelCtx, setSelectedAgent,
     formatCtx,
-    chats, getActiveChatId, setChats, setActiveChatId,
+    chats, activeChatId, setChats, setActiveChatId,
     currentReader, setCurrentReader,
     chatEl, input, sendBtn, modelBtn, modelLabel, modelDropdown,
     sidebar, menuBtn, folderBtn, folderBar,
@@ -45,7 +45,8 @@ import {
 } from './render.js';
 
 
-// Auto-save started after loadChats completes (see init)
+// Auto-save every 500 ms
+setInterval(saveChats, 500);
 
 // ── Message rail (right-side user message position indicator) ──────────
 const _rail = document.getElementById('msg-rail');
@@ -140,7 +141,7 @@ chatEl.addEventListener('scroll', () => { _updateRailActive(); _updateRailVisibi
 
 
 function activeChat() {
-    return chats.find(c => c.id === getActiveChatId()) || null;
+    return chats.find(c => c.id === activeChatId) || null;
 }
 
 function createChat() {
@@ -163,9 +164,9 @@ function stopGeneration() {
         try { currentReader.cancel(); } catch {}
         setCurrentReader(null);
     }
-    if (getActiveChatId()) {
-        sendingChats.delete(getActiveChatId());
-        delete chatStreamState[getActiveChatId()];
+    if (activeChatId) {
+        sendingChats.delete(activeChatId);
+        delete chatStreamState[activeChatId];
     }
     renderChatList();
     updateSendButton();
@@ -173,7 +174,7 @@ function stopGeneration() {
 }
 
 function updateSendButton() {
-    const busy = sendingChats.has(getActiveChatId());
+    const busy = sendingChats.has(activeChatId);
     sendBtn.disabled = false;
     if (busy) {
         sendBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>';
@@ -205,7 +206,6 @@ function renderFolderBar() {
         folderBtn.innerHTML = FOLDER_BTN_DEFAULT;
         folderBtn.title = 'Add folder';
         folderBtn.style.pointerEvents = '';
-        folderBtn.onclick = openFolderPicker;
         return;
     }
 
@@ -226,9 +226,12 @@ function renderFolderBar() {
         const c = activeChat();
         if (!c) return;
         c.workingDirs = c.workingDirs.filter(x => x !== d);
-        await saveChats();   // write to chat.json — Python reads from there
+        // Tell Android to forget the path so the 1-second poll doesn't re-add it.
+        const android = window.Android;
+        if (android && android.clearWorkingDir) android.clearWorkingDir();
+        await syncWorkingDirs();
         renderFolderBar();
-        renderChatList();
+        saveChats();
     };
 }
 
@@ -265,7 +268,7 @@ function renderChatList() {
 
     const makeItem = c => {
         const isSending = sendingChats.has(c.id);
-        const active    = c.id === getActiveChatId() ? ' active' : '';
+        const active    = c.id === activeChatId ? ' active' : '';
         return '<div class="chat-item' + active + '" data-id="' + c.id + '">' +
             '<div class="chat-item-inner">' +
                 '<span class="chat-item-title">' + escHtml(c.title) + '</span>' +
@@ -289,7 +292,7 @@ function renderChatList() {
 }
 
 async function switchChat(id) {
-    if (id === getActiveChatId()) { sidebar.classList.add('collapsed'); return; }
+    if (id === activeChatId) { sidebar.classList.add('collapsed'); return; }
     setActiveChatId(id);
     const chat = activeChat();
     chatTitle.textContent = chat ? chat.title : 'new chat';
@@ -330,11 +333,7 @@ function renderHistory() {
     const chat = activeChat();
     chatEl.innerHTML = '';
     if (!chat) { updateContextBadge(); return; }
-    // Only use uiEvents if this chat is currently streaming — otherwise
-    // use history which is always clean. Stale uiEvents from previous sessions
-    // can have empty-content entries that render as blank.
-    const isStreaming = sendingChats.has(chat.id);
-    const events = isStreaming && chat.uiEvents && chat.uiEvents.length ? chat.uiEvents : null;
+    const events = chat.uiEvents && chat.uiEvents.length ? chat.uiEvents : null;
     if (events) {
         // During live streaming, thinking + tools share one activity bar (one pill).
         // On replay we must batch consecutive thinking/tool_group/subagent events
@@ -386,11 +385,6 @@ function renderHistory() {
     updateMsgRail();
 }
 
-// ── Folder picker ─────────────────────────────────────────────────────
-// Android calls window.onFolderSelected(path) directly after the user picks.
-// No polling. No race. JS writes the path into the active chat and saves to
-// chat.json immediately. Python reads workingDirs straight from chat.json.
-
 folderBtn.onclick = () => {
     const android = window.Android;
     if (android && android.openFolderPicker) {
@@ -405,17 +399,30 @@ async function addFolder(path) {
     let chat = activeChat();
     if (!chat) { chat = createChat(); setActiveChatId(chat.id); }
     if (!chat.workingDirs.includes(path)) chat.workingDirs.push(path);
-    await saveChats();
+    await syncWorkingDirs();
     renderFolderBar();
     renderChatList();
+    saveChats();
 }
 
-// Called by Android (evaluateJavascript) after the user picks a folder.
-// Writes into the active chat's workingDirs and saves to chat.json.
-// This is per-chat — not global state.
+// Android calls this after folder picker resolves.
+// Must be on window so evaluateJavascript("setWorkingDir(...)") finds it.
 window.setWorkingDir = (path) => {
     if (path && path.trim()) addFolder(path.trim());
 };
+
+setInterval(async () => {
+    const android = window.Android;
+    if (!android || !android.getWorkingDir) return;
+    const newPath = android.getWorkingDir();
+    if (!newPath) return;
+    // Clear immediately so the next tick doesn't re-add after removal.
+    if (android.clearWorkingDir) android.clearWorkingDir();
+    const chat = activeChat();
+    if (chat && !chat.workingDirs.includes(newPath)) {
+        await addFolder(newPath);
+    }
+}, 1000);
 
 // ── New chat ───────────────────────────────────────────────────────────
 
@@ -729,7 +736,7 @@ async function autoTitle(chatId, userMsg) {
     if (!chat || chat.title !== 'new chat') return;
     const words = userMsg.trim().split(/\s+/).slice(0, 6).join(' ');
     chat.title  = words.length > 40 ? words.slice(0, 40) + '\u2026' : words;
-    if (chatId === getActiveChatId()) chatTitle.textContent = chat.title;
+    if (chatId === activeChatId) chatTitle.textContent = chat.title;
     renderChatList();
     saveChats();
 }
@@ -739,9 +746,9 @@ async function autoTitle(chatId, userMsg) {
 async function send() {
     const userMsg = input.value.trim();
     if (!userMsg) return;
-    if (sendingChats.has(getActiveChatId())) return;
+    if (sendingChats.has(activeChatId)) return;
 
-    if (!getActiveChatId() || !activeChat()) {
+    if (!activeChatId || !activeChat()) {
         const chat = createChat();
         setActiveChatId(chat.id);
         chatTitle.textContent = chat.title;
@@ -753,8 +760,8 @@ async function send() {
         if (chat) await switchChatApi(chat.id, chat.history || []);
     }
 
-    const sendingChatId = getActiveChatId();
-    const isActive      = () => getActiveChatId() === sendingChatId;
+    const sendingChatId = activeChatId;
+    const isActive      = () => activeChatId === sendingChatId;
 
     input.value = '';
     input.style.height = 'auto';
@@ -1006,7 +1013,7 @@ async function init() {
     await loadAgents();
     await loadModels();
 
-    if (chats.length && getActiveChatId()) {
+    if (chats.length && activeChatId) {
         const chat = activeChat();
         if (chat) {
             chatTitle.textContent = chat.title;
@@ -1025,10 +1032,6 @@ async function init() {
     renderFolderBar();
     updateSendButton();
     input.focus();
-
-    // Start auto-save only after chats are loaded so the interval
-    // can't fire with an empty array and wipe saved data.
-    setInterval(saveChats, 500);
 }
 
 init();

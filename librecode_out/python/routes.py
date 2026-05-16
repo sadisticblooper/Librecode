@@ -378,14 +378,7 @@ def _register(app) -> None:
         if not (last and last.get("role") == "user" and last.get("content") == user_msg):
             history.append({"id": _next_id(chat_id, "u"), "role": "user", "content": user_msg})
 
-        # Read working dirs directly from the chat's JSON file — single source of truth.
-        # Whatever JS last wrote to chat.json is what Python sees; no in-memory sync needed.
-        try:
-            with open(chat_file(chat_id), "r", encoding="utf-8") as _f:
-                _chat_data = json.load(_f)
-            dirs = [d for d in _chat_data.get("workingDirs", []) if d and os.path.isdir(d)]
-        except Exception:
-            dirs = state.working_dirs if state.working_dirs else ([state.working_dir] if state.working_dir else [])
+        dirs          = state.working_dirs if state.working_dirs else ([state.working_dir] if state.working_dir else [])
         agent_profile = agents_mod.AGENT_PROFILES.get(agent_name) or (list(agents_mod.AGENT_PROFILES.values())[0] if agents_mod.AGENT_PROFILES else {})
         agent_suffix  = agent_profile.get("system_suffix", "")
         active_tools  = get_tools_for_agent(agent_name)

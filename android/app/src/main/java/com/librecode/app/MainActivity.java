@@ -71,7 +71,8 @@ public class MainActivity extends Activity {
         setContentView(R.layout.activity_main);
 
         prefs = getSharedPreferences("librecode", MODE_PRIVATE);
-        selectedFolderPath = prefs.getString("working_dir", "");
+        selectedFolderPath = "";  // per-chat; managed by JS via chat.json, not persisted here
+        prefs.edit().remove("working_dir").apply();
         storageFolderPath = prefs.getString("storage_dir", "");
 
         if (storageFolderPath == null || storageFolderPath.isEmpty()) {
@@ -419,6 +420,12 @@ public class MainActivity extends Activity {
         public void setWorkingDir(String path) {
             selectedFolderPath = path;
             prefs.edit().putString("working_dir", path).apply();
+        }
+
+        @JavascriptInterface
+        public void clearWorkingDir() {
+            selectedFolderPath = "";
+            prefs.edit().remove("working_dir").apply();
         }
 
         @JavascriptInterface

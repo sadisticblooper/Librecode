@@ -20,11 +20,8 @@ export function formatCtx(n) {
 // Each chat: { id, title, workingDirs: [], history: [], createdAt }
 export let chats        = [];
 export let activeChatId = null;
-export function getActiveChatId() { return activeChatId; }
 
-// Mutate in place so all importers always see the live array — rebinding
-// a let export breaks other modules that already hold the reference.
-export function setChats(c)        { chats.length = 0; chats.push(...c); }
+export function setChats(c)        { chats        = c; }
 export function setActiveChatId(id) { activeChatId = id; }
 
 export let currentReader = null;
