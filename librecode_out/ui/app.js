@@ -18,7 +18,7 @@ import {
     selectedModel, selectedModelCtx, selectedAgent,
     setSelectedModel, setSelectedModelCtx, setSelectedAgent,
     formatCtx,
-    chats, activeChatId, setChats, setActiveChatId,
+    chats, getActiveChatId, setChats, setActiveChatId,
     currentReader, setCurrentReader,
     chatEl, input, sendBtn, modelBtn, modelLabel, modelDropdown,
     sidebar, menuBtn, folderBtn, folderBar,
@@ -140,7 +140,7 @@ chatEl.addEventListener('scroll', () => { _updateRailActive(); _updateRailVisibi
 
 
 function activeChat() {
-    return chats.find(c => c.id === activeChatId) || null;
+    return chats.find(c => c.id === getActiveChatId()) || null;
 }
 
 function createChat() {
@@ -163,9 +163,9 @@ function stopGeneration() {
         try { currentReader.cancel(); } catch {}
         setCurrentReader(null);
     }
-    if (activeChatId) {
-        sendingChats.delete(activeChatId);
-        delete chatStreamState[activeChatId];
+    if (getActiveChatId()) {
+        sendingChats.delete(getActiveChatId());
+        delete chatStreamState[getActiveChatId()];
     }
     renderChatList();
     updateSendButton();
@@ -173,7 +173,7 @@ function stopGeneration() {
 }
 
 function updateSendButton() {
-    const busy = sendingChats.has(activeChatId);
+    const busy = sendingChats.has(getActiveChatId());
     sendBtn.disabled = false;
     if (busy) {
         sendBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>';
@@ -265,7 +265,7 @@ function renderChatList() {
 
     const makeItem = c => {
         const isSending = sendingChats.has(c.id);
-        const active    = c.id === activeChatId ? ' active' : '';
+        const active    = c.id === getActiveChatId() ? ' active' : '';
         return '<div class="chat-item' + active + '" data-id="' + c.id + '">' +
             '<div class="chat-item-inner">' +
                 '<span class="chat-item-title">' + escHtml(c.title) + '</span>' +
@@ -289,7 +289,7 @@ function renderChatList() {
 }
 
 async function switchChat(id) {
-    if (id === activeChatId) { sidebar.classList.add('collapsed'); return; }
+    if (id === getActiveChatId()) { sidebar.classList.add('collapsed'); return; }
     setActiveChatId(id);
     const chat = activeChat();
     chatTitle.textContent = chat ? chat.title : 'new chat';
@@ -725,7 +725,7 @@ async function autoTitle(chatId, userMsg) {
     if (!chat || chat.title !== 'new chat') return;
     const words = userMsg.trim().split(/\s+/).slice(0, 6).join(' ');
     chat.title  = words.length > 40 ? words.slice(0, 40) + '\u2026' : words;
-    if (chatId === activeChatId) chatTitle.textContent = chat.title;
+    if (chatId === getActiveChatId()) chatTitle.textContent = chat.title;
     renderChatList();
     saveChats();
 }
@@ -735,9 +735,9 @@ async function autoTitle(chatId, userMsg) {
 async function send() {
     const userMsg = input.value.trim();
     if (!userMsg) return;
-    if (sendingChats.has(activeChatId)) return;
+    if (sendingChats.has(getActiveChatId())) return;
 
-    if (!activeChatId || !activeChat()) {
+    if (!getActiveChatId() || !activeChat()) {
         const chat = createChat();
         setActiveChatId(chat.id);
         chatTitle.textContent = chat.title;
@@ -749,8 +749,8 @@ async function send() {
         if (chat) await switchChatApi(chat.id, chat.history || []);
     }
 
-    const sendingChatId = activeChatId;
-    const isActive      = () => activeChatId === sendingChatId;
+    const sendingChatId = getActiveChatId();
+    const isActive      = () => getActiveChatId() === sendingChatId;
 
     input.value = '';
     input.style.height = 'auto';
@@ -1002,7 +1002,7 @@ async function init() {
     await loadAgents();
     await loadModels();
 
-    if (chats.length && activeChatId) {
+    if (chats.length && getActiveChatId()) {
         const chat = activeChat();
         if (chat) {
             chatTitle.textContent = chat.title;
