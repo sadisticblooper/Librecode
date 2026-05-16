@@ -45,8 +45,7 @@ import {
 } from './render.js';
 
 
-// Auto-save every 500 ms
-setInterval(saveChats, 500);
+// Auto-save started after loadChats completes (see init)
 
 // ── Message rail (right-side user message position indicator) ──────────
 const _rail = document.getElementById('msg-rail');
@@ -1022,6 +1021,10 @@ async function init() {
     renderFolderBar();
     updateSendButton();
     input.focus();
+
+    // Start auto-save only after chats are loaded so the interval
+    // can't fire with an empty array and wipe saved data.
+    setInterval(saveChats, 500);
 }
 
 init();
