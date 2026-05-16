@@ -227,15 +227,9 @@ function renderFolderBar() {
         const c = activeChat();
         if (!c) return;
         c.workingDirs = c.workingDirs.filter(x => x !== d);
-        // Tell Android to forget the path so the 1-second poll doesn't re-add it.
-        const android = window.Android;
-        if (android && android.clearWorkingDir) android.clearWorkingDir();
-        // Suppress the poll for 3s so clearWorkingDir has time to take effect
-        // before the next tick — otherwise the folder reappears immediately.
-        _folderPollSuppressUntil = Date.now() + 3000;
-        await syncWorkingDirs();
+        await saveChats();   // write to chat.json — Python reads from there
         renderFolderBar();
-        await saveChats();
+        renderChatList();
     };
 }
 
@@ -297,8 +291,6 @@ function renderChatList() {
 
 async function switchChat(id) {
     if (id === activeChatId) { sidebar.classList.add('collapsed'); return; }
-    const android = window.Android;
-    if (android && android.clearWorkingDir) android.clearWorkingDir();
     setActiveChatId(id);
     const chat = activeChat();
     chatTitle.textContent = chat ? chat.title : 'new chat';
@@ -391,7 +383,12 @@ function renderHistory() {
     updateMsgRail();
 }
 
-function openFolderPicker() {
+// ── Folder picker ─────────────────────────────────────────────────────
+// Android calls window.onFolderSelected(path) directly after the user picks.
+// No polling. No race. JS writes the path into the active chat and saves to
+// chat.json immediately. Python reads workingDirs straight from chat.json.
+
+folderBtn.onclick = () => {
     const android = window.Android;
     if (android && android.openFolderPicker) {
         android.openFolderPicker();
@@ -399,36 +396,21 @@ function openFolderPicker() {
         const path = prompt('Enter absolute folder path:');
         if (path && path.trim()) addFolder(path.trim());
     }
-}
-
-folderBtn.onclick = openFolderPicker;
+};
 
 async function addFolder(path) {
     let chat = activeChat();
     if (!chat) { chat = createChat(); setActiveChatId(chat.id); }
     if (!chat.workingDirs.includes(path)) chat.workingDirs.push(path);
-    await syncWorkingDirs();
+    await saveChats();
     renderFolderBar();
     renderChatList();
-    saveChats();
 }
 
-let _folderPollSuppressUntil = 0;
-
-setInterval(async () => {
-    const android = window.Android;
-    if (!android || !android.getWorkingDir) return;
-    if (Date.now() < _folderPollSuppressUntil) return;
-    const newPath = android.getWorkingDir();
-    if (!newPath) return;
-    // Clear IMMEDIATELY after reading so the path is consumed before the
-    // next tick fires — prevents the folder from bleeding into other chats.
-    if (android.clearWorkingDir) android.clearWorkingDir();
-    const chat = activeChat();
-    if (chat && !chat.workingDirs.includes(newPath)) {
-        await addFolder(newPath);
-    }
-}, 1000);
+// Called by Android after the user selects a folder in the native picker.
+window.onFolderSelected = (path) => {
+    if (path && path.trim()) addFolder(path.trim());
+};
 
 // ── New chat ───────────────────────────────────────────────────────────
 
