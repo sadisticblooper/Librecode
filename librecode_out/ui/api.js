@@ -34,11 +34,16 @@ export async function loadChats() {
     }
 }
 
-export async function switchChatApi(chatId, history) {
+export async function switchChatApi(chatId, history, apiHistory, compactionSummary) {
     await fetch('/switch_chat', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ chat_id: chatId, history: history || [] }),
+        body:    JSON.stringify({
+            chat_id:            chatId,
+            history:            apiHistory || history || [],
+            display_history:    history || [],
+            summary:            compactionSummary || null,
+        }),
     });
 }
 

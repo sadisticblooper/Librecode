@@ -16,7 +16,7 @@ import requests
 from flask import request, jsonify, send_file, send_from_directory, Response, stream_with_context
 
 from python.config import COMPACTION_API_URL, COMPACTION_MODEL, MAX_TOKENS, COMPACTION_THRESHOLD
-from python.providers import get_provider, all_models
+from python.providers import get_provider, all_models, get_model_ctx, compaction_buffer
 import python.state as state
 import python.agents as agents_mod
 from python.storage import get_librecode_dir, chats_index_file, chat_file, resolve_path, is_within_dir
@@ -182,6 +182,12 @@ def _register(app) -> None:
                         t["content"] = t["content"] + " [interrupted]"
                 cleaned.append(t)
             state.chat_histories[chat_id] = cleaned
+            # display history is loaded from JS (the full chat.history) —
+            # if JS sends a separate display_history key use it, otherwise mirror api history
+            display = data.get("display_history", cleaned)
+            state.chat_display_histories[chat_id] = [
+                t for t in display if not t.get("_pending")
+            ]
             if "summary" in data:
                 state.chat_summaries[chat_id] = data["summary"]
             max_seq = 0
@@ -303,13 +309,16 @@ def _register(app) -> None:
             "content":     f"[Context compacted]\n\n{summary}",
             "_compaction": True,
         }
-        compacted_flat             = [compaction_marker] + tail
+        compacted_flat = [compaction_marker] + tail
+        # Only replace the API-facing history — display history stays intact
         state.chat_histories[chat_id] = build_compacted_messages_for_api(compacted_flat)
 
         return jsonify({
-            "status":    "ok",
-            "compacted": True,
-            "history":   state.chat_histories[chat_id],
+            "status":      "ok",
+            "compacted":   True,
+            "history":     state.chat_display_histories.get(chat_id, state.chat_histories[chat_id]),
+            "api_history": state.chat_histories[chat_id],
+            "summary":     summary,
         })
 
     # ── Token counts ─────────────────────────────────────────────────────
@@ -423,18 +432,22 @@ def _register(app) -> None:
             previous_summary = state.chat_summaries.get(chat_id)
             flat_history     = history_to_api_messages(list(history))
 
+            # Real context window + variable buffer (OpenCode style)
+            ctx    = get_model_ctx(model)
+            buffer = compaction_buffer(ctx)
+
             compacted, new_summary, did_compact = compact_messages(
                 messages         = flat_history,
                 system_messages  = [system_msg],
                 api_url          = COMPACTION_API_URL,
                 model            = COMPACTION_MODEL,
                 previous_summary = previous_summary,
-                context_limit    = COMPACTION_THRESHOLD,
-                max_output_tokens = MAX_TOKENS,
+                context_limit    = ctx,
+                max_output_tokens = min(MAX_TOKENS, buffer),
             )
             if did_compact:
                 state.chat_summaries[chat_id] = new_summary
-                yield f"data: {json.dumps({'type': 'compaction', 'text': 'Context compacted.'})}\n\n"
+                yield f"data: {json.dumps({'type': 'compaction', 'text': 'Context compacted.', 'summary': new_summary, 'api_history': build_compacted_messages_for_api(compacted)})}\n\n"
 
             messages       = [system_msg] + build_compacted_messages_for_api(compacted)
             new_rich_turns = []
@@ -635,26 +648,10 @@ def _register(app) -> None:
             if new_rich_turns:
                 for t in new_rich_turns:
                     history.append(t)
-                if len(history) > 40:
-                    trimmed = history[-40:]
-                    tool_call_ids_in_tail = set()
-                    for turn in trimmed:
-                        if turn.get("role") == "assistant":
-                            for tc in (turn.get("tool_calls") or []):
-                                tool_call_ids_in_tail.add(tc.get("id"))
-                    safe_start = 0
-                    for i, turn in enumerate(trimmed):
-                        role = turn.get("role")
-                        if role == "tool" and turn.get("tool_call_id") not in tool_call_ids_in_tail:
-                            continue
-                        if role in ("user", "assistant"):
-                            safe_start = i
-                            break
-                    state.chat_histories[chat_id] = trimmed[safe_start:]
-                else:
-                    state.chat_histories[chat_id] = history
+                    state.chat_display_histories.setdefault(chat_id, []).append(t)
+                state.chat_histories[chat_id] = history
 
-            yield f"data: {json.dumps({'type': 'history_update', 'history': state.chat_histories[chat_id]})}\n\n"
+            yield f"data: {json.dumps({'type': 'history_update', 'history': state.chat_display_histories.get(chat_id, history), 'api_history': state.chat_histories[chat_id]})}\n\n"
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
 
         return Response(

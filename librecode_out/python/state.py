@@ -10,8 +10,10 @@ made by one module are visible to all others:
 working_dir  = ""
 working_dirs = []
 
-# chat_id -> list of rich turn objects
+# chat_id -> list of rich turn objects sent to the API (may be compacted)
 chat_histories: dict = {}
+# chat_id -> full uncompacted history for display (never truncated)
+chat_display_histories: dict = {}
 # chat_id -> previous compaction summary string
 chat_summaries: dict = {}
 # chat_id -> sequence counter for turn ID generation

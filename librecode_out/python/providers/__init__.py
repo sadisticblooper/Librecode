@@ -42,3 +42,22 @@ def get_provider(model_id):
 def all_models():
     _ensure_loaded()
     return {name: mod.MODELS for name, mod in _providers.items()}
+
+def get_model_ctx(model_id: str, default: int = 128_000) -> int:
+    """Return the context window size for a given model id."""
+    _ensure_loaded()
+    for p in _providers.values():
+        for m in p.MODELS:
+            if m["id"] == model_id:
+                return m.get("ctx", default)
+    return default
+
+def compaction_buffer(ctx: int) -> int:
+    """Variable safety buffer matching OpenCode's approach."""
+    if ctx >= 1_000_000:
+        return 30_000
+    if ctx >= 200_000:
+        return 20_000
+    if ctx >= 100_000:
+        return 15_000
+    return 10_000  # 30k-60k models

@@ -297,7 +297,7 @@ async function switchChat(id) {
     const chat = activeChat();
     chatTitle.textContent = chat ? chat.title : 'new chat';
 
-    await switchChatApi(id, chat ? chat.history : []);
+    await switchChatApi(id, chat ? chat.history : [], chat ? chat.apiHistory : null, chat ? chat.compactionSummary : null);
     await syncWorkingDirs();
 
     renderChatList();
@@ -432,7 +432,7 @@ newChatBtn.onclick = async () => {
     chatTitle.textContent = chat.title;
     chatEl.innerHTML = '';
     if (_rail) _rail.innerHTML = '';
-    await switchChatApi(chat.id, []);
+    await switchChatApi(chat.id, [], null, null);
     await syncWorkingDirs();
     renderChatList();
     renderFolderBar();
@@ -518,7 +518,9 @@ compressChatBtn.onclick = async (e) => {
     try {
         const data = await compactChatApi(chat.id, selectedModel);
         if (data.history) {
-            chat.history  = data.history;
+            chat.history    = data.history;      // display history (full)
+            if (data.api_history)        chat.apiHistory          = data.api_history;
+            if (data.summary)            chat.compactionSummary   = data.summary;
             chat.uiEvents = [];
             await saveChats();
             renderHistory();
@@ -843,6 +845,15 @@ async function send() {
                 const getTurn   = () => { if (!turnDiv) turnDiv = createTurnWrapper(); return turnDiv; };
                 const getActBar = () => { if (!actBar)  actBar  = createActivityBar(getTurn());  return actBar;  };
                 switch (ev.type) {
+                    case 'compaction': {
+                        // Auto-compaction fired — save the summary and compacted api history
+                        if (chat) {
+                            if (ev.summary)     chat.compactionSummary = ev.summary;
+                            if (ev.api_history) chat.apiHistory        = ev.api_history;
+                            saveChats();
+                        }
+                        break;
+                    }
                     case 'thinking': {
                         if (!_uiLiveThink) { _uiLiveThink = { type: 'thinking', text: '' }; if (chat) chat.uiEvents.push(_uiLiveThink); }
                         _uiLiveThink.text += ev.text;
@@ -938,7 +949,10 @@ async function send() {
                     case 'heartbeat': break;
                     case 'history_update': {
                         if (chat) {
-                            chat.history = ev.history;
+                            // ev.history = full display history (never compacted)
+                            // ev.api_history = compacted version for the API
+                            chat.history    = ev.history;
+                            if (ev.api_history !== undefined) chat.apiHistory = ev.api_history;
                             saveChats();
                             if (isActive()) updateContextBadge();
                         }
@@ -1017,7 +1031,7 @@ async function init() {
         const chat = activeChat();
         if (chat) {
             chatTitle.textContent = chat.title;
-            await switchChatApi(chat.id, chat.history);
+            await switchChatApi(chat.id, chat.history, chat.apiHistory || null, chat.compactionSummary || null);
             await syncWorkingDirs();
             renderHistory();
             updateContextBadge();
