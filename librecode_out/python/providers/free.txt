@@ -1,89 +1,194 @@
 """
-Free provider — opencode.ai via SSE.
-SSE parsing matches the original routes.py implementation:
-iter_lines() + explicit UTF-8 decode, which correctly handles
-multi-byte characters (emoji etc.) and proper line boundaries.
+Free provider — opencode.ai Zen API via SSE.
+
+Provider capability flags (read by providers/__init__.py):
+
+  MODEL_EFFORT             — reasoning_effort value to send per model.
+                             Models absent from this dict don't get the field at all.
+
+  NEEDS_REASONING_PASSBACK — model IDs that require reasoning_content echoed back
+                             in every assistant message during multi-turn (DeepSeek V4).
+
+  INLINE_THINK_MODELS      — model IDs where thinking arrives as <think>…</think>
+                             tags inside the content stream instead of a dedicated
+                             reasoning_content field (Qwen3.x).
 """
 import json
+import uuid
 import requests
 from typing import Generator
 
 PROVIDER_NAME = "free"
 MODELS = [
-    {"id": "minimax-m2.5-free",     "label": "MiniMax M2.5",    "ctx": 128000},
-    {"id": "big-pickle",            "label": "Big Pickle",       "ctx": 128000},
-    {"id": "nemotron-3-super-free", "label": "Nemotron 3 Super", "ctx": 128000},
-    {"id": "hy3-preview-free",      "label": "Hy3 Preview",      "ctx": 128000},
-   
+    {"id": "deepseek-v4-flash-free",  "label": "DeepSeek V4 Flash",  "ctx": 128000},
+    {"id": "qwen3.6-plus-free",       "label": "Qwen3.6 Plus",       "ctx": 128000},
+    {"id": "minimax-m2.5-free",       "label": "MiniMax M2.5",       "ctx": 128000},
+    {"id": "nemotron-3-super-free",   "label": "Nemotron 3 Super",   "ctx": 128000},
+    {"id": "big-pickle",              "label": "Big Pickle",         "ctx": 128000},
 ]
 
-def stream_chat(model_id: str, messages: list[dict], tools: list | None = None,
-                max_tokens: int | None = None) -> Generator[dict, None, None]:
-    url = "https://opencode.ai/zen/v1/chat/completions"
+# reasoning_effort to send per model.
+# Qwen is intentionally excluded — it doesn't accept this field (400 error).
+# Thinking is always on by default for Qwen; use INLINE_THINK_MODELS instead.
+MODEL_EFFORT = {
+    "deepseek-v4-flash-free": "max",
+    "minimax-m2.5-free":      "xhigh",
+    "nemotron-3-super-free":  "xhigh",
+    "big-pickle":             "max",
+}
 
-    payload = {
+# All supported reasoning_effort levels per model (for UI pickers etc.)
+MODEL_LEVELS = {
+    "deepseek-v4-flash-free": ["low", "medium", "high", "max"],
+    "qwen3.6-plus-free":      [],  # no reasoning_effort; thinking always on
+    "minimax-m2.5-free":      ["minimal", "low", "medium", "high", "xhigh"],
+    "nemotron-3-super-free":  ["none", "minimal", "low", "medium", "high", "xhigh"],
+    "big-pickle":             ["low", "medium", "high", "xhigh", "max"],
+}
+
+# DeepSeek V4: thinking mode is always on and reasoning_content MUST be echoed
+# back in every assistant message in multi-turn conversations, or the API 400s.
+# routes.py reads this via needs_reasoning_passback() from providers/__init__.py.
+NEEDS_REASONING_PASSBACK = {"deepseek-v4-flash-free"}
+
+# Qwen3.x streams thinking as <think>…</think> tags inside the content field
+# rather than a separate reasoning_content field.
+INLINE_THINK_MODELS = {"qwen3.6-plus-free"}
+
+
+def _parse_inline_thinking(text: str):
+    """
+    Split a content chunk that may contain <think>…</think> tags.
+    Returns (thinking_part, content_part). Either can be an empty string.
+    Handles partial chunks — only flushes complete tags.
+    """
+    thinking, content = "", ""
+    while text:
+        if "<think>" in text:
+            pre, _, rest = text.partition("<think>")
+            content += pre
+            if "</think>" in rest:
+                thought, _, text = rest.partition("</think>")
+                thinking += thought
+            else:
+                # Incomplete block — rest is in-progress thinking
+                thinking += rest
+                break
+        elif text.startswith("</think>"):
+            _, _, text = text.partition("</think>")
+        else:
+            content += text
+            break
+    return thinking, content
+
+
+def stream_chat(
+    model_id: str,
+    messages: list[dict],
+    tools: list | None = None,
+    max_tokens: int | None = None,
+    reasoning_effort: str | None = None,
+) -> Generator[dict, None, None]:
+    url        = "https://opencode.ai/zen/v1/chat/completions"
+    session_id = f"ses_{uuid.uuid4().hex[:16]}"
+    request_id = f"msg_{uuid.uuid4().hex[:16]}"
+
+    headers = {
+        "Authorization":      "Bearer public",
+        "Content-Type":       "application/json",
+        "User-Agent":         "opencode/1.15.3 ai-sdk/provider-utils/4.0.23 runtime/bun/1.3.13",
+        "x-opencode-client":  "cli",
+        "x-opencode-project": "global",
+        "x-opencode-request": request_id,
+        "x-opencode-session": session_id,
+    }
+
+    payload: dict = {
         "model":      model_id,
         "messages":   messages,
         "stream":     True,
         "max_tokens": max_tokens or 4096,
     }
+
+    # Only send reasoning_effort for models that support it.
+    # Qwen is excluded (not in MODEL_EFFORT); routes.py passes None for it
+    # via get_reasoning_effort(), but guard here too for direct callers.
+    effort = reasoning_effort or MODEL_EFFORT.get(model_id)
+    if effort:
+        payload["reasoning_effort"] = effort
+
     if tools:
         payload["tools"]       = tools
         payload["tool_choice"] = "auto"
 
     try:
-        api_resp = requests.post(url, json=payload, stream=True, timeout=600)
+        api_resp = requests.post(url, json=payload, headers=headers, stream=True, timeout=600)
         api_resp.raise_for_status()
     except Exception as e:
         yield {"type": "error", "text": str(e)}
         return
 
-    # Use iter_lines() + explicit UTF-8 decode — same as the original
-    # routes.py. This is the correct way: iter_lines() handles chunk
-    # boundaries so a multi-byte sequence is never split, and decoding
-    # as UTF-8 ensures emoji render correctly instead of as Ã + boxes.
+    inline_think = model_id in INLINE_THINK_MODELS
+
     for raw in api_resp.iter_lines():
         if not raw:
             continue
         line = raw.decode("utf-8", errors="replace")
-        if not line.startswith("data: "):
+
+        if not line.startswith("data:"):
             continue
-        data_str = line[6:].strip()
-        if data_str == "[DONE]":
+        ds = line[5:].strip()
+        if not ds or ds == "[DONE]":
             yield {"type": "done"}
             return
         try:
-            chunk = json.loads(data_str)
+            chunk = json.loads(ds)
         except json.JSONDecodeError:
             continue
 
-        choice = (chunk.get("choices") or [{}])[0]
-        delta  = choice.get("delta", {})
+        # OpenAI-style: choices[].delta
+        choices = chunk.get("choices")
+        if choices:
+            delta = choices[0].get("delta", {})
 
-        # thinking / reasoning
-        thinking = (
-            delta.get("reasoning_content")
-            or delta.get("reasoning")
-            or delta.get("thinking")
-            or delta.get("reasoning_thought")
-            or ""
-        )
-        if thinking:
-            yield {"type": "thinking", "text": thinking}
+            # Dedicated reasoning field (DeepSeek, MiniMax, etc.)
+            thinking = (
+                delta.get("reasoning_content")
+                or delta.get("reasoning")
+                or delta.get("thinking")
+                or delta.get("reasoning_thought")
+                or ""
+            )
+            if thinking:
+                yield {"type": "thinking", "text": thinking}
 
-        # text content
-        content = delta.get("content") or ""
-        if content:
-            yield {"type": "text", "text": content}
+            content = delta.get("content") or ""
+            if content:
+                if inline_think:
+                    # Qwen3.x streams thinking as <think>…</think> inside content
+                    thought, text = _parse_inline_thinking(content)
+                    if thought:
+                        yield {"type": "thinking", "text": thought}
+                    if text:
+                        yield {"type": "text", "text": text}
+                else:
+                    yield {"type": "text", "text": content}
 
-        # tool call deltas — pass through raw so routes.py can accumulate
-        for tc_delta in delta.get("tool_calls", []):
-            idx  = tc_delta.get("index", 0)
-            func = tc_delta.get("function", {})
-            yield {
-                "type":      "tool_delta",
-                "index":     idx,
-                "id":        tc_delta.get("id", ""),
-                "name":      func.get("name", ""),
-                "arguments": func.get("arguments", ""),
-            }
+            for tc_delta in delta.get("tool_calls", []):
+                idx  = tc_delta.get("index", 0)
+                func = tc_delta.get("function", {})
+                yield {
+                    "type":      "tool_delta",
+                    "index":     idx,
+                    "id":        tc_delta.get("id", ""),
+                    "name":      func.get("name", ""),
+                    "arguments": func.get("arguments", ""),
+                }
+
+        # Anthropic-style: delta.type == thinking_delta / text_delta
+        delta = chunk.get("delta", {})
+        dtype = delta.get("type", "")
+        if dtype == "thinking_delta":
+            yield {"type": "thinking", "text": delta.get("thinking", "")}
+        elif dtype == "text_delta":
+            yield {"type": "text", "text": delta.get("text", "")}

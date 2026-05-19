@@ -31,13 +31,20 @@ def _ensure_loaded():
         _loaded = True
         _load_providers()
 
-def get_provider(model_id):
+def _provider_for_model(model_id: str):
+    """Return the provider module for a model, or None."""
     _ensure_loaded()
     for p in _providers.values():
         for m in p.MODELS:
             if m["id"] == model_id:
                 return p
-    raise ValueError(f"No provider for model: {model_id}")
+    return None
+
+def get_provider(model_id):
+    p = _provider_for_model(model_id)
+    if p is None:
+        raise ValueError(f"No provider for model: {model_id}")
+    return p
 
 def all_models():
     _ensure_loaded()
@@ -61,3 +68,26 @@ def compaction_buffer(ctx: int) -> int:
     if ctx >= 100_000:
         return 15_000
     return 10_000  # 30k-60k models
+
+def get_reasoning_effort(model_id: str) -> str | None:
+    """
+    Return the reasoning_effort value to send for this model, or None if
+    the model doesn't use the reasoning_effort API field at all.
+    Providers declare this via MODEL_EFFORT = {model_id: "max", ...}.
+    Models absent from MODEL_EFFORT get None (field not sent).
+    """
+    p = _provider_for_model(model_id)
+    if p is None:
+        return None
+    return getattr(p, "MODEL_EFFORT", {}).get(model_id)
+
+def needs_reasoning_passback(model_id: str) -> bool:
+    """
+    True if the model requires reasoning_content to be echoed back in every
+    assistant message during multi-turn conversations (e.g. DeepSeek V4).
+    Providers declare this via NEEDS_REASONING_PASSBACK = {"model-id", ...}.
+    """
+    p = _provider_for_model(model_id)
+    if p is None:
+        return False
+    return model_id in getattr(p, "NEEDS_REASONING_PASSBACK", set())

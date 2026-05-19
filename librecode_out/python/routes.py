@@ -16,7 +16,7 @@ import requests
 from flask import request, jsonify, send_file, send_from_directory, Response, stream_with_context
 
 from python.config import COMPACTION_API_URL, COMPACTION_MODEL, MAX_TOKENS, COMPACTION_THRESHOLD
-from python.providers import get_provider, all_models, get_model_ctx, compaction_buffer
+from python.providers import get_provider, all_models, get_model_ctx, compaction_buffer, get_reasoning_effort, needs_reasoning_passback
 import python.state as state
 import python.agents as agents_mod
 from python.storage import get_librecode_dir, chats_index_file, chat_file, resolve_path, is_within_dir
@@ -56,7 +56,8 @@ def _next_id(chat_id: str, prefix: str) -> str:
 
 # ── History conversion ──────────────────────────────────────────────────
 
-def history_to_api_messages(history: list) -> list:
+def history_to_api_messages(history: list, model_id: str = "") -> list:
+    _passback = needs_reasoning_passback(model_id) if model_id else False
     out = []
     for turn in history:
         role = turn.get("role")
@@ -70,6 +71,11 @@ def history_to_api_messages(history: list) -> list:
                 msg["tool_calls"] = tcs
                 if not text:
                     msg["content"] = None
+            # DeepSeek V4 (and any future model with NEEDS_REASONING_PASSBACK)
+            # requires reasoning_content to be echoed back in every assistant turn
+            if _passback:
+                rc = turn.get("reasoning_content")
+                msg["reasoning_content"] = rc if rc is not None else ""
             out.append(msg)
         elif role == "tool":
             out.append({
@@ -430,7 +436,7 @@ def _register(app) -> None:
                 return
 
             previous_summary = state.chat_summaries.get(chat_id)
-            flat_history     = history_to_api_messages(list(history))
+            flat_history     = history_to_api_messages(list(history), model)
 
             # Real context window + variable buffer (OpenCode style)
             ctx    = get_model_ctx(model)
@@ -464,7 +470,7 @@ def _register(app) -> None:
                 _last_block_type = None
 
                 try:
-                    events = provider.stream_chat(model, messages, active_tools, MAX_TOKENS)
+                    events = provider.stream_chat(model, messages, active_tools, MAX_TOKENS, get_reasoning_effort(model))
                 except Exception as e:
                     yield f"data: {json.dumps({'type': 'error', 'text': str(e)})}\n\n"
                     return
@@ -553,6 +559,8 @@ def _register(app) -> None:
                 new_rich_turns.append(rich_asst)
 
                 flat_asst = {"role": "assistant", "content": round_content or None, "tool_calls": tc_list}
+                if needs_reasoning_passback(model):
+                    flat_asst["reasoning_content"] = round_reasoning or ""
                 messages.append(flat_asst)
 
                 # ── Parallel tool execution ────────────────────────────────
