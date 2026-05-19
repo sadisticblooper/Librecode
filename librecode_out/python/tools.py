@@ -226,7 +226,7 @@ def _tool_work_dirs(path: str = None) -> tuple:
     return dirs, None
 
 
-def _run_direct_binary(binary: str, args: list, cwd: str = None, timeout: int = 30) -> str:
+def _run_direct_binary(binary: str, args: list, cwd: str = None, timeout: int = 45) -> str:
     import subprocess
     exe = _native_tool_path(binary)
     if not exe:
@@ -266,13 +266,26 @@ def tool_glob(pattern: str, path: str = None) -> str:
     if not any(is_within_dir(base, d) for d in dirs):
         return f"Error: Path '{path}' is outside all working directories"
     try:
-        full_pattern = os.path.join(base, pattern)
-        matches = glob_module.glob(full_pattern, recursive=True)
-        matches = [m for m in matches if any(is_within_dir(m, d) for d in dirs)]
-        if not matches:
+        args = ["--color", "never", "--glob", pattern, base]
+        output = _run_direct_binary("libfd-bin.so", args, cwd=base, timeout=45)
+        if output.startswith("Error:"):
+            full_pattern = os.path.join(base, pattern)
+            matches = glob_module.glob(full_pattern, recursive=True)
+            matches = [m for m in matches if any(is_within_dir(m, d) for d in dirs)]
+            if not matches:
+                return f"No files matching '{pattern}'"
+            rel_matches = [os.path.relpath(m, base) for m in matches[:100]]
+            return "Found files:\n" + "\n".join(rel_matches)
+        lines = [l for l in output.splitlines() if l.strip()]
+        if not lines:
             return f"No files matching '{pattern}'"
-        rel_matches = [os.path.relpath(m, base) for m in matches[:100]]
-        return "Found files:\n" + "\n".join(rel_matches)
+        rel_lines = []
+        for l in lines:
+            try:
+                rel_lines.append(os.path.relpath(l, base) if os.path.isabs(l) else l)
+            except Exception:
+                rel_lines.append(l)
+        return "Found files:\n" + "\n".join(rel_lines)
     except Exception as e:
         return f"Glob error: {e}"
 
@@ -568,7 +581,7 @@ def tool_rg(
     if glob:
         args += ["--glob", str(glob)]
     args += [pattern] + targets
-    output = _run_direct_binary("librg-bin.so", args, cwd=targets[0])
+    output = _run_direct_binary("librg-bin.so", args, cwd=targets[0], timeout=45)
     lines  = output.splitlines()
     try:
         max_results = int(max_results or 200)
@@ -599,17 +612,13 @@ def tool_fd(
         args += ["--type", "file"]
     elif type in ("directory", "dir", "d"):
         args += ["--type", "directory"]
+    try:
+        _mr = int(max_results or 200)
+    except Exception:
+        _mr = 200
     args.append(pattern or "")
     args += targets
-    output = _run_direct_binary("libfd-bin.so", args, cwd=targets[0])
-    lines  = output.splitlines()
-    try:
-        max_results = int(max_results or 200)
-    except Exception:
-        max_results = 200
-    if max_results > 0 and len(lines) > max_results:
-        return "\n".join(lines[:max_results]) + f"\n... ({len(lines) - max_results} more lines)"
-    return output
+    return _run_direct_binary("libfd-bin.so", args, cwd=targets[0], timeout=45)
 
 
 # ══════════════════════════════════════════════════════════════════════
