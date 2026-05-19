@@ -621,12 +621,15 @@ public class MainActivity extends Activity {
     private static final String LOADING_HTML =
         "<!DOCTYPE html><html><head>" +
         "<meta name='viewport' content='width=device-width, initial-scale=1'>" +
+        "<link rel='preconnect' href='https://fonts.googleapis.com'>" +
+        "<link href='https://fonts.googleapis.com/css2?family=Iceberg&display=swap' rel='stylesheet'>" +
         "<style>" +
         "* { margin:0; padding:0; box-sizing:border-box; }" +
         "body { background:#0a0a0a; display:flex; align-items:center;" +
-        "       justify-content:center; height:100vh; font-family:monospace; }" +
+        "       justify-content:center; height:100vh; }" +
         ".wrap { text-align:center; color:#666; }" +
-        ".title { font-size:20px; color:#fff; margin-bottom:12px; letter-spacing:2px; }" +
+        ".title { font-family:'Iceberg',sans-serif; font-weight:400;" +
+        "         font-size:20px; letter-spacing:.04em; margin-bottom:12px; }" +
         ".dot { display:inline-block; width:6px; height:6px; border-radius:50%;" +
         "       background:#666; margin:0 3px; animation:pulse 1.2s infinite; }" +
         ".dot:nth-child(2) { animation-delay:.2s; }" +
@@ -634,7 +637,17 @@ public class MainActivity extends Activity {
         "@keyframes pulse { 0%,80%,100%{opacity:.2} 40%{opacity:1} }" +
         "</style></head><body>" +
         "<div class='wrap'>" +
-        "<div class='title'>librecode</div>" +
+        "<div class='title'>" +
+        "<span style='color:#8b4fe0'>L</span>" +
+        "<span style='color:#9456e3'>i</span>" +
+        "<span style='color:#9d5de6'>b</span>" +
+        "<span style='color:#a664e9'>r</span>" +
+        "<span style='color:#af6bec'>e</span>" +
+        "<span style='color:#b872ef'>C</span>" +
+        "<span style='color:#c179f2'>o</span>" +
+        "<span style='color:#ca80f5'>d</span>" +
+        "<span style='color:#d387f8'>e</span>" +
+        "</div>" +
         "<div><span class='dot'></span><span class='dot'></span><span class='dot'></span></div>" +
         "</div></body></html>";
 }
