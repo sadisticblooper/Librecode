@@ -9,9 +9,6 @@ Provider capability flags (read by providers/__init__.py):
   NEEDS_REASONING_PASSBACK — model IDs that require reasoning_content echoed back
                              in every assistant message during multi-turn (DeepSeek V4).
 
-  INLINE_THINK_MODELS      — model IDs where thinking arrives as <think>…</think>
-                             tags inside the content stream instead of a dedicated
-                             reasoning_content field (Qwen3.x).
 """
 import json
 import uuid
@@ -21,18 +18,13 @@ from typing import Generator
 PROVIDER_NAME = "free"
 MODELS = [
     {"id": "deepseek-v4-flash-free",  "label": "DeepSeek V4 Flash",  "ctx": 128000},
-    {"id": "qwen3.6-plus-free",       "label": "Qwen3.6 Plus",       "ctx": 128000},
-    {"id": "minimax-m2.5-free",       "label": "MiniMax M2.5",       "ctx": 128000},
     {"id": "nemotron-3-super-free",   "label": "Nemotron 3 Super",   "ctx": 128000},
     {"id": "big-pickle",              "label": "Big Pickle",         "ctx": 128000},
 ]
 
 # reasoning_effort to send per model.
-# Qwen is intentionally excluded — it doesn't accept this field (400 error).
-# Thinking is always on by default for Qwen; use INLINE_THINK_MODELS instead.
 MODEL_EFFORT = {
     "deepseek-v4-flash-free": "max",
-    "minimax-m2.5-free":      "xhigh",
     "nemotron-3-super-free":  "xhigh",
     "big-pickle":             "max",
 }
@@ -40,8 +32,6 @@ MODEL_EFFORT = {
 # All supported reasoning_effort levels per model (for UI pickers etc.)
 MODEL_LEVELS = {
     "deepseek-v4-flash-free": ["low", "medium", "high", "max"],
-    "qwen3.6-plus-free":      [],  # no reasoning_effort; thinking always on
-    "minimax-m2.5-free":      ["minimal", "low", "medium", "high", "xhigh"],
     "nemotron-3-super-free":  ["none", "minimal", "low", "medium", "high", "xhigh"],
     "big-pickle":             ["low", "medium", "high", "xhigh", "max"],
 }
@@ -51,9 +41,7 @@ MODEL_LEVELS = {
 # routes.py reads this via needs_reasoning_passback() from providers/__init__.py.
 NEEDS_REASONING_PASSBACK = {"deepseek-v4-flash-free"}
 
-# Qwen3.x streams thinking as <think>…</think> tags inside the content field
-# rather than a separate reasoning_content field.
-INLINE_THINK_MODELS = {"qwen3.6-plus-free"}
+INLINE_THINK_MODELS = set()
 
 
 def _parse_inline_thinking(text: str):
@@ -111,8 +99,6 @@ def stream_chat(
     }
 
     # Only send reasoning_effort for models that support it.
-    # Qwen is excluded (not in MODEL_EFFORT); routes.py passes None for it
-    # via get_reasoning_effort(), but guard here too for direct callers.
     effort = reasoning_effort or MODEL_EFFORT.get(model_id)
     if effort:
         payload["reasoning_effort"] = effort
@@ -151,7 +137,7 @@ def stream_chat(
         if choices:
             delta = choices[0].get("delta", {})
 
-            # Dedicated reasoning field (DeepSeek, MiniMax, etc.)
+            # Dedicated reasoning field (DeepSeek, etc.)
             thinking = (
                 delta.get("reasoning_content")
                 or delta.get("reasoning")
@@ -165,7 +151,6 @@ def stream_chat(
             content = delta.get("content") or ""
             if content:
                 if inline_think:
-                    # Qwen3.x streams thinking as <think>…</think> inside content
                     thought, text = _parse_inline_thinking(content)
                     if thought:
                         yield {"type": "thinking", "text": thought}

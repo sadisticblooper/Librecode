@@ -3,7 +3,7 @@
 export const sendingChats   = new Set();   // set of chat IDs currently awaiting a response
 export const chatStreamState = {};          // chatId -> { assistantText, hasContent }
 
-export let selectedModel    = 'minimax-m2.5-free';
+export let selectedModel    = 'big-pickle';
 export let selectedModelCtx = 1000000;
 export let selectedAgent    = 'build';  // build | plan | explore | ask
 
