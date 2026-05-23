@@ -1116,6 +1116,7 @@ def run_tool(name: str, args: dict) -> str:
                 "browser_login_cct":  lambda: bt.tool_browser_login_cct(args.get("url", "")),
                 "browser_close":      lambda: bt.tool_browser_close(),
                 "browser_open_file":  lambda: bt.tool_browser_open_file(args.get("path", "")),
+                "browser_open_local_file": lambda: bt.tool_browser_open_local_file(args.get("path", "")),
             }
             fn = dispatch.get(name)
             if fn is None:
@@ -1138,6 +1139,8 @@ _orig_run_tool = run_tool
 def run_tool(name, args):
     import python.browser_tools as bt
     _devtools_dispatch = {
+        "browser_open_local_file": lambda: bt.tool_browser_open_local_file(args.get("path", "")),
+        "browser_network_dump":    lambda: bt.tool_browser_network_dump(args.get("out_dir", ""), args.get("duration_seconds", 30), args.get("reload", False)),
         "browser_html":            lambda: bt.tool_browser_html(),
         "browser_console":         lambda: bt.tool_browser_console(),
         "browser_network_start":   lambda: bt.tool_browser_network_start(),
@@ -1147,6 +1150,8 @@ def run_tool(name, args):
         "browser_session_storage": lambda: bt.tool_browser_session_storage(),
         "browser_dom_query":       lambda: bt.tool_browser_dom_query(args.get("selector", "")),
         "browser_set_cookie":      lambda: bt.tool_browser_set_cookie(args.get("name",""), args.get("value",""), args.get("domain",""), args.get("path","/")),
+        "browser_open_local_file": lambda: bt.tool_browser_open_local_file(args.get("path", "")),
+        "browser_network_dump":    lambda: bt.tool_browser_network_dump(args.get("out_dir", ""), args.get("duration_seconds", 30), args.get("reload", False)),
         "browser_open_file":       lambda: bt.tool_browser_open_file(args.get("path", "")),
     }
     if name in _devtools_dispatch:

@@ -35,8 +35,15 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.browser.customtabs.CustomTabsIntent;
+import androidx.webkit.WebViewAssetLoader;
 
 import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.OutputStreamWriter;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -95,6 +102,204 @@ public class BrowserService {
         // against the file's parent directory automatically.
         String fileUrl = android.net.Uri.fromFile(f).toString();
         return open(fileUrl);
+    }
+
+    // ── Local-file server: serves an HTML directory via https://appassets.androidplatform.net/
+    // so that relative CSS/JS/images load without any CORS or file:// restrictions. ──────────
+
+    private WebViewAssetLoader currentAssetLoader = null;
+    private String             assetLoaderBase    = null; // the directory being served
+
+    /** Load a local HTML file using WebViewAssetLoader so JS/CSS/images in the same
+     *  directory are served correctly (no CORS, no file:// scheme blocks). */
+    public String openLocalFile(String path) {
+        if (!hasOverlayPermission())
+            return "{\"error\":\"OVERLAY_PERMISSION_REQUIRED\"}";
+        File f = new File(path);
+        if (!f.exists())
+            return "{\"error\":\"File not found: " + path + "\"}";
+
+        File dir = f.getParentFile();
+        if (dir == null) dir = f;
+
+        // Build a loader that serves the file's directory at the well-known asset host
+        final File serveDir = dir;
+        currentAssetLoader = new WebViewAssetLoader.Builder()
+                .setDomain("appassets.androidplatform.net")
+                .addPathHandler("/",
+                        new WebViewAssetLoader.InternalStoragePathHandler(
+                                getActivity(), serveDir))
+                .build();
+        assetLoaderBase = "https://appassets.androidplatform.net/" + f.getName();
+
+        return openViaAssetLoader(assetLoaderBase);
+    }
+
+    /** Internal: navigate using the currently-installed asset loader. */
+    private String openViaAssetLoader(String url) {
+        CountDownLatch latch = new CountDownLatch(1);
+        AtomicReference<String> result = new AtomicReference<>("");
+        mainHandler.post(() -> {
+            if (isVisible) destroyOverlay();
+            createOverlay();
+
+            // Override shouldInterceptRequest so the WebViewAssetLoader intercepts
+            // requests for local files while other URLs go through normally.
+            final WebViewAssetLoader loader = currentAssetLoader;
+            browserWebView.setWebViewClient(new WebViewClient() {
+                @Override
+                public android.webkit.WebResourceResponse shouldInterceptRequest(
+                        WebView view, android.webkit.WebResourceRequest request) {
+                    if (loader != null) {
+                        android.webkit.WebResourceResponse resp =
+                                loader.shouldInterceptRequest(request.getUrl());
+                        if (resp != null) return resp;
+                    }
+                    return super.shouldInterceptRequest(view, request);
+                }
+                @Override public void onPageFinished(WebView v, String u) {
+                    injectFocusListeners(v);
+                    injectNetworkInterceptor(v);
+                    mainHandler.postDelayed(() -> snapshotInternal(s -> {
+                        result.set(s); latch.countDown();
+                    }), 2000);
+                }
+            });
+
+            CookieManager cm = CookieManager.getInstance();
+            cm.setAcceptCookie(true);
+            cm.setAcceptThirdPartyCookies(browserWebView, true);
+            browserWebView.loadUrl(url);
+            isVisible = true;
+        });
+        awaitLatch(latch, 25);
+        return result.get();
+    }
+
+    // ── Network dump: capture all XHR/fetch traffic to JSON files in a folder ────────────────
+
+    /** Dump all currently-captured network entries (from the JS interceptor) to JSON files
+     *  in {@code outDir}.  If {@code reload} is true the page is reloaded first so the
+     *  interceptor catches every request from scratch (JS/CSS initiators are NOT captured
+     *  by the JS interceptor but all XHR/fetch calls are).
+     *
+     *  Returns a JSON summary: {"saved": N, "dir": "...", "files": [...]} */
+    public String networkDumpLive(String outDir, int durationSeconds, boolean reload) {
+        if (!isVisible || browserWebView == null)
+            return "{\"error\":\"Browser is not open.\"}";
+
+        if (reload) {
+            CountDownLatch reloadLatch = new CountDownLatch(1);
+            mainHandler.post(() -> {
+                browserWebView.setWebViewClient(new WebViewClient() {
+                    @Override
+                    public android.webkit.WebResourceResponse shouldInterceptRequest(
+                            WebView view, android.webkit.WebResourceRequest request) {
+                        if (currentAssetLoader != null) {
+                            android.webkit.WebResourceResponse resp =
+                                    currentAssetLoader.shouldInterceptRequest(request.getUrl());
+                            if (resp != null) return resp;
+                        }
+                        return super.shouldInterceptRequest(view, request);
+                    }
+                    @Override public void onPageFinished(WebView v, String u) {
+                        injectFocusListeners(v);
+                        injectNetworkInterceptor(v);
+                        mainHandler.postDelayed(reloadLatch::countDown, 1500);
+                    }
+                });
+                browserWebView.reload();
+            });
+            awaitLatch(reloadLatch, 30);
+        } else {
+            // Ensure interceptor is injected and clear old entries
+            CountDownLatch injectLatch = new CountDownLatch(1);
+            mainHandler.post(() ->
+                browserWebView.evaluateJavascript(
+                    DEVTOOLS_JS + "; if(window.__ocdvt){window.__ocdvt.net=[];window.__ocdvt.con=[];}",
+                    v -> injectLatch.countDown())
+            );
+            awaitLatch(injectLatch, 5);
+        }
+
+        // Poll every 500ms, write new entries to disk as they arrive
+        try {
+            File dir = new File(outDir);
+            dir.mkdirs();
+
+            long deadline = System.currentTimeMillis() + (durationSeconds * 1000L);
+            long startMs  = System.currentTimeMillis();
+            int  written  = 0; // total files written so far
+            List<String> fileNames = new ArrayList<>();
+
+            while (System.currentTimeMillis() < deadline) {
+                Thread.sleep(500);
+
+                // Read current net array length
+                final int alreadyWritten = written;
+                CountDownLatch pollLatch = new CountDownLatch(1);
+                AtomicReference<String> chunk = new AtomicReference<>("");
+                mainHandler.post(() ->
+                    browserWebView.evaluateJavascript(
+                        "JSON.stringify((window.__ocdvt&&window.__ocdvt.net||[]).slice(" + alreadyWritten + "))",
+                        v -> { chunk.set(v); pollLatch.countDown(); }
+                    )
+                );
+                pollLatch.await(3, TimeUnit.SECONDS);
+
+                String raw = chunk.get();
+                if (raw == null || raw.equals("null") || raw.equals("\"[]\"") || raw.equals("[]")) continue;
+
+                // Strip outer JS string-quoting if present
+                if (raw.startsWith("\"") && raw.endsWith("\"")) {
+                    raw = raw.substring(1, raw.length() - 1)
+                            .replace("\\\"", "\"").replace("\\n", "\n")
+                            .replace("\\\\", "\\");
+                }
+
+                org.json.JSONArray newEntries;
+                try { newEntries = new org.json.JSONArray(raw); }
+                catch (Exception e) { continue; }
+
+                for (int i = 0; i < newEntries.length(); i++) {
+                    org.json.JSONObject entry = newEntries.getJSONObject(i);
+                    String urlStr = entry.optString("url", "request");
+                    String safeName = urlStr
+                            .replaceAll("https?://", "")
+                            .replaceAll("[^a-zA-Z0-9._-]", "_");
+                    if (safeName.length() > 120) safeName = safeName.substring(0, 120);
+                    String fileName = String.format("%04d_%s.json", written + 1, safeName);
+                    fileNames.add(fileName);
+
+                    File out = new File(dir, fileName);
+                    try (OutputStreamWriter w = new OutputStreamWriter(
+                            new FileOutputStream(out), StandardCharsets.UTF_8)) {
+                        w.write(entry.toString(2));
+                    }
+                    written++;
+                }
+            }
+
+            // Write index
+            long elapsedMs = System.currentTimeMillis() - startMs;
+            org.json.JSONObject summary = new org.json.JSONObject();
+            summary.put("saved", written);
+            summary.put("dir", outDir);
+            summary.put("elapsed_ms", elapsedMs);
+            org.json.JSONArray arr = new org.json.JSONArray();
+            for (String fn : fileNames) arr.put(fn);
+            summary.put("files", arr);
+
+            File index = new File(dir, "index.json");
+            try (OutputStreamWriter w = new OutputStreamWriter(
+                    new FileOutputStream(index), StandardCharsets.UTF_8)) {
+                w.write(summary.toString(2));
+            }
+
+            return summary.toString();
+        } catch (Exception e) {
+            return "{\"error\":\"Dump failed: " + esc(e.getMessage()) + "\"}";
+        }
     }
 
     public String open(String url) {

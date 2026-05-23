@@ -32,7 +32,7 @@ def _inject_tools():
         if _browser_active:
             return
         existing = {t["function"]["name"] for t in tools_mod.TOOLS}
-        for spec in BROWSER_CONTROL_SPECS + [BROWSER_OPEN_FILE_SPEC] + BROWSER_DEVTOOLS_SPECS:
+        for spec in BROWSER_CONTROL_SPECS + [BROWSER_OPEN_FILE_SPEC, BROWSER_OPEN_LOCAL_FILE_SPEC, BROWSER_NETWORK_DUMP_SPEC] + BROWSER_DEVTOOLS_SPECS:
             if spec["function"]["name"] not in existing:
                 tools_mod.TOOLS.append(spec)
         _browser_active = True
@@ -44,7 +44,7 @@ def _eject_tools():
     with _browser_lock:
         if not _browser_active:
             return
-        control_names = {s["function"]["name"] for s in BROWSER_CONTROL_SPECS + [BROWSER_OPEN_FILE_SPEC] + BROWSER_DEVTOOLS_SPECS}
+        control_names = {s["function"]["name"] for s in BROWSER_CONTROL_SPECS + [BROWSER_OPEN_FILE_SPEC, BROWSER_OPEN_LOCAL_FILE_SPEC, BROWSER_NETWORK_DUMP_SPEC] + BROWSER_DEVTOOLS_SPECS}
         tools_mod.TOOLS[:] = [t for t in tools_mod.TOOLS if t["function"]["name"] not in control_names]
         _browser_active = False
 
@@ -131,7 +131,10 @@ def tool_browser_open(url: str = "about:blank", on_load: str = "") -> str:
             f"  browser_eval       - run JavaScript — MUST end with `return <value>` or be a single expression\n"
             f"  browser_html       - get full page outerHTML (use when snapshot misses elements)\n"
             f"  browser_dom_query  - find elements by CSS selector (e.g. 'input[type=password]')\n"
+            f"  browser_open_file  - load a local HTML file (file:// URI)\n"
+            f"  browser_open_local_file - load a local HTML file via asset loader (fixes CSS/JS CORS)\n"
             f"  browser_network    - get all XHR/fetch calls captured since page load\n"
+            f"  browser_network_dump - save all network traffic to a folder as JSON files\n"
             f"  browser_wait       - wait for text to appear\n"
             f"  browser_screenshot - capture screenshot as base64\n"
             f"  browser_cookies    - get cookies for a domain\n"
@@ -458,7 +461,46 @@ def tool_browser_open_file(path: str) -> str:
     if err:
         return err
     result = str(_svc().openFile(path))
-    return _parse_open_result(result)
+    return _parse_snapshot_result(result, fallback_url='file://' + path)
+
+
+def tool_browser_open_local_file(path: str) -> str:
+    """Load a local HTML file served through WebViewAssetLoader so that relative CSS,
+    JS, and images load without any CORS or file:// restrictions.
+    Use this instead of browser_open_file when assets refuse to load."""
+    err = _check_open()
+    if err:
+        return err
+    result = str(_svc().openLocalFile(path))
+    return _parse_snapshot_result(result, fallback_url='local://' + path)
+
+
+def tool_browser_network_dump(out_dir: str, duration_seconds: int = 30, reload: bool = False) -> str:
+    """Capture network requests live to out_dir for duration_seconds, then return.
+    Every XHR/fetch that completes during the window is written as its own JSON file.
+    If reload=True the page reloads at the start so page-load requests are included.
+    AI should pick duration based on how long the page needs to load its content."""
+    err = _check_open()
+    if err:
+        return err
+    raw = str(_svc().networkDumpLive(out_dir, int(duration_seconds), bool(reload)))
+    try:
+        data = json.loads(raw)
+        if 'error' in data:
+            return f"Error: {data['error']}"
+        saved = data.get('saved', 0)
+        d = data.get('dir', out_dir)
+        files = data.get('files', [])
+        elapsed = data.get('elapsed_ms', 0)
+        summary = f"Network dump complete: {saved} request(s) captured over {elapsed/1000:.1f}s → {d}/\n"
+        if files:
+            summary += '\nFiles written:\n' + '\n'.join(f'  {fn}' for fn in files)
+            summary += '\n  index.json  (summary)'
+        else:
+            summary += '\nNo requests captured.'
+        return summary
+    except Exception:
+        return raw
 
 
 BROWSER_OPEN_FILE_SPEC = {
@@ -466,9 +508,36 @@ BROWSER_OPEN_FILE_SPEC = {
     "function": {
         "name": "browser_open_file",
         "description": (
-            "Load a local HTML file into the open browser by absolute path. "
+            "Load a local HTML file into the open browser by absolute path (file:// URI). "
             "JS, CSS, images and other files the HTML imports are resolved relative "
             "to the file's directory automatically. "
+            "The browser must already be open (call spawn_browser first). "
+            "If CSS/JS still fail to load use browser_open_local_file instead. "
+            "Returns a DOM snapshot."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Absolute path to the HTML file, e.g. '/sdcard/librecode/myapp/index.html'",
+                },
+            },
+            "required": ["path"],
+        },
+    },
+}
+
+BROWSER_OPEN_LOCAL_FILE_SPEC = {
+    "type": "function",
+    "function": {
+        "name": "browser_open_local_file",
+        "description": (
+            "Load a local HTML file served through an internal asset loader "
+            "(https://appassets.androidplatform.net/) so that relative CSS, JS, "
+            "and image imports work without any CORS or file:// origin restrictions. "
+            "Use this when browser_open_file loads the HTML but the CSS/JS assets are "
+            "blocked (Chrome refuses to load separate files from file://). "
             "The browser must already be open (call spawn_browser first). "
             "Returns a DOM snapshot."
         ),
@@ -481,6 +550,42 @@ BROWSER_OPEN_FILE_SPEC = {
                 },
             },
             "required": ["path"],
+        },
+    },
+}
+
+BROWSER_NETWORK_DUMP_SPEC = {
+    "type": "function",
+    "function": {
+        "name": "browser_network_dump",
+        "description": (
+            "Capture all XHR/fetch network requests live for duration_seconds, writing each "
+            "one to its own JSON file in out_dir as it arrives. Blocks until the duration "
+            "expires, then returns a summary. "
+            "AI should pick duration based on how long the page needs — e.g. 10s for a fast "
+            "API call, 60s for a slow-loading page with lazy requests, 120s+ for streaming. "
+            "If reload=true the page reloads at the start so page-load requests are included. "
+            "Returns count of files saved and the folder path."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "out_dir": {
+                    "type": "string",
+                    "description": "Absolute path to output folder, e.g. '/sdcard/librecode/network_dump'. Created if it does not exist.",
+                },
+                "duration_seconds": {
+                    "type": "integer",
+                    "description": "How long to capture in seconds. AI decides based on expected page activity — e.g. 15 for normal pages, 60 for slow/lazy loaders, 120+ for long sessions.",
+                    "default": 30,
+                },
+                "reload": {
+                    "type": "boolean",
+                    "description": "If true, reload the page at the start so page-load requests are captured from scratch.",
+                    "default": False,
+                },
+            },
+            "required": ["out_dir", "duration_seconds"],
         },
     },
 }
