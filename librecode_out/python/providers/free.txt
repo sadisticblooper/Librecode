@@ -27,11 +27,10 @@ MODELS = [
 # reasoning_effort to send per model.
 # minimax-m3 accepts the field but ignores it — send medium as a safe default.
 # nemotron: "max" breaks it (probe confirmed), "xhigh" is the ceiling that works.
-# mimo: same field behaviour as deepseek (reasoning-first, effort supported).
+# mimo: uses "reasoning" delta field (not reasoning_content), effort accepted, no passback.
 MODEL_EFFORT = {
     "deepseek-v4-flash-free": "max",
-    "mimo-v2.5-free":         "max",
-    "minimax-m3-free":        "medium",
+    "mimo-v2.5-free":         "high",  # "max" unverified; "high" confirmed working
     "nemotron-3-super-free":  "xhigh",
     "big-pickle":             "max",
 }
@@ -53,35 +52,15 @@ MODEL_LEVELS = {
 # back in every assistant message during multi-turn, or the API 400s.
 # mimo uses the "thinking" delta field instead of "reasoning_content" but the
 # same passback rule applies — include it defensively.
-NEEDS_REASONING_PASSBACK = {"deepseek-v4-flash-free", "mimo-v2.5-free"}
+# deepseek-v4-flash-free: reasoning_content field, MUST be echoed back in multi-turn.
+# mimo-v2.5-free: uses "reasoning" field (output-only), no echo needed — passback causes 400.
+NEEDS_REASONING_PASSBACK = {"deepseek-v4-flash-free"}
 
-INLINE_THINK_MODELS = set()
+# minimax-m3-free: reasoning lives inside <think>...</think> tags in content.
+INLINE_THINK_MODELS = {"minimax-m3-free"}
 
 
-def _parse_inline_thinking(text: str):
-    """
-    Split a content chunk that may contain <think>…</think> tags.
-    Returns (thinking_part, content_part). Either can be an empty string.
-    Handles partial chunks — only flushes complete tags.
-    """
-    thinking, content = "", ""
-    while text:
-        if "<think>" in text:
-            pre, _, rest = text.partition("<think>")
-            content += pre
-            if "</think>" in rest:
-                thought, _, text = rest.partition("</think>")
-                thinking += thought
-            else:
-                # Incomplete block — rest is in-progress thinking
-                thinking += rest
-                break
-        elif text.startswith("</think>"):
-            _, _, text = text.partition("</think>")
-        else:
-            content += text
-            break
-    return thinking, content
+# _parse_inline_thinking removed — replaced with stateful buffer in stream_chat
 
 
 def stream_chat(
@@ -129,6 +108,9 @@ def stream_chat(
         return
 
     inline_think = model_id in INLINE_THINK_MODELS
+    # Stateful buffer for inline-think models (<think>…</think> split across chunks)
+    _it_buf      = ""   # accumulated unprocessed content
+    _it_thinking = False # False = in content mode; True = inside <think> block
 
     for raw in api_resp.iter_lines():
         if not raw:
@@ -165,11 +147,27 @@ def stream_chat(
             content = delta.get("content") or ""
             if content:
                 if inline_think:
-                    thought, text = _parse_inline_thinking(content)
-                    if thought:
-                        yield {"type": "thinking", "text": thought}
-                    if text:
-                        yield {"type": "text", "text": text}
+                    _it_buf += content
+                    # Drain the buffer, honouring <think>…</think> boundaries
+                    while _it_buf:
+                        if _it_thinking:
+                            if "</think>" in _it_buf:
+                                thought, _, _it_buf = _it_buf.partition("</think>")
+                                if thought:
+                                    yield {"type": "thinking", "text": thought}
+                                _it_thinking = False
+                            else:
+                                yield {"type": "thinking", "text": _it_buf}
+                                _it_buf = ""
+                        else:
+                            if "<think>" in _it_buf:
+                                pre, _, _it_buf = _it_buf.partition("<think>")
+                                if pre:
+                                    yield {"type": "text", "text": pre}
+                                _it_thinking = True
+                            else:
+                                yield {"type": "text", "text": _it_buf}
+                                _it_buf = ""
                 else:
                     yield {"type": "text", "text": content}
 
