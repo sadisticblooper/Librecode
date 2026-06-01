@@ -18,28 +18,42 @@ from typing import Generator
 PROVIDER_NAME = "free"
 MODELS = [
     {"id": "deepseek-v4-flash-free",  "label": "DeepSeek V4 Flash",  "ctx": 128000},
+    {"id": "mimo-v2.5-free",          "label": "MiMo V2.5",          "ctx": 128000},
+    {"id": "minimax-m3-free",         "label": "MiniMax M3",         "ctx": 128000},
     {"id": "nemotron-3-super-free",   "label": "Nemotron 3 Super",   "ctx": 128000},
     {"id": "big-pickle",              "label": "Big Pickle",         "ctx": 128000},
 ]
 
 # reasoning_effort to send per model.
+# minimax-m3 accepts the field but ignores it — send medium as a safe default.
+# nemotron: "max" breaks it (probe confirmed), "xhigh" is the ceiling that works.
+# mimo: same field behaviour as deepseek (reasoning-first, effort supported).
 MODEL_EFFORT = {
     "deepseek-v4-flash-free": "max",
+    "mimo-v2.5-free":         "max",
+    "minimax-m3-free":        "medium",
     "nemotron-3-super-free":  "xhigh",
     "big-pickle":             "max",
 }
 
 # All supported reasoning_effort levels per model (for UI pickers etc.)
+# nemotron: "max" confirmed broken by probe — excluded.
+# mimo: same effort range as deepseek (reasoning-first model, same API behaviour).
+# minimax-m3: field accepted but no reasoning field returned — all levels listed
+#             for completeness but effectively cosmetic.
 MODEL_LEVELS = {
     "deepseek-v4-flash-free": ["low", "medium", "high", "max"],
+    "mimo-v2.5-free":         ["low", "medium", "high", "max"],
+    "minimax-m3-free":        ["none", "minimal", "low", "medium", "high", "xhigh", "max"],
     "nemotron-3-super-free":  ["none", "minimal", "low", "medium", "high", "xhigh"],
     "big-pickle":             ["low", "medium", "high", "xhigh", "max"],
 }
 
-# DeepSeek V4: thinking mode is always on and reasoning_content MUST be echoed
-# back in every assistant message in multi-turn conversations, or the API 400s.
-# routes.py reads this via needs_reasoning_passback() from providers/__init__.py.
-NEEDS_REASONING_PASSBACK = {"deepseek-v4-flash-free"}
+# Models where thinking mode is always on and reasoning_content MUST be echoed
+# back in every assistant message during multi-turn, or the API 400s.
+# mimo uses the "thinking" delta field instead of "reasoning_content" but the
+# same passback rule applies — include it defensively.
+NEEDS_REASONING_PASSBACK = {"deepseek-v4-flash-free", "mimo-v2.5-free"}
 
 INLINE_THINK_MODELS = set()
 
