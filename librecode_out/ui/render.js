@@ -77,15 +77,29 @@ window.copyCode = function(btn) {
 
 // ── Scroll ─────────────────────────────────────────────────────────────
 
+let _userScrolled = false;
+
 function isNearBottom() {
-    const threshold = 180;
+    const threshold = 120;
     return chatEl.scrollHeight - chatEl.scrollTop - chatEl.clientHeight < threshold;
 }
 
+// Detect intentional upward scroll → stop auto-following
+chatEl.addEventListener('wheel', (e) => {
+    if (e.deltaY < 0) _userScrolled = true;
+}, { passive: true });
+
+// Touch: finger swipes down (content moves up) → stop following
+let _touchStartY = 0;
+chatEl.addEventListener('touchstart', (e) => { _touchStartY = e.touches[0].clientY; }, { passive: true });
+chatEl.addEventListener('touchmove',  (e) => { if (e.touches[0].clientY > _touchStartY) _userScrolled = true; }, { passive: true });
+
+// Resume following once user scrolls back near bottom
+chatEl.addEventListener('scroll', () => { if (_userScrolled && isNearBottom()) _userScrolled = false; }, { passive: true });
+
 export function scrollBottom() {
-    if (isNearBottom()) {
-        chatEl.scrollTop = chatEl.scrollHeight;
-    }
+    if (_userScrolled) return;
+    if (isNearBottom()) chatEl.scrollTop = chatEl.scrollHeight;
 }
 
 export function forceScrollBottom() {
@@ -604,7 +618,7 @@ function _openDetailScreen(step) {
     const backBtn = screen.querySelector('.step-detail-back');
     backBtn.addEventListener('click', (e) => {
         e.stopPropagation();
-        _closeDetailScreen(screen);
+        _closeSheet();
     });
 
     const detailHeader = screen.querySelector('.step-detail-header');
@@ -635,9 +649,9 @@ function _closeDetailScreen(screen) {
 
 function _closeSheet() {
     if (!_sheetEl) return;
-    // if detail screen open, go back to list instead of closing
+    // remove any detail screen instantly before closing
     const detail = _sheetEl.querySelector('.step-detail-screen');
-    if (detail) { _closeDetailScreen(detail); return; }
+    if (detail) detail.remove();
     const sheet = _sheetEl.querySelector('.steps-sheet');
     sheet.style.transition = ''; // clear inline transition from drag so CSS closing animation plays
     _sheetEl.classList.add('closing');
@@ -752,7 +766,7 @@ export function createActivityBar(container) {
             const item = _activeThoughtItem();
             if (item && item._thoughtBody) {
                 item._thoughtBody.textContent = step.thoughtText;
-                item._thoughtBody.scrollTop   = item._thoughtBody.scrollHeight;
+                stepsList.scrollTop = stepsList.scrollHeight;
             }
             _refreshOpenDetail(step);
             scrollBottom();

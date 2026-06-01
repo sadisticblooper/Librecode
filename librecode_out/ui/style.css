@@ -545,14 +545,27 @@ body { display: flex; }
 }
 .act-live-card {
     display: flex; flex-direction: column;
-    border: 1px solid var(--border);
     background: var(--surface);
     border-radius: var(--radius-md);
     overflow: hidden;
     width: 100%;
     animation: actCardIn .22s cubic-bezier(.34,1.28,.64,1) both;
     transform-origin: top left;
+    /* gradient border via outline trick */
+    border: 1px solid transparent;
+    background-clip: padding-box;
+    position: relative;
 }
+.act-live-card::before {
+    content: '';
+    position: absolute; inset: -1px;
+    border-radius: calc(var(--radius-md) + 1px);
+    background: linear-gradient(135deg, #6c5ce7 0%, var(--accent) 60%, #4a9eff 100%);
+    z-index: 0;
+    opacity: .55;
+    pointer-events: none;
+}
+.act-live-card > * { position: relative; z-index: 1; }
 .act-live-card.act-sealing {
     animation: actCardOut .2s ease forwards;
     pointer-events: none;
@@ -613,7 +626,7 @@ body { display: flex; }
 .act-live-thought-body {
     padding: 0 12px 8px 32px;
     font-family: var(--font-mono);
-    font-size: 11.5px; line-height: 1.55; color: var(--text-dim);
+    font-size: 11.5px; line-height: 1.55; color: var(--text-muted);
     white-space: pre-wrap; word-break: break-word;
 }
 @media (orientation: landscape) and (min-width: 700px) {
@@ -764,7 +777,7 @@ body { display: flex; }
 .act-detail-section { padding: 8px 12px; border-top: 1px solid var(--border); }
 .act-detail-section:first-child { border-top: none; }
 .act-detail-label { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: #9578de; margin-bottom: 4px; display: block; }
-.act-detail-pre { margin: 0; white-space: pre-wrap; word-break: break-word; overflow-wrap: break-word; color: #c4c4c4; font-family: var(--font-mono); font-size: 12.5px; line-height: 1.5; }
+.act-detail-pre { margin: 0; white-space: pre-wrap; word-break: break-word; overflow-wrap: break-word; color: var(--text); font-family: var(--font-mono); font-size: 12.5px; line-height: 1.5; }
 .act-detail-pre::-webkit-scrollbar { width: 3px; }
 .act-detail-pre::-webkit-scrollbar-thumb { background: var(--border-mid); border-radius: 3px; }
 .act-detail-code { background: rgba(255,255,255,.03); border-radius: 4px; padding: 6px 8px; }
