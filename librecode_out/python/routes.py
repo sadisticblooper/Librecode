@@ -15,7 +15,7 @@ from datetime import datetime
 import requests
 from flask import request, jsonify, send_file, send_from_directory, Response, stream_with_context
 
-from python.config import COMPACTION_API_URL, COMPACTION_MODEL, MAX_TOKENS, COMPACTION_THRESHOLD
+from python.config import COMPACTION_API_URL, COMPACTION_MODEL, MAX_TOKENS
 from python.providers import get_provider, all_models, get_model_ctx, compaction_buffer, get_reasoning_effort, needs_reasoning_passback
 import python.state as state
 import python.agents as agents_mod
@@ -298,12 +298,21 @@ def _register(app) -> None:
             return jsonify({"status": "ok", "compacted": False, "history": []})
 
         history          = state.chat_histories.get(chat_id, [])
-        flat             = history_to_api_messages(history)
+        flat             = history_to_api_messages(history, model)
         previous_summary = state.chat_summaries.get(chat_id)
 
-        head, tail = split_head_tail(flat, COMPACTION_THRESHOLD, MAX_TOKENS)
+        # Use the real model context window (not the compaction threshold constant).
+        # This is a FORCED compact: skip the overflow guard — user explicitly asked
+        # for it, so compact whatever we have regardless of current token count.
+        ctx = get_model_ctx(model)
+
+        # If there's only a single user/assistant exchange there's genuinely nothing
+        # to split.  Summarise the whole history as head with empty tail.
+        head, tail = split_head_tail(flat, ctx, MAX_TOKENS)
         if not head:
-            return jsonify({"status": "ok", "compacted": False, "history": history})
+            # Fewer than 2 turns — summarise entire history
+            head = flat
+            tail = []
 
         summary = generate_summary(COMPACTION_API_URL, model, head, previous_summary)
         if not summary:

@@ -436,6 +436,7 @@ newChatBtn.onclick = async () => {
     await syncWorkingDirs();
     renderChatList();
     renderFolderBar();
+    updateContextBadge();
     updateSendButton();
     saveChats();
     input.focus();
@@ -446,10 +447,25 @@ newChatBtn.onclick = async () => {
 
 function updateContextBadge() {
     if (!contextBadge) return;
-    const chat     = activeChat();
-    const charCount = chat ? chat.history.reduce((n, m) => n + String(m.content || '').length, 0) : 0;
-    const tokEst   = Math.round(charCount / 4);
-    const total    = selectedModelCtx;
+    const chat = activeChat();
+    // Use apiHistory (actual payload sent to model) when available — it reflects
+    // compaction and is the true measure of context consumption. Fall back to the
+    // display history for new/uncompacted chats.
+    const source = (chat && chat.apiHistory && chat.apiHistory.length)
+        ? chat.apiHistory
+        : (chat ? chat.history : []);
+    const charCount = source.reduce((n, m) => {
+        let len = String(m.content || '').length;
+        // Count tool_calls argument strings too
+        if (m.tool_calls) {
+            for (const tc of m.tool_calls) {
+                len += String(tc?.function?.arguments || '').length;
+            }
+        }
+        return n + len;
+    }, 0);
+    const tokEst = Math.round(charCount / 4);
+    const total  = selectedModelCtx;
     contextBadge.textContent = formatCtx(tokEst) + '/' + formatCtx(total);
     const pct = tokEst / total;
     contextBadge.style.color = pct > 0.9 ? 'var(--err, #e05)' : pct > 0.7 ? 'var(--warn, #f90)' : '';
@@ -527,9 +543,11 @@ compressChatBtn.onclick = async (e) => {
             updateContextBadge();
         }
         if (data.compacted) {
-            showStatusBanner('✓ history summarised', 'ok');
+            showStatusBanner('✓ Context compacted', 'ok');
+        } else if (data.status === 'error') {
+            showStatusBanner('⚠ Compaction failed: ' + (data.message || 'unknown error'), 'error');
         } else {
-            showStatusBanner('✓ Not enough history to summarise yet', 'info');
+            showStatusBanner('✓ Context compacted', 'ok');
         }
     } catch (err) {
         showStatusBanner('⚠ Compression failed: ' + err.message, 'error');
@@ -637,11 +655,13 @@ async function loadModels() {
             inner.appendChild(_buildProviderSection(provider, data[provider] || []));
         });
 
-        const firstFree = (data.free && data.free[0]) || null;
-        if (firstFree && !selectedModel) {
-            setSelectedModel(firstFree.id);
-            setSelectedModelCtx(firstFree.ctx);
-            modelLabel.textContent = firstFree.label;
+        const freeModels   = data.free || [];
+        const bigPickle    = freeModels.find(m => m.id === 'big-pickle');
+        const defaultModel = bigPickle || freeModels[0] || null;
+        if (defaultModel && !selectedModel) {
+            setSelectedModel(defaultModel.id);
+            setSelectedModelCtx(defaultModel.ctx);
+            modelLabel.textContent = defaultModel.label;
         }
 
         bindModelSectionToggle();
