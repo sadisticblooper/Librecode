@@ -1025,6 +1025,137 @@ async function send() {
     if (isActive()) input.focus();
 }
 
+// ── Settings / Themes ──────────────────────────────────────────────────
+
+const THEMES = [
+    { id: 'default', label: 'Default',  colors: ['#0a0a0a', '#8b4fe0', '#4a9eff', '#1e1e1e'] },
+    { id: 'midnight', label: 'Midnight', colors: ['#080810', '#7c6af4', '#9888ff', '#222244'] },
+    { id: 'mocha',   label: 'Mocha',    colors: ['#0f0c09', '#d4845a', '#e8a07a', '#2e2520'] },
+    { id: 'forest',  label: 'Forest',   colors: ['#080e09', '#4caf6a', '#6bc882', '#1e2a20'] },
+    { id: 'ocean',   label: 'Ocean',    colors: ['#080c10', '#22c2d4', '#44d8e8', '#1c2836'] },
+    { id: 'rose',    label: 'Rose',     colors: ['#100a0c', '#f06080', '#f888a0', '#2c1820'] },
+    { id: 'light',   label: 'Light',    colors: ['#f5f5f7', '#4a6ef0', '#6888ff', '#d0d0d8'] },
+];
+
+let _activeTheme = localStorage.getItem('lc_theme') || 'default';
+let _previewTheme = null;
+
+function applyTheme(id) {
+    if (id === 'default') {
+        document.documentElement.removeAttribute('data-theme');
+    } else {
+        document.documentElement.setAttribute('data-theme', id);
+    }
+}
+
+function setTheme(id) {
+    _activeTheme = id;
+    _previewTheme = null;
+    localStorage.setItem('lc_theme', id);
+    applyTheme(id);
+    renderThemeCards();
+}
+
+function previewTheme(id) {
+    _previewTheme = id;
+    applyTheme(id);
+}
+
+function endPreview() {
+    _previewTheme = null;
+    applyTheme(_activeTheme);
+}
+
+function renderThemeCards() {
+    const grid = document.getElementById('themes-grid');
+    if (!grid) return;
+    grid.innerHTML = '';
+    for (const t of THEMES) {
+        const card = document.createElement('div');
+        card.className = 'theme-card' + (t.id === _activeTheme ? ' active' : '');
+        card.innerHTML = `
+            <div class="theme-swatch" style="background:${t.colors[0]}">
+                <div class="swatch-bar" style="background:${t.colors[1]}"></div>
+                <div class="swatch-bar" style="background:${t.colors[2]}"></div>
+                <div class="swatch-bar" style="background:${t.colors[3]}"></div>
+            </div>
+            <div class="theme-label">
+                <span>${t.label}</span>
+                <button class="theme-eye" title="Preview">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                </button>
+            </div>`;
+        card.querySelector('.theme-eye').addEventListener('mouseenter', () => previewTheme(t.id));
+        card.querySelector('.theme-eye').addEventListener('mouseleave', () => endPreview());
+        card.querySelector('.theme-eye').addEventListener('click', e => { e.stopPropagation(); setTheme(t.id); });
+        card.addEventListener('click', () => setTheme(t.id));
+        grid.appendChild(card);
+    }
+}
+
+const _settingsClose = document.getElementById('settings-close');
+const _userSettingsBtn = document.getElementById('user-settings-btn');
+
+const _settingsOverlay = document.getElementById('settings-sheet-overlay');
+
+const _themesToggle = document.getElementById('themes-toggle');
+const _themesGrid   = document.getElementById('themes-grid');
+
+_themesToggle.addEventListener('click', () => {
+    const isOpen = _themesToggle.classList.contains('open');
+    if (isOpen) {
+        _themesToggle.classList.remove('open');
+        _themesGrid.classList.add('hidden');
+    } else {
+        renderThemeCards();
+        _themesToggle.classList.add('open');
+        _themesGrid.classList.remove('hidden');
+    }
+});
+
+function openSettings() {
+    _settingsOverlay.classList.remove('hidden');
+    requestAnimationFrame(() => _settingsOverlay.classList.add('open'));
+}
+
+function closeSettings() {
+    endPreview();
+    _settingsOverlay.classList.add('closing');
+    _settingsOverlay.classList.remove('open');
+    setTimeout(() => {
+        _settingsOverlay.classList.remove('closing');
+        _settingsOverlay.classList.add('hidden');
+    }, 300);
+}
+
+_userSettingsBtn.addEventListener('click', openSettings);
+_settingsClose.addEventListener('click', closeSettings);
+_settingsOverlay.addEventListener('click', e => { if (e.target === _settingsOverlay) closeSettings(); });
+
+// ── UI Scale ────────────────────────────────────────────────────────────
+
+const _scaleSlider = document.getElementById('scale-slider');
+const _scaleValue  = document.getElementById('scale-value');
+
+function applyScale(v) {
+    document.documentElement.style.zoom = v + '%';
+}
+
+let _uiScale = parseInt(localStorage.getItem('lc_scale') || '100', 10);
+_scaleSlider.value = _uiScale;
+_scaleValue.textContent = _uiScale + '%';
+applyScale(_uiScale);
+
+_scaleSlider.addEventListener('input', () => {
+    _uiScale = parseInt(_scaleSlider.value, 10);
+    _scaleValue.textContent = _uiScale + '%';
+    localStorage.setItem('lc_scale', _uiScale);
+    applyScale(_uiScale);
+});
+
+// Apply saved theme on load
+applyTheme(_activeTheme);
+
 sendBtn.onclick = send;
 input.onkeydown = e => {
     if (e.key === 'Enter' && (e.shiftKey || e.ctrlKey)) {

@@ -337,6 +337,9 @@ function _ensureSheet() {
         document.body.style.userSelect = '';
         const curH = sheet.getBoundingClientRect().height;
 
+        // Tap with no meaningful drag — do nothing
+        if (Math.abs(_dragStartH - curH) < 6) return;
+
         // Only close if user physically dragged it all the way to the bottom
         if (curH < 60) { _closeSheet(); return; }
 
@@ -377,25 +380,22 @@ function _renderStepDetail(step, container) {
     // For thought steps that are still active, we need live updating.
     // We store state on the container element itself.
     if (step.name === '__thought__') {
-        if (!container._thoughtPre) {
+        const isFirst = !container._thoughtPre;
+        if (isFirst) {
             container.style.cssText = 'padding: 10px 14px;';
             const pre = document.createElement('pre');
             pre.className = 'act-detail-pre';
             pre.style.cssText = 'max-height: none; padding: 0;';
             container.appendChild(pre);
             container._thoughtPre = pre;
-            container._thoughtRendered = 0;
         }
-        // Append only new content since last render
         const pre = container._thoughtPre;
         const fullText = step.thoughtText || step.text || '';
-        const lines = fullText.split('\n');
-        const already = container._thoughtRendered;
-        if (lines.length > already) {
-            for (let i = already; i < lines.length; i++) {
-                pre.textContent += (i > 0 ? '\n' : '') + lines[i];
-            }
-            container._thoughtRendered = lines.length;
+        pre.textContent = fullText;
+        // First open → top; live streaming update → follow bottom
+        if (isFirst) {
+            container.scrollTop = 0;
+        } else if (step.result == null) {
             container.scrollTop = container.scrollHeight;
         }
     } else if (step.name === 'edit' || step.name === 'diff') {
@@ -656,47 +656,104 @@ function _closeSheet() {
 export function createActivityBar(container) {
     const target = container || chatEl;
     const steps  = [];
-    let sealed   = false;
+    let sealed    = false;
+    let collapsed = false;
 
     const wrap = document.createElement('div');
     wrap.className = 'act-wrap';
 
-    const bar = document.createElement('div');
-    bar.className = 'act-bar';
-    bar.innerHTML =
+    const card = document.createElement('div');
+    card.className = 'act-live-card';
+
+    const cardHeader = document.createElement('div');
+    cardHeader.className = 'act-live-header';
+    cardHeader.innerHTML =
+        '<svg class="act-live-chevron" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>' +
         '<span class="act-spinner"></span>' +
-        '<span class="act-label">Thinking\u2026</span>' +
-        '<svg class="act-chevron" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="display:none"><polyline points="6 9 12 15 18 9"/></svg>';
-    wrap.appendChild(bar);
+        '<span class="act-live-count">Thinking\u2026</span>';
+
+    const stepsList = document.createElement('div');
+    stepsList.className = 'act-live-steps';
+
+    card.appendChild(cardHeader);
+    card.appendChild(stepsList);
+    wrap.appendChild(card);
     target.appendChild(wrap);
     scrollBottom();
 
-    const labelEl   = bar.querySelector('.act-label');
-    const spinnerEl = bar.querySelector('.act-spinner');
-    const chevronEl = bar.querySelector('.act-chevron');
+    const countEl     = cardHeader.querySelector('.act-live-count');
+    const liveChevron = cardHeader.querySelector('.act-live-chevron');
 
-    function _setBarLabel(text) {
+    cardHeader.addEventListener('click', () => {
+        if (sealed) return;
+        collapsed = !collapsed;
+        stepsList.classList.toggle('act-live-steps-hidden', collapsed);
+        liveChevron.style.transform = collapsed ? 'rotate(-90deg)' : '';
+    });
+
+    function _updateCount() {
         const n = steps.length;
-        const full = n > 0 ? text + '  \u00b7  step\u00a0' + n : text;
-        labelEl.textContent = full.length > 70 ? full.slice(0, 68) + '\u2026' : full;
+        countEl.textContent = n <= 1
+            ? 'Thinking\u2026'
+            : n + '\u00a0steps';
     }
 
-    bar.addEventListener('click', () => {
-        if (steps.length) _openSheet(steps, labelEl.textContent);
-    });
+    function _addStepItem(step) {
+        const item = document.createElement('div');
+        item.className = 'act-live-step-item';
+
+        const main = document.createElement('div');
+        main.className = 'act-live-step-main';
+        main.innerHTML =
+            _actStepIcon(step.name) +
+            '<span class="act-live-step-lbl">' + escHtml(_actLabel(step.name, step.args || {})) + '</span>';
+        item.appendChild(main);
+
+        if (step.name === '__thought__') {
+            const body = document.createElement('div');
+            body.className = 'act-live-thought-body';
+            item.appendChild(body);
+            item._thoughtBody = body;
+        }
+
+        // tap any row → open detail screen
+        item.addEventListener('click', (e) => {
+            e.stopPropagation();
+            _openSheet(steps, countEl.textContent);
+            _openDetailScreen(step);
+        });
+
+        item._step = step;
+        stepsList.appendChild(item);
+        // keep newest step in view
+        stepsList.scrollTop = stepsList.scrollHeight;
+        return item;
+    }
+
+    function _activeThoughtItem() {
+        const items = stepsList.querySelectorAll('.act-live-step-item');
+        const last  = items.length ? items[items.length - 1] : null;
+        return (last && last._step && last._step.name === '__thought__') ? last : null;
+    }
 
     const obj = {
         wrap,
 
         addThought(text) {
-            let step = steps.length && steps[steps.length - 1].name === '__thought__' ? steps[steps.length - 1] : null;
+            let step = steps.length && steps[steps.length - 1].name === '__thought__'
+                ? steps[steps.length - 1] : null;
             if (!step) {
                 step = { name: '__thought__', args: {}, thoughtText: '', result: null };
                 steps.push(step);
+                _addStepItem(step);
+                _updateCount();
             }
             step.thoughtText += text;
-            _setBarLabel('Thinking\u2026');
-            // live-update open detail screen if it's showing this step
+            const item = _activeThoughtItem();
+            if (item && item._thoughtBody) {
+                item._thoughtBody.textContent = step.thoughtText;
+                item._thoughtBody.scrollTop   = item._thoughtBody.scrollHeight;
+            }
             _refreshOpenDetail(step);
             scrollBottom();
         },
@@ -704,8 +761,8 @@ export function createActivityBar(container) {
         addTool(name, args) {
             const step = { name, args: args || {}, thoughtText: '', result: null };
             steps.push(step);
-            _setBarLabel(_actLabel(name, args || {}));
-            // also refresh list rows if sheet is open
+            _addStepItem(step);
+            _updateCount();
             _refreshSheetList(steps);
             scrollBottom();
             return step;
@@ -724,11 +781,26 @@ export function createActivityBar(container) {
 
         seal() {
             sealed = true;
-            spinnerEl.className = '';
-            // freeze whatever label was last shown, step count appended
-            chevronEl.style.display = '';
-            wrap.classList.add('act-sealed');
-            scrollBottom();
+            const n     = steps.length;
+            const last  = steps[n - 1];
+            const title = last
+                ? _actLabel(last.name, last.args || {}) + '  \u00b7  step\u00a0' + n
+                : n + '\u00a0steps';
+
+            card.classList.add('act-sealing');
+            setTimeout(() => {
+                if (!wrap.isConnected) return;
+                wrap.innerHTML = '';
+                const bar = document.createElement('div');
+                bar.className = 'act-bar act-bar-fadein';
+                bar.innerHTML =
+                    '<span class="act-label">' + escHtml(title) + '</span>' +
+                    '<svg class="act-chevron" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>';
+                bar.addEventListener('click', () => _openSheet(steps, title));
+                wrap.appendChild(bar);
+                wrap.classList.add('act-sealed');
+                scrollBottom();
+            }, 220);
         },
     };
 
