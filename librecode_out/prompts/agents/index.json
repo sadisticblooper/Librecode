@@ -2,57 +2,17 @@
   {
     "id": "build",
     "name": "build",
-    "description": "Full access - code, write, run commands",
+    "description": "Full access — code, write, run commands",
     "file": "build.md",
-    "no_tools": false,
-    "denied_tools": []
-  },
-  {
-    "id": "build-supercharged",
-    "name": "build-supercharged",
-    "description": "Parallel multi-agent orchestrator - spawns specialists",
-    "file": "build-supercharged.md",
     "no_tools": false,
     "denied_tools": []
   },
   {
     "id": "plan",
     "name": "plan",
-    "description": "Read-only analysis - no file writes",
+    "description": "Read-only analysis — no file writes",
     "file": "plan.md",
     "no_tools": false,
     "denied_tools": ["write", "edit", "shell", "python_exec"]
-  },
-  {
-    "id": "explore",
-    "name": "explore",
-    "description": "Search and read only - fast codebase nav",
-    "file": "explore.md",
-    "no_tools": false,
-    "denied_tools": ["write", "edit", "shell", "python_exec", "web_search", "web_fetch", "spawn_agent"]
-  },
-  {
-    "id": "ask",
-    "name": "ask",
-    "description": "No tools - pure Q&A, no file access",
-    "file": "ask.md",
-    "no_tools": true,
-    "denied_tools": []
-  },
-  {
-    "id": "caveman",
-    "name": "caveman",
-    "description": "Ultra-compressed output with full tool access",
-    "file": "caveman.md",
-    "no_tools": false,
-    "denied_tools": []
-  },
-  {
-    "id": "script-writer",
-    "name": "script-writer",
-    "description": "Browser DOM inspector + JS script author for provider scripts and manifests",
-    "file": "script-writer.md",
-    "no_tools": false,
-    "denied_tools": ["spawn_agent"]
   }
 ]
