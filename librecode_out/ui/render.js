@@ -594,7 +594,7 @@ function _openSheet(steps, title) {
     _sheetEl.classList.add('open');
 }
 
-function _openDetailScreen(step) {
+function _openDetailScreen(step, closeOnBack = false) {
     const sheet = _sheetEl.querySelector('.steps-sheet');
 
     // Remove any existing detail screen instantly
@@ -618,7 +618,11 @@ function _openDetailScreen(step) {
     const backBtn = screen.querySelector('.step-detail-back');
     backBtn.addEventListener('click', (e) => {
         e.stopPropagation();
-        _closeSheet();
+        if (closeOnBack) {
+            _closeSheet();
+        } else {
+            _closeDetailScreen(screen);
+        }
     });
 
     const detailHeader = screen.querySelector('.step-detail-header');
@@ -649,9 +653,9 @@ function _closeDetailScreen(screen) {
 
 function _closeSheet() {
     if (!_sheetEl) return;
-    // remove any detail screen instantly before closing
+    // if detail screen open, go back to list instead of closing
     const detail = _sheetEl.querySelector('.step-detail-screen');
-    if (detail) detail.remove();
+    if (detail) { _closeDetailScreen(detail); return; }
     const sheet = _sheetEl.querySelector('.steps-sheet');
     sheet.style.transition = ''; // clear inline transition from drag so CSS closing animation plays
     _sheetEl.classList.add('closing');
@@ -734,7 +738,7 @@ export function createActivityBar(container) {
         item.addEventListener('click', (e) => {
             e.stopPropagation();
             _openSheet(steps, countEl.textContent);
-            _openDetailScreen(step);
+            _openDetailScreen(step, true);
         });
 
         item._step = step;

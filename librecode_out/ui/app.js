@@ -1142,6 +1142,7 @@ function applyScale(v) {
 }
 
 let _uiScale = parseInt(localStorage.getItem('lc_scale') || '100', 10);
+_uiScale = Math.min(150, Math.max(50, _uiScale));
 _scaleSlider.value = _uiScale;
 _scaleValue.textContent = _uiScale + '%';
 applyScale(_uiScale);

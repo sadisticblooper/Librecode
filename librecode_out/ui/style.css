@@ -217,7 +217,7 @@ body { display: flex; }
     height: 1px; background: var(--border); margin: 6px 0 16px;
 }
 .scale-slider {
-    width: 220px; max-width: 100%; -webkit-appearance: none; appearance: none;
+    width: 440px; max-width: 100%; -webkit-appearance: none; appearance: none;
     height: 4px; border-radius: 2px;
     background: var(--border-light); outline: none; cursor: pointer;
     accent-color: var(--accent);
@@ -545,27 +545,14 @@ body { display: flex; }
 }
 .act-live-card {
     display: flex; flex-direction: column;
+    border: 1px solid var(--border);
     background: var(--surface);
     border-radius: var(--radius-md);
     overflow: hidden;
     width: 100%;
     animation: actCardIn .22s cubic-bezier(.34,1.28,.64,1) both;
     transform-origin: top left;
-    /* gradient border via outline trick */
-    border: 1px solid transparent;
-    background-clip: padding-box;
-    position: relative;
 }
-.act-live-card::before {
-    content: '';
-    position: absolute; inset: -1px;
-    border-radius: calc(var(--radius-md) + 1px);
-    background: linear-gradient(135deg, #6c5ce7 0%, var(--accent) 60%, #4a9eff 100%);
-    z-index: 0;
-    opacity: .55;
-    pointer-events: none;
-}
-.act-live-card > * { position: relative; z-index: 1; }
 .act-live-card.act-sealing {
     animation: actCardOut .2s ease forwards;
     pointer-events: none;
