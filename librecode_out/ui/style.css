@@ -1233,3 +1233,77 @@ body { display: flex; }
     from { height: 14px; }
     to   { height: 22px; }
 }
+
+/* ── LaTeX / KaTeX ──────────────────────────────────────────────────── */
+
+.math-block {
+    overflow-x: auto;
+    padding: 10px 4px;
+    text-align: center;
+}
+
+.math-inline .katex {
+    font-size: 1em;
+}
+
+.katex-display {
+    margin: 0;
+}
+
+/* ── Markdown tables ─────────────────────────────────────────────────── */
+
+.md-table-wrap {
+    overflow-x: auto;
+    margin: 8px 0;
+    border-radius: 8px;
+}
+
+.md-table {
+    border-collapse: collapse;
+    width: 100%;
+    font-size: 0.88em;
+}
+
+.md-table th,
+.md-table td {
+    padding: 7px 12px;
+    text-align: left;
+    border: 1px solid rgba(255,255,255,0.1);
+    white-space: nowrap;
+}
+
+.md-table thead tr {
+    background: rgba(255,255,255,0.07);
+}
+
+.md-table tbody tr:nth-child(even) {
+    background: rgba(255,255,255,0.03);
+}
+
+.md-table th {
+    font-weight: 600;
+    color: rgba(255,255,255,0.85);
+}
+
+/* ── Mermaid diagrams ────────────────────────────────────────────────── */
+
+.mermaid-block {
+    margin: 10px 0;
+    background: rgba(255,255,255,0.03);
+    border-radius: 10px;
+    padding: 16px;
+    overflow-x: auto;
+    text-align: center;
+}
+
+.mermaid-diagram svg {
+    max-width: 100%;
+    height: auto;
+}
+
+.mermaid-error {
+    color: rgba(255,100,100,0.8);
+    font-size: 0.8em;
+    white-space: pre-wrap;
+    text-align: left;
+}

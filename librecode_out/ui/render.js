@@ -11,7 +11,13 @@ export function escHtml(s) {
         .replace(/>/g, '&gt;');
 }
 
+let _mermaidCounter = 0;
+
 function buildCodeBlock(lang, code) {
+    if (lang === 'mermaid') {
+        const id = 'mermaid-' + (++_mermaidCounter);
+        return '<div class="mermaid-block"><div class="mermaid-diagram" id="' + id + '" data-src="' + encodeURIComponent(code.trim()) + '"></div></div>';
+    }
     return '<div class="code-block">' +
         '<div class="code-block-header">' +
         '<span class="code-lang">' + escHtml(lang || 'code') + '</span>' +
@@ -22,33 +28,104 @@ function buildCodeBlock(lang, code) {
 }
 
 export function highlightCodeBlocks(container) {
-    if (typeof hljs === 'undefined') return;
-    const blocks = container.querySelectorAll('pre code');
-    blocks.forEach(block => {
-        if (block.dataset.highlighted) return;
-        hljs.highlightElement(block);
-        block.dataset.highlighted = 'true';
-    });
+    if (typeof hljs !== 'undefined') {
+        const blocks = container.querySelectorAll('pre code');
+        blocks.forEach(block => {
+            if (block.dataset.highlighted) return;
+            hljs.highlightElement(block);
+            block.dataset.highlighted = 'true';
+        });
+    }
+    if (typeof window._mermaid !== 'undefined') {
+        const diagrams = container.querySelectorAll('.mermaid-diagram:not([data-rendered])');
+        diagrams.forEach(async (el) => {
+            el.dataset.rendered = 'true';
+            const src = decodeURIComponent(el.dataset.src || '');
+            try {
+                const id = (el.id || ('mermaid-' + (++_mermaidCounter))) + '-svg';
+                const { svg } = await window._mermaid.render(id, src);
+                el.innerHTML = svg;
+            } catch (e) {
+                el.innerHTML = '<pre class="mermaid-error">' + escHtml(src) + '</pre>';
+            }
+        });
+    }
+}
+
+// ── Table parser ────────────────────────────────────────────────────────
+
+function parseTableBlock(text) {
+    // Match a full markdown table: header | separator | rows
+    return text.replace(
+        /^(\|.+\|\n)([ \t]*\|[ \t]*[-:]+[-| \t:]*\|\n)((?:\|.+\|\n?)*)/gm,
+        (_, header, _sep, body) => {
+            const parseRow = row =>
+                row.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim());
+            const headers = parseRow(header);
+            const rows    = body.trim().split('\n').filter(Boolean).map(parseRow);
+            const th = headers.map(h => '<th>' + h + '</th>').join('');
+            const trs = rows.map(r =>
+                '<tr>' + r.map(c => '<td>' + c + '</td>').join('') + '</tr>'
+            ).join('');
+            return '<div class="md-table-wrap"><table class="md-table"><thead><tr>' + th + '</tr></thead><tbody>' + trs + '</tbody></table></div>\n';
+        }
+    );
+}
+
+// ── KaTeX renderer ──────────────────────────────────────────────────────
+
+function renderMath(tex, display) {
+    if (typeof katex === 'undefined') {
+        return display ? '<div class="math-block">$$' + escHtml(tex) + '$$</div>'
+                       : '<span class="math-inline">$' + escHtml(tex) + '$</span>';
+    }
+    try {
+        return katex.renderToString(tex, { throwOnError: false, displayMode: display });
+    } catch {
+        return escHtml(tex);
+    }
 }
 
 export function parseMarkdown(text) {
     if (!text) return '';
     const segments = [];
-    const fence    = /```(\w*)\n?([\s\S]*?)```/g;
+    // Split by fenced code blocks AND display math $$...$$
+    const fence = /```(\w*)\n?([\s\S]*?)```|\$\$([\s\S]*?)\$\$/g;
     let last = 0, m;
     while ((m = fence.exec(text)) !== null) {
         if (m.index > last) segments.push({ type: 'text', content: text.slice(last, m.index) });
-        segments.push({ type: 'code', lang: m[1] || '', content: m[2] });
+        if (m[3] !== undefined) {
+            segments.push({ type: 'math_block', content: m[3] });
+        } else {
+            segments.push({ type: 'code', lang: m[1] || '', content: m[2] });
+        }
         last = m.index + m[0].length;
     }
     if (last < text.length) segments.push({ type: 'text', content: text.slice(last) });
+
     return segments.map(seg => {
-        if (seg.type === 'code') return buildCodeBlock(seg.lang, seg.content);
-        let s = escHtml(seg.content);
-        s = s.replace(/`([^`\n]+)`/g,           '<code>$1</code>');
-        s = s.replace(/\*\*([^*\n]+)\*\*/g,     '<strong>$1</strong>');
-        s = s.replace(/__([^_\n]+)__/g,          '<strong>$1</strong>');
-        s = s.replace(/\*([^*\n]+)\*/g,          '<em>$1</em>');
+        if (seg.type === 'code')       return buildCodeBlock(seg.lang, seg.content);
+        if (seg.type === 'math_block') return '<div class="math-block">' + renderMath(seg.content.trim(), true) + '</div>';
+
+        // ── text segment ──
+        let raw = seg.content;
+
+        // Tables (before escaping, operating on raw text)
+        raw = parseTableBlock(raw);
+
+        // Inline math placeholders — extract before escaping
+        const mathStore = [];
+        raw = raw.replace(/\$([^$\n]+?)\$/g, (_, tex) => {
+            mathStore.push(tex);
+            return '\x00M' + (mathStore.length - 1) + '\x00';
+        });
+
+        let s = escHtml(raw);
+
+        s = s.replace(/`([^`\n]+)`/g,            '<code>$1</code>');
+        s = s.replace(/\*\*([^*\n]+)\*\*/g,      '<strong>$1</strong>');
+        s = s.replace(/__([^_\n]+)__/g,           '<strong>$1</strong>');
+        s = s.replace(/\*([^*\n]+)\*/g,           '<em>$1</em>');
         s = s.replace(/(^|[\s>])_([^_\n]+)_(?=[\s<,\.!?;:]|$)/gm, '$1<em>$2</em>');
         s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
         s = s.replace(/^### (.+)$/gm, '<h3>$1</h3>');
@@ -57,10 +134,18 @@ export function parseMarkdown(text) {
         s = s.replace(/^[\*\-] (.+)$/gm, '<li>$1</li>');
         s = s.replace(/(<li>.*<\/li>\n?)+/g, mm => '<ul>' + mm + '</ul>');
         s = s.replace(/^---$/gm, '<hr>');
+
+        // Restore inline math
+        if (mathStore.length) {
+            s = s.replace(/\x00M(\d+)\x00/g, (_, i) =>
+                '<span class="math-inline">' + renderMath(mathStore[+i], false) + '</span>'
+            );
+        }
+
         return s.split(/\n\n+/).map(b => {
             b = b.trim();
             if (!b) return '';
-            if (/^<(div|ul|ol|h[1-6]|hr|blockquote)/.test(b)) return b;
+            if (/^<(div|ul|ol|h[1-6]|hr|blockquote|table)/.test(b)) return b;
             return b.replace(/\n/g, '<br>');
         }).join('<br>');
     }).join('');
