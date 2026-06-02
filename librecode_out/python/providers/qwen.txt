@@ -90,6 +90,7 @@ def stream_chat(
     messages: list[dict],
     tools: list | None = None,
     max_tokens: int | None = None,
+    reasoning_effort: str | None = None,
 ) -> Generator[dict, None, None]:
     url = f"{BASE_URL}/v1/chat/completions"
 

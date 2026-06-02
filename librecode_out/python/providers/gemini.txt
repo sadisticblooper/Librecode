@@ -50,7 +50,7 @@ def _convert_to_gemini_format(messages: list[dict]) -> list[dict]:
 
 
 def stream_chat(model_id: str, messages: list[dict], tools: list | None = None,
-                max_tokens: int | None = None) -> Generator[dict, None, None]:
+                max_tokens: int | None = None, reasoning_effort: str | None = None) -> Generator[dict, None, None]:
     """Stream from Gemini streamGenerateContent endpoint."""
     if not API_KEY:
         yield {"type": "error", "text": "GEMINI_API_KEY not set in providers/gemini.py"}

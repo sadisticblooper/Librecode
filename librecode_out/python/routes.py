@@ -19,7 +19,7 @@ from python.config import COMPACTION_API_URL, COMPACTION_MODEL, MAX_TOKENS
 from python.providers import get_provider, all_models, get_model_ctx, compaction_buffer, get_reasoning_effort, needs_reasoning_passback
 import python.state as state
 import python.agents as agents_mod
-from python.storage import get_librecode_dir, chats_index_file, chat_file, resolve_path, is_within_dir
+from python.storage import get_librecode_dir, chat_file, resolve_path, is_within_dir
 from python.tools import get_tools_for_agent, reload_agents as _reload_agents, run_tool
 from python.subagent import run_subagent_streaming, _subagent_semaphore
 from python.compaction import (
@@ -236,9 +236,8 @@ def _register(app) -> None:
 
     @app.route("/save_chats", methods=["POST"])
     def save_chats():
-        data      = request.json
-        chats     = data.get("chats", [])
-        active_id = data.get("activeChatId")
+        data  = request.json
+        chats = data.get("chats", [])
         try:
             for chat in chats:
                 cid = chat.get("id", "")
@@ -246,12 +245,6 @@ def _register(app) -> None:
                     continue
                 with open(chat_file(cid), "w", encoding="utf-8") as f:
                     json.dump(chat, f, ensure_ascii=False, indent=2)
-            index = {
-                "activeChatId": active_id,
-                "chatIds":      [c["id"] for c in chats if c.get("id")],
-            }
-            with open(chats_index_file(), "w", encoding="utf-8") as f:
-                json.dump(index, f, ensure_ascii=False, indent=2)
             return jsonify({"status": "ok"})
         except Exception as e:
             return jsonify({"status": "error", "message": str(e)})
@@ -259,30 +252,25 @@ def _register(app) -> None:
     @app.route("/load_chats", methods=["GET"])
     def load_chats():
         try:
-            with open(chats_index_file(), "r", encoding="utf-8") as f:
-                index = json.load(f)
-            chats       = []
-            loaded_ids  = set()
-            for cid in index.get("chatIds", []):
+            librecode_dir = get_librecode_dir()
+            chat_files = []
+            for root, _, files in os.walk(librecode_dir):
+                for fname in files:
+                    if fname.startswith("chat") and fname.endswith(".json"):
+                        chat_files.append(os.path.join(root, fname))
+            chats = []
+            for fp in chat_files:
                 try:
-                    with open(chat_file(cid), "r", encoding="utf-8") as f:
-                        chats.append(json.load(f))
-                    loaded_ids.add(cid)
+                    with open(fp, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                    if not isinstance(data, dict) or not data.get("id"):
+                        continue
+                    chats.append(data)
                 except Exception:
-                    state.chat_histories.pop(cid, None)
-                    state.chat_summaries.pop(cid, None)
-            for cid in list(state.chat_histories.keys()):
-                if cid not in loaded_ids:
-                    state.chat_histories.pop(cid, None)
-                    state.chat_summaries.pop(cid, None)
-            active = index.get("activeChatId")
-            if active not in loaded_ids:
-                active = chats[0]["id"] if chats else None
+                    continue
+            chats.sort(key=lambda c: os.path.getmtime(chat_file(c["id"])), reverse=True)
+            active = chats[0]["id"] if chats else None
             return jsonify({"chats": chats, "activeChatId": active})
-        except FileNotFoundError:
-            state.chat_histories.clear()
-            state.chat_summaries.clear()
-            return jsonify({"chats": [], "activeChatId": None})
         except Exception as e:
             return jsonify({"chats": [], "activeChatId": None, "error": str(e)})
 
