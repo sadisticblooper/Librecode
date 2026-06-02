@@ -259,11 +259,32 @@ def _register(app) -> None:
     @app.route("/load_chats", methods=["GET"])
     def load_chats():
         try:
-            with open(chats_index_file(), "r", encoding="utf-8") as f:
-                index = json.load(f)
-            chats       = []
-            loaded_ids  = set()
-            for cid in index.get("chatIds", []):
+            # ── 1. Read index (tolerate missing / corrupt file) ───────────
+            index = {}
+            try:
+                with open(chats_index_file(), "r", encoding="utf-8") as f:
+                    index = json.load(f)
+            except FileNotFoundError:
+                pass
+            except Exception:
+                pass  # corrupt index — we'll recover below
+
+            chat_ids = list(index.get("chatIds", []))
+
+            # ── 2. If index is empty, scan dir for existing chat JSON files ─
+            if not chat_ids:
+                lib_dir = get_librecode_dir()
+                try:
+                    for fn in sorted(os.listdir(lib_dir)):
+                        if fn.endswith(".json") and fn != "index.json":
+                            chat_ids.append(fn[:-5])  # strip .json to get chat_id
+                except Exception:
+                    pass
+
+            # ── 3. Load each chat file ────────────────────────────────────
+            chats      = []
+            loaded_ids = set()
+            for cid in chat_ids:
                 try:
                     with open(chat_file(cid), "r", encoding="utf-8") as f:
                         chats.append(json.load(f))
@@ -271,18 +292,17 @@ def _register(app) -> None:
                 except Exception:
                     state.chat_histories.pop(cid, None)
                     state.chat_summaries.pop(cid, None)
+
+            # ── 4. Evict server-side state for chats no longer on disk ────
             for cid in list(state.chat_histories.keys()):
                 if cid not in loaded_ids:
                     state.chat_histories.pop(cid, None)
                     state.chat_summaries.pop(cid, None)
+
             active = index.get("activeChatId")
             if active not in loaded_ids:
                 active = chats[0]["id"] if chats else None
             return jsonify({"chats": chats, "activeChatId": active})
-        except FileNotFoundError:
-            state.chat_histories.clear()
-            state.chat_summaries.clear()
-            return jsonify({"chats": [], "activeChatId": None})
         except Exception as e:
             return jsonify({"chats": [], "activeChatId": None, "error": str(e)})
 

@@ -30,6 +30,9 @@ def _ensure_loaded():
     if not _loaded:
         _loaded = True
         _load_providers()
+        # If nothing loaded (providers dir not ready yet), allow retry on next call
+        if not _providers:
+            _loaded = False
 
 def _provider_for_model(model_id: str):
     """Return the provider module for a model, or None."""

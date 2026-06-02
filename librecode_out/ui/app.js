@@ -45,8 +45,21 @@ import {
 } from './render.js';
 
 
-// Auto-save every 500 ms
-setInterval(saveChats, 500);
+// Auto-save every 500 ms — guarded so it never fires before loadChats() completes,
+// which would overwrite the real index with an empty one.
+let _appInitialized = false;
+setInterval(() => { if (_appInitialized) saveChats(); }, 500);
+
+// Poll for providers every 3 s — only when the model dropdown is closed,
+// to avoid visual glitches while the user is browsing it.
+setInterval(() => {
+    if (modelDropdown.classList.contains('hidden')) {
+        const inner = modelDropdown.querySelector('.model-dropdown-inner');
+        if (!inner || !inner.querySelector('.model-section')) {
+            loadModels();
+        }
+    }
+}, 3000);
 
 // ── Message rail (right-side user message position indicator) ──────────
 const _rail = document.getElementById('msg-rail');
@@ -1174,6 +1187,7 @@ input.oninput = () => {
 async function init() {
     await getStorageDir();
     await loadChats();
+    _appInitialized = true; // ungate auto-save — index is now populated
     // Ensure every loaded chat has its own workingDirs array (backend may omit it).
     chats.forEach(c => { if (!Array.isArray(c.workingDirs)) c.workingDirs = []; });
     await loadAgents();
