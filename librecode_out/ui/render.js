@@ -53,23 +53,38 @@ export function highlightCodeBlocks(container) {
 }
 
 // ── Table parser ────────────────────────────────────────────────────────
+//
+// Tables are extracted BEFORE escHtml runs, stored in a sentinel, then
+// re-injected AFTER all other escaping. This mirrors how inline math
+// is handled and prevents the generated <table> HTML from being escaped
+// into literal text.
+
+const _tableStore = [];
 
 function parseTableBlock(text) {
-    // Match a full markdown table: header | separator | rows
+    // Reset for each top-level parseMarkdown call (caller does this)
     return text.replace(
         /^(\|.+\|\n)([ \t]*\|[ \t]*[-:]+[-| \t:]*\|\n)((?:\|.+\|\n?)*)/gm,
-        (_, header, _sep, body) => {
-            const parseRow = row =>
-                row.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim());
-            const headers = parseRow(header);
-            const rows    = body.trim().split('\n').filter(Boolean).map(parseRow);
-            const th = headers.map(h => '<th>' + h + '</th>').join('');
-            const trs = rows.map(r =>
-                '<tr>' + r.map(c => '<td>' + c + '</td>').join('') + '</tr>'
-            ).join('');
-            return '<div class="md-table-wrap"><table class="md-table"><thead><tr>' + th + '</tr></thead><tbody>' + trs + '</tbody></table></div>\n';
+        (match) => {
+            const idx = _tableStore.length;
+            _tableStore.push(match);
+            return '\x00T' + idx + '\x00';
         }
     );
+}
+
+function buildTableHtml(tableText) {
+    const lines = tableText.split('\n').filter(Boolean);
+    if (lines.length < 3) return tableText;
+    const parseRow = row =>
+        row.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim());
+    const headers = parseRow(lines[0]);
+    const rows    = lines.slice(2).map(parseRow);
+    const th = headers.map(h => '<th>' + escHtml(h) + '</th>').join('');
+    const trs = rows.map(r =>
+        '<tr>' + r.map(c => '<td>' + escHtml(c) + '</td>').join('') + '</tr>'
+    ).join('');
+    return '<div class="md-table-wrap"><table class="md-table"><thead><tr>' + th + '</tr></thead><tbody>' + trs + '</tbody></table></div>';
 }
 
 // ── KaTeX renderer ──────────────────────────────────────────────────────
@@ -88,6 +103,8 @@ function renderMath(tex, display) {
 
 export function parseMarkdown(text) {
     if (!text) return '';
+    // Reset the per-call table store so sentinels are unique to this parse
+    _tableStore.length = 0;
     const segments = [];
     // Split by fenced code blocks AND display math $$...$$
     const fence = /```(\w*)\n?([\s\S]*?)```|\$\$([\s\S]*?)\$\$/g;
@@ -140,6 +157,11 @@ export function parseMarkdown(text) {
             s = s.replace(/\x00M(\d+)\x00/g, (_, i) =>
                 '<span class="math-inline">' + renderMath(mathStore[+i], false) + '</span>'
             );
+        }
+
+        // Restore tables (cells already escaped during buildTableHtml)
+        if (_tableStore.length) {
+            s = s.replace(/\x00T(\d+)\x00/g, (_, i) => buildTableHtml(_tableStore[+i]));
         }
 
         return s.split(/\n\n+/).map(b => {
