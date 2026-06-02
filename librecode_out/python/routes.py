@@ -479,7 +479,8 @@ def _register(app) -> None:
                 _last_block_type = None
 
                 try:
-                    events = provider.stream_chat(model, messages, active_tools, MAX_TOKENS, get_reasoning_effort(model))
+                    _effort = get_reasoning_effort(model)
+                    events = provider.stream_chat(model, messages, active_tools, MAX_TOKENS, **({'reasoning_effort': _effort} if _effort else {}))
                 except Exception as e:
                     yield f"data: {json.dumps({'type': 'error', 'text': str(e)})}\n\n"
                     return
