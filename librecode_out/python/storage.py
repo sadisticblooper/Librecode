@@ -31,6 +31,10 @@ def get_librecode_dir() -> str:
     return d
 
 
+def chats_index_file() -> str:
+    return os.path.join(get_librecode_dir(), "index.json")
+
+
 def chat_file(chat_id: str) -> str:
     safe = re.sub(r'[^a-zA-Z0-9_\-]', '_', chat_id)
     return os.path.join(get_librecode_dir(), f"{safe}.json")

@@ -48,30 +48,6 @@ import {
 // Auto-save every 500 ms
 setInterval(saveChats, 500);
 
-// Poll models every 3s so new providers appear without restart
-setInterval(async () => {
-    if (!modelDropdown.classList.contains('hidden')) return; // don't refresh while open
-    await loadModels();
-}, 3000);
-
-// Poll server every 2s for new chat files written externally
-setInterval(async () => {
-    try {
-        const data = await loadChats();
-        if (!data || !Array.isArray(data.chats)) return;
-        let changed = false;
-        for (const incoming of data.chats) {
-            if (!incoming.id) continue;
-            const exists = chats.find(c => c.id === incoming.id);
-            if (!exists) {
-                chats.push(incoming);
-                changed = true;
-            }
-        }
-        if (changed) renderChatList();
-    } catch (_) {}
-}, 2000);
-
 // ── Message rail (right-side user message position indicator) ──────────
 const _rail = document.getElementById('msg-rail');
 

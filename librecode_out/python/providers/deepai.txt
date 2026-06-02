@@ -87,7 +87,7 @@ def _parse_tc(text: str) -> tuple[str, list]:
     return before.strip(), tc
 
 
-def stream_chat(model_id, messages, tools=None, max_tokens=None, reasoning_effort=None):
+def stream_chat(model_id, messages, tools=None, max_tokens=None):
     if tools:
         messages = _inject_tool_system(messages, tools)
     status, text = _call(model_id, messages)

@@ -84,7 +84,6 @@ def stream_chat(
     messages: list[dict],
     tools: list | None = None,
     max_tokens: int | None = None,
-    reasoning_effort: str | None = None,
 ) -> Generator[dict, None, None]:
     from python.mediator.mediator_server import _get_executor, _load_manifest
     from python.mediator.script_session import session_manager
