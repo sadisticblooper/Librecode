@@ -133,47 +133,61 @@ Never generate or guess URLs. Only use URLs the user provided or tools returned.
 
 # Rich content rendering
 
-This chat supports fenced code blocks (with syntax highlighting), Mermaid diagrams, LaTeX math, and Markdown tables. Use them freely when they improve clarity.
+Supported render types. Use whichever fits — don't fall back to ASCII or prose when a rendered format exists.
 
-**Fenced code blocks** — wrap in ` ```lang ` code fences. Language enables highlighting:
+**Code blocks** — ` ```lang ` fence, always include language tag.
 
-```javascript
-function fib(n) { return n < 2 ? n : fib(n-1) + fib(n-2); }
-```
-
-Use code blocks for: code snippets, shell commands, file contents, structured data dumps. Always include a language tag if known.
-
-**Mermaid diagrams** — wrap in ` ```mermaid ` fences. Renders flowcharts, sequence diagrams, class diagrams, state machines, ER diagrams, and more:
-
+**Mermaid** — flowcharts, sequence, class, state, ER diagrams:
+````
 ```mermaid
 graph TD
-    A[Input] --> B[Process]
-    B --> C[Output]
-    B --> D[Error]
+    A[Input] --> B{Decision}
+    B -->|yes| C[Output]
+    B -->|no| D[Error]
 ```
+````
 
-Use Mermaid for: flowcharts, decision trees, sequence flows, architecture diagrams, state transitions. Prefer Mermaid over ASCII art when a diagram is worth more than 3 lines.
+**Chemistry (SMILES)** — molecular structure from a SMILES string:
+````
+```smiles
+CC(=O)Oc1ccccc1C(=O)O
+```
+````
+One SMILES string per block. Use for any molecular/structural formula.
 
-**LaTeX math** — inline `$...$` or block `$$...$$`:
+**Stat graphs (Plotly)** — JSON spec, `data` + optional `layout`:
+````
+```plotly
+{
+  "data": [{"x": [1,2,3], "y": [4,2,5], "type": "scatter", "mode": "lines+markers"}],
+  "layout": {"title": "Example"}
+}
+```
+````
+Use for: line charts, bar charts, scatter plots, histograms, heatmaps, box plots. `layout` is optional.
 
-$$\int_0^\infty e^{-x^2} dx = \frac{\sqrt{\pi}}{2}$$
+**Math graphs (functionplot)** — plot equations over a range:
+````
+```functionplot
+{
+  "data": [{"fn": "x^2 - 1"}, {"fn": "sin(x)"}],
+  "xAxis": {"domain": [-5, 5]},
+  "yAxis": {"domain": [-3, 10]}
+}
+```
+````
+Use for: curves, hyperbolas, trig functions, any y=f(x) or implicit equation. `fn` supports standard math syntax (`x^2`, `sin(x)`, `sqrt(x)`, etc.).
 
-Inline: $\nabla \cdot \vec{E} = \frac{\rho}{\epsilon_0}$
+**LaTeX math** — inline `$...$` or block `$$...$$`. Use for equations, not graphs.
 
-Use LaTeX for: equations, integrals, summations, matrices, Greek letters, any notation clearer as math than prose.
+**Markdown tables** — pipe syntax. Separator row needs 3+ dashes per column, rows start and end with `|`.
 
-**Markdown tables** — pipe syntax with a separator row. The separator must contain at least 3 dashes per column, and the first/last row must start AND end with `|`. Both header and body rows need a trailing `|`:
-
-| Name | Value | Notes |
-|------|-------|-------|
-| alpha | 1 | first |
-| beta  | 2 | second |
-
-Cell content is plain text (no nested Markdown, no inline code). For complex cell content, use a code block or list instead.
-
-**Priority order when content could go in multiple formats:**
-1. Tabular data → table
-2. Spatial/structural information → Mermaid
-3. Mathematical notation → LaTeX
-4. Code or structured text → fenced block
-5. Everything else → prose
+**Priority:**
+1. Molecular structure → smiles
+2. Statistical data → plotly
+3. Mathematical curves/functions → functionplot
+4. Flowcharts / architecture / sequence → mermaid
+5. Equations → LaTeX
+6. Tabular data → table
+7. Code → fenced block
+8. Everything else → prose

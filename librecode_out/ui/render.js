@@ -12,11 +12,26 @@ export function escHtml(s) {
 }
 
 let _mermaidCounter = 0;
+let _smilesCounter = 0;
+let _plotlyCounter = 0;
+let _fnplotCounter = 0;
 
 function buildCodeBlock(lang, code) {
     if (lang === 'mermaid') {
         const id = 'mermaid-' + (++_mermaidCounter);
         return '<div class="mermaid-block"><div class="mermaid-diagram" id="' + id + '" data-src="' + encodeURIComponent(code.trim()) + '"></div></div>';
+    }
+    if (lang === 'smiles') {
+        const id = 'smiles-' + (++_smilesCounter);
+        return '<div class="smiles-block"><canvas class="smiles-canvas" id="' + id + '" data-src="' + encodeURIComponent(code.trim()) + '" width="400" height="300"></canvas></div>';
+    }
+    if (lang === 'plotly') {
+        const id = 'plotly-' + (++_plotlyCounter);
+        return '<div class="plotly-block"><div class="plotly-chart" id="' + id + '" data-src="' + encodeURIComponent(code.trim()) + '"></div></div>';
+    }
+    if (lang === 'functionplot') {
+        const id = 'fnplot-' + (++_fnplotCounter);
+        return '<div class="fnplot-block"><div class="fnplot-chart" id="' + id + '" data-src="' + encodeURIComponent(code.trim()) + '"></div></div>';
     }
     return '<div class="code-block">' +
         '<div class="code-block-header">' +
@@ -47,6 +62,46 @@ export function highlightCodeBlocks(container) {
                 el.innerHTML = svg;
             } catch (e) {
                 el.innerHTML = '<pre class="mermaid-error">' + escHtml(src) + '</pre>';
+            }
+        });
+    }
+    if (typeof SmilesDrawer !== 'undefined') {
+        const canvases = container.querySelectorAll('.smiles-canvas:not([data-rendered])');
+        canvases.forEach((el) => {
+            el.dataset.rendered = 'true';
+            const src = decodeURIComponent(el.dataset.src || '');
+            try {
+                const drawer = new SmilesDrawer.Drawer({ width: 400, height: 300, themes: { dark: { C: '#e8e8e8', O: '#e06c75', N: '#61afef', S: '#e5c07b', P: '#c678dd', F: '#56b6c2', CL: '#56b6c2', BR: '#be5046', I: '#be5046', BACKGROUND: '#1e1e2e' } } });
+                SmilesDrawer.parse(src, (tree) => { drawer.draw(tree, el.id, 'dark'); }, (err) => { el.parentElement.innerHTML = '<pre class="mermaid-error">' + escHtml(String(err)) + '</pre>'; });
+            } catch (e) {
+                el.parentElement.innerHTML = '<pre class="mermaid-error">' + escHtml(src) + '</pre>';
+            }
+        });
+    }
+    if (typeof Plotly !== 'undefined') {
+        const charts = container.querySelectorAll('.plotly-chart:not([data-rendered])');
+        charts.forEach((el) => {
+            el.dataset.rendered = 'true';
+            const src = decodeURIComponent(el.dataset.src || '');
+            try {
+                const spec = JSON.parse(src);
+                const layout = Object.assign({ paper_bgcolor: 'transparent', plot_bgcolor: 'transparent', font: { color: '#cdd6f4' }, margin: { t: 40, r: 20, b: 40, l: 50 } }, spec.layout || {});
+                Plotly.newPlot(el, spec.data || spec, layout, { responsive: true, displayModeBar: false });
+            } catch (e) {
+                el.innerHTML = '<pre class="mermaid-error">' + escHtml(String(e)) + '</pre>';
+            }
+        });
+    }
+    if (typeof functionPlot !== 'undefined') {
+        const fncharts = container.querySelectorAll('.fnplot-chart:not([data-rendered])');
+        fncharts.forEach((el) => {
+            el.dataset.rendered = 'true';
+            const src = decodeURIComponent(el.dataset.src || '');
+            try {
+                const opts = JSON.parse(src);
+                functionPlot(Object.assign({ target: '#' + el.id }, opts));
+            } catch (e) {
+                el.innerHTML = '<pre class="mermaid-error">' + escHtml(String(e)) + '</pre>';
             }
         });
     }
