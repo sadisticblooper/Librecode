@@ -161,7 +161,12 @@ const _railStepMsg = (dir) => {
     const pips = Array.from(_rail.querySelectorAll('.rail-pip'));
     const activeIdx = pips.findIndex(p => p.classList.contains('active'));
     const next = Math.max(0, Math.min(msgs.length - 1, (activeIdx < 0 ? 0 : activeIdx) + dir));
-    msgs[next] && msgs[next].scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const target = msgs[next];
+    if (!target) return;
+    // Mirror _scrubToIdx: set scrollTop directly — scrollIntoView doesn't
+    // work reliably inside a custom overflow container on Android WebView.
+    const desired = target.offsetTop - Math.round(chatEl.clientHeight * 0.35);
+    chatEl.scrollTop = Math.max(0, desired);
 };
 
 _railArrowUp.addEventListener('pointerdown', e => e.stopPropagation());
