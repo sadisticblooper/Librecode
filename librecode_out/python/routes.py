@@ -246,9 +246,53 @@ def _register(app) -> None:
                     continue
                 with open(chat_file(cid), "w", encoding="utf-8") as f:
                     json.dump(chat, f, ensure_ascii=False, indent=2)
+
+            incoming_ids = [c["id"] for c in chats if c.get("id")]
+            incoming_set = set(incoming_ids)
+
+            # ── Guard against race-condition overwrites ───────────────────
+            # On reinstall storage_dir.txt may not exist yet when the first
+            # loadChats fires, so the JS sees an empty list and immediately
+            # calls saveChats with one freshly-created chat.  Without this
+            # guard that would silently wipe index.json.
+            #
+            # Strategy: collect every chat ID that is genuinely on disk right
+            # now, then merge it with the incoming list.  IDs that appear on
+            # disk but NOT in the incoming list are preserved in the index
+            # (they were real chats the JS never loaded due to the race).
+            # IDs that were explicitly deleted by the user will have had their
+            # .json files removed first, so they won't show up in the scan.
+
+            lib_dir = get_librecode_dir()
+
+            # 1. IDs the existing index already knows about
+            existing_ids: list = []
+            try:
+                with open(chats_index_file(), "r", encoding="utf-8") as f:
+                    existing_ids = json.load(f).get("chatIds", [])
+            except Exception:
+                pass
+
+            # 2. IDs with actual .json files on disk
+            disk_ids: set = set()
+            try:
+                for fn in os.listdir(lib_dir):
+                    if fn.endswith(".json") and fn not in ("index.json",):
+                        disk_ids.add(fn[:-5])
+            except Exception:
+                pass
+
+            # 3. Merge: keep incoming order, then append any survivor IDs
+            #    that exist on disk but were absent from this save payload.
+            survivor_ids = [
+                cid for cid in existing_ids
+                if cid not in incoming_set and cid in disk_ids
+            ]
+            merged_ids = incoming_ids + survivor_ids
+
             index = {
                 "activeChatId": active_id,
-                "chatIds":      [c["id"] for c in chats if c.get("id")],
+                "chatIds":      merged_ids,
             }
             with open(chats_index_file(), "w", encoding="utf-8") as f:
                 json.dump(index, f, ensure_ascii=False, indent=2)

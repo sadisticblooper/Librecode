@@ -1285,6 +1285,23 @@ input.oninput = () => {
 async function init() {
     await getStorageDir();
     await loadChats();
+
+    // On a fresh install (or reinstall), storage_dir.txt is wiped and the
+    // Android side may not have rewritten it before the webview fires this
+    // init.  If loadChats returned nothing, wait briefly and retry — giving
+    // the native layer time to recreate storage_dir.txt and expose the real
+    // chat directory.  We try up to 3 times with increasing back-off so
+    // genuine "first ever launch" (truly no chats) still resolves quickly.
+    if (!chats.length) {
+        const delays = [400, 800, 1500];
+        for (const ms of delays) {
+            await new Promise(r => setTimeout(r, ms));
+            await getStorageDir();
+            await loadChats();
+            if (chats.length) break;
+        }
+    }
+
     _appInitialized = true; // ungate auto-save — index is now populated
     // Ensure every loaded chat has its own workingDirs array (backend may omit it).
     chats.forEach(c => { if (!Array.isArray(c.workingDirs)) c.workingDirs = []; });
