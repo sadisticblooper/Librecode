@@ -1239,6 +1239,58 @@ body { display: flex; }
     to   { height: 22px; }
 }
 
+/* ── Rail arrow buttons (long-press) ──────────────────────────────── */
+#rail-arrows {
+    position: fixed;
+    right: 2px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    z-index: 22;
+    align-items: center;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity .18s ease;
+}
+
+#rail-arrows.visible {
+    pointer-events: auto;
+    opacity: 1;
+}
+
+.rail-arrow {
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    background: var(--surface4);
+    border: 1px solid var(--border-mid);
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+    user-select: none;
+    transition: background .12s, transform .12s;
+    animation: railArrowIn .22s cubic-bezier(.34,1.4,.64,1) both;
+}
+
+.rail-arrow:active {
+    background: var(--surface3);
+    transform: scale(0.88);
+}
+
+@keyframes railArrowIn {
+    from { opacity: 0; transform: scale(0.6); }
+    to   { opacity: 1; transform: scale(1); }
+}
+
+#rail-arrow-up { animation-delay: 0ms; }
+#rail-arrow-dn { animation-delay: 55ms; }
+
 /* ── LaTeX / KaTeX ──────────────────────────────────────────────────── */
 
 .math-block {

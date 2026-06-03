@@ -132,15 +132,60 @@ function _updateRailActive() {
 // Touch-drag on rail to scrub between messages
 let _railDrag = false;
 let _railLastIdx = -1;
+let _railArrowsVisible = false;
+
+// Inject the arrow buttons element next to the rail
+const _railArrows = document.createElement('div');
+_railArrows.id = 'rail-arrows';
+_railArrows.innerHTML =
+    '<button class="rail-arrow" id="rail-arrow-up"  aria-label="Previous message">&#8593;</button>' +
+    '<button class="rail-arrow" id="rail-arrow-dn"  aria-label="Next message">&#8595;</button>';
+document.body.appendChild(_railArrows);
+
+const _railArrowUp = document.getElementById('rail-arrow-up');
+const _railArrowDn = document.getElementById('rail-arrow-dn');
+
+const _showRailArrows = () => {
+    _railArrowsVisible = true;
+    _railArrows.classList.add('visible');
+};
+const _hideRailArrows = () => {
+    _railArrowsVisible = false;
+    _railArrows.classList.remove('visible');
+};
+
+const _railStepMsg = (dir) => {
+    // dir: -1 = up (earlier), +1 = down (later)
+    const msgs = Array.from(chatEl.querySelectorAll('.msg.user'));
+    if (!msgs.length) return;
+    const pips = Array.from(_rail.querySelectorAll('.rail-pip'));
+    const activeIdx = pips.findIndex(p => p.classList.contains('active'));
+    const next = Math.max(0, Math.min(msgs.length - 1, (activeIdx < 0 ? 0 : activeIdx) + dir));
+    msgs[next] && msgs[next].scrollIntoView({ behavior: 'smooth', block: 'center' });
+};
+
+_railArrowUp.addEventListener('pointerdown', e => e.stopPropagation());
+_railArrowDn.addEventListener('pointerdown', e => e.stopPropagation());
+_railArrowUp.addEventListener('click', e => { e.stopPropagation(); _railStepMsg(-1); });
+_railArrowDn.addEventListener('click', e => { e.stopPropagation(); _railStepMsg(1); });
+
+// Dismiss when tapping anywhere outside the arrows or rail
+document.addEventListener('pointerdown', e => {
+    if (!_railArrowsVisible) return;
+    if (_railArrows.contains(e.target) || _rail.contains(e.target)) return;
+    _hideRailArrows();
+}, { capture: true });
+
 if (_rail) {
     const PIP_SLOT = 19; // 14px pip + 5px gap
+    let _longPressTimer = null;
+    let _downY = 0;
+    let _moved = false;
 
     const _idxFromY = (clientY) => {
         const pips = _rail.querySelectorAll('.rail-pip');
         if (!pips.length) return -1;
         const railRect = _rail.getBoundingClientRect();
-        // Account for the rail's own scrollTop so the touch position
-        // maps to the correct logical pip, not just what's visible
         const offsetInRail = (clientY - railRect.top) + _rail.scrollTop;
         return Math.max(0, Math.min(pips.length - 1, Math.round(offsetInRail / PIP_SLOT)));
     };
@@ -149,27 +194,43 @@ if (_rail) {
         const msgs = Array.from(chatEl.querySelectorAll('.msg.user'));
         const target = msgs[idx];
         if (!target) return;
-        // Direct scrollTop assignment — no smooth queue build-up during drag
         const desired = target.offsetTop - Math.round(chatEl.clientHeight * 0.35);
         chatEl.scrollTop = Math.max(0, desired);
     };
 
     _rail.addEventListener('pointerdown', e => {
-        _railDrag = true;
-        _railLastIdx = -1;
+        if (_railArrowsVisible) { _hideRailArrows(); return; }
+        _moved = false;
+        _downY = e.clientY;
         _rail.setPointerCapture(e.pointerId);
-        // Don't jump on touch-start — wait for intentional movement
+
+        // Long-press: hold without moving → show arrows
+        _longPressTimer = setTimeout(() => {
+            if (!_moved) {
+                _railDrag = false;
+                _showRailArrows();
+            }
+        }, 420);
     });
+
     _rail.addEventListener('pointermove', e => {
+        if (Math.abs(e.clientY - _downY) > 6) {
+            // Intentional drag — cancel long-press, enter scrub mode
+            if (_longPressTimer) { clearTimeout(_longPressTimer); _longPressTimer = null; }
+            if (_railArrowsVisible) { _hideRailArrows(); return; }
+            _moved = true;
+            _railDrag = true;
+        }
         if (!_railDrag) return;
         const idx = _idxFromY(e.clientY);
-        if (idx === _railLastIdx) return; // only act when pip actually changes
+        if (idx === _railLastIdx) return;
         _railLastIdx = idx;
         _scrubToIdx(idx);
     });
+
     _rail.addEventListener('pointerup', e => {
+        if (_longPressTimer) { clearTimeout(_longPressTimer); _longPressTimer = null; }
         if (_railDrag) {
-            // On release, snap smoothly to wherever we ended up
             const idx = _idxFromY(e.clientY);
             const msgs = Array.from(chatEl.querySelectorAll('.msg.user'));
             msgs[idx] && msgs[idx].scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -177,7 +238,12 @@ if (_rail) {
         _railDrag = false;
         _railLastIdx = -1;
     });
-    _rail.addEventListener('pointercancel', () => { _railDrag = false; _railLastIdx = -1; });
+
+    _rail.addEventListener('pointercancel', () => {
+        if (_longPressTimer) { clearTimeout(_longPressTimer); _longPressTimer = null; }
+        _railDrag = false;
+        _railLastIdx = -1;
+    });
 }
 
 // Update on scroll
