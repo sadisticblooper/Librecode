@@ -1150,7 +1150,12 @@ const THEMES = [
     { id: 'forest',  label: 'Forest',   colors: ['#080e09', '#4caf6a', '#6bc882', '#1e2a20'] },
     { id: 'ocean',   label: 'Ocean',    colors: ['#080c10', '#22c2d4', '#44d8e8', '#1c2836'] },
     { id: 'rose',    label: 'Rose',     colors: ['#100a0c', '#f06080', '#f888a0', '#2c1820'] },
+    { id: 'dusk',    label: 'Dusk',     colors: ['#120e18', '#b06af4', '#cc88ff', '#282040'] },
+    { id: 'slate',   label: 'Slate',    colors: ['#0d1117', '#58a6ff', '#79c0ff', '#2d333b'] },
+    { id: 'nord',    label: 'Nord',     colors: ['#2e3440', '#88c0d0', '#8fbcbb', '#434c5e'] },
     { id: 'light',   label: 'Light',    colors: ['#f5f5f7', '#4a6ef0', '#6888ff', '#d0d0d8'] },
+    { id: 'mint',    label: 'Mint',     colors: ['#f2faf6', '#18a86a', '#30c880', '#b8dacc'] },
+    { id: 'cashew',  label: 'Cashew',   colors: ['#faf7f0', '#c87820', '#e89030', '#d4cab0'] },
 ];
 
 let _activeTheme = localStorage.getItem('lc_theme') || 'default';
