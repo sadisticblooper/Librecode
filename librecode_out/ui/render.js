@@ -71,10 +71,34 @@ export function highlightCodeBlocks(container) {
             el.dataset.rendered = 'true';
             const src = decodeURIComponent(el.dataset.src || '');
             try {
-                const drawer = new SmilesDrawer.Drawer({ width: 400, height: 300, themes: { dark: { C: '#e8e8e8', O: '#e06c75', N: '#61afef', S: '#e5c07b', P: '#c678dd', F: '#56b6c2', CL: '#56b6c2', BR: '#be5046', I: '#be5046', BACKGROUND: '#1e1e2e' } } });
-                SmilesDrawer.parse(src, (tree) => { drawer.draw(tree, el.id, 'dark'); }, (err) => { el.parentElement.innerHTML = '<pre class="mermaid-error">' + escHtml(String(err)) + '</pre>'; });
+                // v1 API: SmilesDrawer.Drawer takes options, draw() takes (tree, canvasId, theme)
+                const drawerOpts = {
+                    width: el.width || 400,
+                    height: el.height || 300,
+                    themes: {
+                        dark: {
+                            C: '#e8e8e8', O: '#e06c75', N: '#61afef',
+                            S: '#e5c07b', P: '#c678dd', F: '#56b6c2',
+                            CL: '#56b6c2', BR: '#be5046', I: '#be5046',
+                            BACKGROUND: 'transparent'
+                        }
+                    }
+                };
+                const drawer = new SmilesDrawer.Drawer(drawerOpts);
+                SmilesDrawer.parse(src,
+                    (tree) => {
+                        try {
+                            drawer.draw(tree, el.id, 'dark', false);
+                        } catch (drawErr) {
+                            el.parentElement.innerHTML = '<pre class="mermaid-error">' + escHtml(String(drawErr)) + '</pre>';
+                        }
+                    },
+                    (err) => {
+                        el.parentElement.innerHTML = '<pre class="mermaid-error">' + escHtml(String(err)) + '</pre>';
+                    }
+                );
             } catch (e) {
-                el.parentElement.innerHTML = '<pre class="mermaid-error">' + escHtml(src) + '</pre>';
+                el.parentElement.innerHTML = '<pre class="mermaid-error">' + escHtml(String(e)) + '</pre>';
             }
         });
     }

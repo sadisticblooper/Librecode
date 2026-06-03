@@ -1305,8 +1305,12 @@ body { display: flex; }
 
 .math-block {
     overflow-x: auto;
-    padding: 10px 4px;
+    padding: 14px 18px;
     text-align: center;
+    background: var(--surface2);
+    border: 1px solid var(--border-mid);
+    border-radius: 10px;
+    margin: 10px 0;
 }
 
 .math-inline .katex {
@@ -1356,7 +1360,8 @@ body { display: flex; }
 
 .mermaid-block {
     margin: 10px 0;
-    background: rgba(255,255,255,0.03);
+    background: var(--surface2);
+    border: 1px solid var(--border-mid);
     border-radius: 10px;
     padding: 16px;
     overflow-x: auto;
@@ -1373,4 +1378,55 @@ body { display: flex; }
     font-size: 0.8em;
     white-space: pre-wrap;
     text-align: left;
+}
+
+/* ── SMILES chemical structures ─────────────────────────────────────── */
+
+.smiles-block {
+    margin: 10px 0;
+    background: var(--surface2);
+    border: 1px solid var(--border-mid);
+    border-radius: 10px;
+    padding: 16px;
+    overflow-x: auto;
+    text-align: center;
+    pointer-events: none;
+    user-select: none;
+}
+
+.smiles-canvas {
+    max-width: 100%;
+    height: auto;
+    pointer-events: none;
+}
+
+/* ── Plotly charts ───────────────────────────────────────────────────── */
+
+.plotly-block {
+    margin: 10px 0;
+    background: var(--surface2);
+    border: 1px solid var(--border-mid);
+    border-radius: 10px;
+    padding: 12px;
+    overflow: hidden;
+}
+
+.plotly-chart {
+    width: 100%;
+    min-height: 300px;
+}
+
+/* ── Function-plot charts ────────────────────────────────────────────── */
+
+.fnplot-block {
+    margin: 10px 0;
+    background: var(--surface2);
+    border: 1px solid var(--border-mid);
+    border-radius: 10px;
+    padding: 12px;
+    overflow: hidden;
+}
+
+.fnplot-chart {
+    width: 100%;
 }
