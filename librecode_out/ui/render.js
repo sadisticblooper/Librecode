@@ -813,7 +813,7 @@ export function createActivityBar(container) {
         if (sealed) return;
         collapsed = !collapsed;
         stepsList.classList.toggle('act-live-steps-hidden', collapsed);
-        liveChevron.style.transform = collapsed ? 'rotate(-90deg)' : '';
+        liveChevron.style.transform = collapsed ? 'rotate(-90deg)' : 'rotate(0deg)';
     });
 
     function _updateCount() {
@@ -925,7 +925,7 @@ export function createActivityBar(container) {
                 wrap.appendChild(bar);
                 wrap.classList.add('act-sealed');
                 scrollBottom();
-            }, 220);
+            }, 260);
         },
     };
 
