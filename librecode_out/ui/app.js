@@ -131,21 +131,53 @@ function _updateRailActive() {
 
 // Touch-drag on rail to scrub between messages
 let _railDrag = false;
+let _railLastIdx = -1;
 if (_rail) {
-    const _scrubToY = (clientY) => {
-        const msgs = Array.from(chatEl.querySelectorAll('.msg.user'));
-        if (!msgs.length) return;
-        const pips = Array.from(_rail.querySelectorAll('.rail-pip'));
-        if (!pips.length) return;
+    const PIP_SLOT = 19; // 14px pip + 5px gap
+
+    const _idxFromY = (clientY) => {
+        const pips = _rail.querySelectorAll('.rail-pip');
+        if (!pips.length) return -1;
         const railRect = _rail.getBoundingClientRect();
-        const ratio = Math.max(0, Math.min(1, (clientY - railRect.top) / railRect.height));
-        const idx = Math.round(ratio * (pips.length - 1));
-        msgs[idx] && msgs[idx].scrollIntoView({ behavior: 'smooth', block: 'center' });
+        // Account for the rail's own scrollTop so the touch position
+        // maps to the correct logical pip, not just what's visible
+        const offsetInRail = (clientY - railRect.top) + _rail.scrollTop;
+        return Math.max(0, Math.min(pips.length - 1, Math.round(offsetInRail / PIP_SLOT)));
     };
-    _rail.addEventListener('pointerdown', e => { _railDrag = true; _rail.setPointerCapture(e.pointerId); _scrubToY(e.clientY); });
-    _rail.addEventListener('pointermove', e => { if (_railDrag) _scrubToY(e.clientY); });
-    _rail.addEventListener('pointerup',   () => { _railDrag = false; });
-    _rail.addEventListener('pointercancel', () => { _railDrag = false; });
+
+    const _scrubToIdx = (idx) => {
+        const msgs = Array.from(chatEl.querySelectorAll('.msg.user'));
+        const target = msgs[idx];
+        if (!target) return;
+        // Direct scrollTop assignment — no smooth queue build-up during drag
+        const desired = target.offsetTop - Math.round(chatEl.clientHeight * 0.35);
+        chatEl.scrollTop = Math.max(0, desired);
+    };
+
+    _rail.addEventListener('pointerdown', e => {
+        _railDrag = true;
+        _railLastIdx = -1;
+        _rail.setPointerCapture(e.pointerId);
+        // Don't jump on touch-start — wait for intentional movement
+    });
+    _rail.addEventListener('pointermove', e => {
+        if (!_railDrag) return;
+        const idx = _idxFromY(e.clientY);
+        if (idx === _railLastIdx) return; // only act when pip actually changes
+        _railLastIdx = idx;
+        _scrubToIdx(idx);
+    });
+    _rail.addEventListener('pointerup', e => {
+        if (_railDrag) {
+            // On release, snap smoothly to wherever we ended up
+            const idx = _idxFromY(e.clientY);
+            const msgs = Array.from(chatEl.querySelectorAll('.msg.user'));
+            msgs[idx] && msgs[idx].scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+        _railDrag = false;
+        _railLastIdx = -1;
+    });
+    _rail.addEventListener('pointercancel', () => { _railDrag = false; _railLastIdx = -1; });
 }
 
 // Update on scroll
