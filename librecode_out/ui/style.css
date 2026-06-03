@@ -1242,12 +1242,12 @@ body { display: flex; }
 /* ── Rail arrow buttons (long-press) ──────────────────────────────── */
 #rail-arrows {
     position: fixed;
-    right: 2px;
+    right: 14px;
     top: 50%;
     transform: translateY(-50%);
     display: flex;
     flex-direction: column;
-    gap: 7px;
+    gap: 10px;
     z-index: 22;
     align-items: center;
     pointer-events: none;
@@ -1261,26 +1261,30 @@ body { display: flex; }
 }
 
 .rail-arrow {
-    width: 30px;
-    height: 30px;
+    width: 42px;
+    height: 42px;
     border-radius: 50%;
-    background: var(--surface4);
-    border: 1px solid var(--border-mid);
+    background: rgba(255, 255, 255, 0.08);
+    backdrop-filter: blur(14px) saturate(160%);
+    -webkit-backdrop-filter: blur(14px) saturate(160%);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255,255,255,0.12);
     color: var(--text);
     display: flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    font-size: 14px;
+    font-size: 17px;
     line-height: 1;
     user-select: none;
-    transition: background .12s, transform .12s;
+    transition: background .12s, transform .12s, box-shadow .12s;
     animation: railArrowIn .22s cubic-bezier(.34,1.4,.64,1) both;
 }
 
 .rail-arrow:active {
-    background: var(--surface3);
+    background: rgba(255, 255, 255, 0.15);
     transform: scale(0.88);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.22), inset 0 1px 0 rgba(255,255,255,0.1);
 }
 
 @keyframes railArrowIn {
