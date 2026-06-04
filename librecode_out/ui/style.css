@@ -1407,21 +1407,21 @@ body { display: flex; }
 .md-table td {
     padding: 7px 12px;
     text-align: left;
-    border: 1px solid rgba(255,255,255,0.1);
+    border: 1px solid var(--border-mid);
     white-space: nowrap;
 }
 
 .md-table thead tr {
-    background: rgba(255,255,255,0.07);
+    background: var(--surface3);
 }
 
 .md-table tbody tr:nth-child(even) {
-    background: rgba(255,255,255,0.03);
+    background: var(--surface2);
 }
 
 .md-table th {
     font-weight: 600;
-    color: rgba(255,255,255,0.85);
+    color: var(--text-muted);
 }
 
 /* ── Mermaid diagrams ────────────────────────────────────────────────── */
@@ -1442,7 +1442,7 @@ body { display: flex; }
 }
 
 .mermaid-error {
-    color: rgba(255,100,100,0.8);
+    color: var(--red);
     font-size: 0.8em;
     white-space: pre-wrap;
     text-align: left;
@@ -1498,3 +1498,133 @@ body { display: flex; }
 .fnplot-chart {
     width: 100%;
 }
+
+/* ── Light-theme rendering fixes ────────────────────────────────────── */
+/* hljs: swap to a light code theme for all light-bg themes             */
+:root[data-theme="light"] .hljs,
+:root[data-theme="mint"] .hljs,
+:root[data-theme="cashew"] .hljs,
+:root[data-theme="latte"] .hljs,
+:root[data-theme="stone"] .hljs,
+:root[data-theme="clay"] .hljs {
+    background: transparent !important;
+    color: #24292e !important;
+}
+
+/* KaTeX renders with its own colors — force it to match text on light */
+:root[data-theme="light"] .katex,
+:root[data-theme="mint"] .katex,
+:root[data-theme="cashew"] .katex,
+:root[data-theme="latte"] .katex,
+:root[data-theme="stone"] .katex,
+:root[data-theme="clay"] .katex {
+    color: var(--text);
+}
+
+/* hljs token overrides for light themes — make dark tokens readable */
+:root[data-theme="light"] .hljs-comment,
+:root[data-theme="mint"] .hljs-comment,
+:root[data-theme="cashew"] .hljs-comment,
+:root[data-theme="latte"] .hljs-comment,
+:root[data-theme="stone"] .hljs-comment,
+:root[data-theme="clay"] .hljs-comment { color: #6a737d !important; }
+
+:root[data-theme="light"] .hljs-keyword,
+:root[data-theme="mint"] .hljs-keyword,
+:root[data-theme="cashew"] .hljs-keyword,
+:root[data-theme="latte"] .hljs-keyword,
+:root[data-theme="stone"] .hljs-keyword,
+:root[data-theme="clay"] .hljs-keyword { color: #d73a49 !important; }
+
+:root[data-theme="light"] .hljs-string,
+:root[data-theme="mint"] .hljs-string,
+:root[data-theme="cashew"] .hljs-string,
+:root[data-theme="latte"] .hljs-string,
+:root[data-theme="stone"] .hljs-string,
+:root[data-theme="clay"] .hljs-string { color: #032f62 !important; }
+
+:root[data-theme="light"] .hljs-number,
+:root[data-theme="mint"] .hljs-number,
+:root[data-theme="cashew"] .hljs-number,
+:root[data-theme="latte"] .hljs-number,
+:root[data-theme="stone"] .hljs-number,
+:root[data-theme="clay"] .hljs-number { color: #005cc5 !important; }
+
+:root[data-theme="light"] .hljs-title,
+:root[data-theme="light"] .hljs-function,
+:root[data-theme="mint"] .hljs-title,
+:root[data-theme="mint"] .hljs-function,
+:root[data-theme="cashew"] .hljs-title,
+:root[data-theme="cashew"] .hljs-function,
+:root[data-theme="latte"] .hljs-title,
+:root[data-theme="latte"] .hljs-function,
+:root[data-theme="stone"] .hljs-title,
+:root[data-theme="stone"] .hljs-function,
+:root[data-theme="clay"] .hljs-title,
+:root[data-theme="clay"] .hljs-function { color: #6f42c1 !important; }
+
+:root[data-theme="light"] .hljs-built_in,
+:root[data-theme="mint"] .hljs-built_in,
+:root[data-theme="cashew"] .hljs-built_in,
+:root[data-theme="latte"] .hljs-built_in,
+:root[data-theme="stone"] .hljs-built_in,
+:root[data-theme="clay"] .hljs-built_in { color: #e36209 !important; }
+
+:root[data-theme="light"] .hljs-attr,
+:root[data-theme="mint"] .hljs-attr,
+:root[data-theme="cashew"] .hljs-attr,
+:root[data-theme="latte"] .hljs-attr,
+:root[data-theme="stone"] .hljs-attr,
+:root[data-theme="clay"] .hljs-attr { color: #005cc5 !important; }
+
+/* code-block pre bg for mid-tone themes */
+:root[data-theme="latte"] .code-block pre { background: #e8e0d8; }
+:root[data-theme="stone"] .code-block pre { background: #e0e4e8; }
+:root[data-theme="clay"] .code-block pre { background: #e8ddd8; }
+
+/* ── Mid-tone themes ─────────────────────────────────────────────────── */
+
+/* Latte — warm off-white like a coffee with milk, mid-contrast */
+:root[data-theme="latte"] {
+    --bg: #e8e0d4; --surface: #f0e8dc; --surface2: #ddd4c8; --surface3: #cfc4b6;
+    --surface4: #bfb4a4; --border: #ccc0b0; --border-mid: #b8aa98; --border-light: #9e8e7c;
+    --text: #2a1e12; --text-muted: #5c4838; --text-dim: #8a7260;
+    --accent: #b06030; --accent-light: #d07840; --accent-hover: #904818;
+    --accent-dim: rgba(176,96,48,.12);
+    --shadow: 0 8px 32px rgba(0,0,0,.14); --shadow-sm: 0 2px 12px rgba(0,0,0,.09);
+    --purple: #7a52a0; --cyan: #287898; --red: #b83030; --teal: #308878;
+    --green: #3a8040; --amber: #9a7010;
+}
+:root[data-theme="latte"] #chat { background: #dfd6c8; }
+:root[data-theme="latte"] .user-inner { background: #cfc4b4; border-color: #b8aa96; }
+:root[data-theme="latte"] #input { background: none; }
+
+/* Stone — cool gray-blue mid-tone, like overcast sky */
+:root[data-theme="stone"] {
+    --bg: #d8dde4; --surface: #e2e8f0; --surface2: #ccd4dc; --surface3: #bec8d2;
+    --surface4: #aeb8c4; --border: #c0c8d4; --border-mid: #b0bac8; --border-light: #98a4b4;
+    --text: #0f1820; --text-muted: #3a4e60; --text-dim: #6a7e90;
+    --accent: #2860b0; --accent-light: #3878d0; --accent-hover: #1848a0;
+    --accent-dim: rgba(40,96,176,.12);
+    --shadow: 0 8px 32px rgba(0,0,0,.14); --shadow-sm: 0 2px 12px rgba(0,0,0,.09);
+    --purple: #6050c0; --cyan: #1888b0; --red: #c03040; --teal: #1898a0;
+    --green: #208850; --amber: #a07818;
+}
+:root[data-theme="stone"] #chat { background: #ccd4de; }
+:root[data-theme="stone"] .user-inner { background: #bec8d4; border-color: #a8b4c4; }
+:root[data-theme="stone"] #input { background: none; }
+
+/* Clay — muted terracotta mid-tone, earthy and warm */
+:root[data-theme="clay"] {
+    --bg: #ddd0c8; --surface: #e8dcd4; --surface2: #d2c4bc; --surface3: #c4b4aa;
+    --surface4: #b2a098; --border: #c4b4aa; --border-mid: #b0a094; --border-light: #988478;
+    --text: #221410; --text-muted: #58342a; --text-dim: #7e5e58;
+    --accent: #a03820; --accent-light: #c05030; --accent-hover: #822810;
+    --accent-dim: rgba(160,56,32,.12);
+    --shadow: 0 8px 32px rgba(0,0,0,.14); --shadow-sm: 0 2px 12px rgba(0,0,0,.09);
+    --purple: #804870; --cyan: #2878a0; --red: #b02818; --teal: #2c8878;
+    --green: #307838; --amber: #907018;
+}
+:root[data-theme="clay"] #chat { background: #d2c4bc; }
+:root[data-theme="clay"] .user-inner { background: #c4b4aa; border-color: #ac9e94; }
+:root[data-theme="clay"] #input { background: none; }

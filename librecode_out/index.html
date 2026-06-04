@@ -13,8 +13,13 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.js"></script>
     <script type="module">
         import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
-        mermaid.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'loose' });
+        const _lightThemes = ['light', 'mint', 'cashew', 'latte', 'stone', 'clay'];
+        const _isLight = () => _lightThemes.includes(localStorage.getItem('lc_theme') || '');
+        const _mermaidTheme = () => _isLight() ? 'default' : 'dark';
+        mermaid.initialize({ startOnLoad: false, theme: _mermaidTheme(), securityLevel: 'loose' });
         window._mermaid = mermaid;
+        window._mermaidIsLight = _isLight;
+        window._mermaidReinit = () => mermaid.initialize({ startOnLoad: false, theme: _mermaidTheme(), securityLevel: 'loose' });
     </script>
     <script src="https://cdn.jsdelivr.net/npm/smiles-drawer@1.2.0/dist/smiles-drawer.min.js"></script>
     <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>

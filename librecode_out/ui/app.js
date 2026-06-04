@@ -1153,10 +1153,16 @@ const THEMES = [
     { id: 'dusk',    label: 'Dusk',     colors: ['#120e18', '#b06af4', '#cc88ff', '#282040'] },
     { id: 'slate',   label: 'Slate',    colors: ['#0d1117', '#58a6ff', '#79c0ff', '#2d333b'] },
     { id: 'nord',    label: 'Nord',     colors: ['#2e3440', '#88c0d0', '#8fbcbb', '#434c5e'] },
+    { id: 'latte',   label: 'Latte',    colors: ['#e8e0d4', '#b06030', '#d07840', '#bfb4a4'] },
+    { id: 'stone',   label: 'Stone',    colors: ['#d8dde4', '#2860b0', '#3878d0', '#b0bac8'] },
+    { id: 'clay',    label: 'Clay',     colors: ['#ddd0c8', '#a03820', '#c05030', '#b2a098'] },
     { id: 'light',   label: 'Light',    colors: ['#f5f5f7', '#4a6ef0', '#6888ff', '#d0d0d8'] },
     { id: 'mint',    label: 'Mint',     colors: ['#f2faf6', '#18a86a', '#30c880', '#b8dacc'] },
     { id: 'cashew',  label: 'Cashew',   colors: ['#faf7f0', '#c87820', '#e89030', '#d4cab0'] },
 ];
+
+// Light-background themes that need inverted rendering
+const LIGHT_THEMES = new Set(['light', 'mint', 'cashew', 'latte', 'stone', 'clay']);
 
 let _activeTheme = localStorage.getItem('lc_theme') || 'default';
 let _previewTheme = null;
@@ -1175,6 +1181,8 @@ function setTheme(id) {
     localStorage.setItem('lc_theme', id);
     applyTheme(id);
     renderThemeCards();
+    // Re-init mermaid so next render uses correct light/dark theme
+    if (typeof window._mermaidReinit === 'function') window._mermaidReinit();
 }
 
 function previewTheme(id) {

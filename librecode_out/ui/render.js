@@ -72,6 +72,7 @@ export function highlightCodeBlocks(container) {
             const src = decodeURIComponent(el.dataset.src || '');
             try {
                 // v1 API: SmilesDrawer.Drawer takes options, draw() takes (tree, canvasId, theme)
+                const _isLightTheme = typeof window._mermaidIsLight === 'function' && window._mermaidIsLight();
                 const drawerOpts = {
                     width: el.width || 400,
                     height: el.height || 300,
@@ -81,6 +82,12 @@ export function highlightCodeBlocks(container) {
                             S: '#e5c07b', P: '#c678dd', F: '#56b6c2',
                             CL: '#56b6c2', BR: '#be5046', I: '#be5046',
                             BACKGROUND: 'transparent'
+                        },
+                        light: {
+                            C: '#1a1a2e', O: '#c0392b', N: '#1a6eb5',
+                            S: '#b07d10', P: '#7c3aed', F: '#0e7490',
+                            CL: '#0e7490', BR: '#7c2d12', I: '#5b21b6',
+                            BACKGROUND: 'transparent'
                         }
                     }
                 };
@@ -88,7 +95,7 @@ export function highlightCodeBlocks(container) {
                 SmilesDrawer.parse(src,
                     (tree) => {
                         try {
-                            drawer.draw(tree, el.id, 'dark', false);
+                            drawer.draw(tree, el.id, _isLightTheme ? 'light' : 'dark', false);
                         } catch (drawErr) {
                             el.parentElement.innerHTML = '<pre class="mermaid-error">' + escHtml(String(drawErr)) + '</pre>';
                         }
@@ -109,7 +116,16 @@ export function highlightCodeBlocks(container) {
             const src = decodeURIComponent(el.dataset.src || '');
             try {
                 const spec = JSON.parse(src);
-                const layout = Object.assign({ paper_bgcolor: 'transparent', plot_bgcolor: 'transparent', font: { color: '#cdd6f4' }, margin: { t: 40, r: 20, b: 40, l: 50 } }, spec.layout || {});
+                const _isLightPl = typeof window._mermaidIsLight === 'function' && window._mermaidIsLight();
+                const _fontColor = _isLightPl ? '#1a1a2e' : '#cdd6f4';
+                const _gridColor = _isLightPl ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)';
+                const layout = Object.assign({
+                    paper_bgcolor: 'transparent', plot_bgcolor: 'transparent',
+                    font: { color: _fontColor },
+                    xaxis: { gridcolor: _gridColor, zerolinecolor: _gridColor },
+                    yaxis: { gridcolor: _gridColor, zerolinecolor: _gridColor },
+                    margin: { t: 40, r: 20, b: 40, l: 50 }
+                }, spec.layout || {});
                 Plotly.newPlot(el, spec.data || spec, layout, { responsive: true, displayModeBar: false });
             } catch (e) {
                 el.innerHTML = '<pre class="mermaid-error">' + escHtml(String(e)) + '</pre>';
