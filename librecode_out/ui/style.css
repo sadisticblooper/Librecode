@@ -1635,19 +1635,18 @@ body { display: flex; }
     align-items: center;
     gap: 2px;
     margin-top: 6px;
-    opacity: 0;
+    opacity: 0.35;
     transition: opacity .15s ease;
 }
-.msg.assistant:hover .msg-bar,
-.msg.assistant:focus-within .msg-bar {
+.msg.assistant:hover .msg-bar {
     opacity: 1;
 }
 .msg-bar-btn {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 26px;
-    height: 26px;
+    width: 28px;
+    height: 28px;
     border-radius: 6px;
     border: none;
     background: transparent;
@@ -1655,8 +1654,9 @@ body { display: flex; }
     cursor: pointer;
     transition: background .12s, color .12s;
     flex-shrink: 0;
+    -webkit-tap-highlight-color: transparent;
 }
-.msg-bar-btn:hover {
+.msg-bar-btn:hover, .msg-bar-btn:active {
     background: var(--surface2);
     color: var(--text);
 }
@@ -1666,7 +1666,7 @@ body { display: flex; }
 .msg-bar-time {
     font-size: 11px;
     color: var(--text-dim);
-    margin-left: 4px;
+    margin-left: 2px;
     letter-spacing: .01em;
     user-select: none;
 }

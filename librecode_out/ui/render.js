@@ -1157,7 +1157,7 @@ export function createMsgBar(content, onRegen, responseMs) {
     if (onRegen) regenBtn.addEventListener('click', onRegen);
 
     bar.appendChild(copyBtn);
-    bar.appendChild(regenBtn);
+    if (onRegen) bar.appendChild(regenBtn);
 
     const t = _fmtTime(responseMs);
     if (t) {

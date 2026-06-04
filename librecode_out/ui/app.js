@@ -955,6 +955,7 @@ async function send() {
     }
 
     const keepAliveTimer = setInterval(() => pingKeepalive(), 20000);
+    let _replyStartMs = null;
 
     try {
         const resp = await chatStream(userMsg, selectedModel, selectedAgent, sendingChatId);
@@ -964,7 +965,6 @@ async function send() {
         setCurrentReader(reader);
         const decoder = new TextDecoder();
         let buf = '';
-        const _replyStartMs = Date.now();
 
         while (true) {
             const { done, value } = await reader.read();
@@ -1003,6 +1003,7 @@ async function send() {
                         break;
                     }
                     case 'text': {
+                        if (!_replyStartMs) _replyStartMs = Date.now();
                         _flushThink(); _flushGroup(); _flushSub();
                         if (!_uiLiveText) { _uiLiveText = { type: 'assistant', content: '' }; if (chat) chat.uiEvents.push(_uiLiveText); }
                         _uiLiveText.content += ev.text;
@@ -1109,14 +1110,53 @@ async function send() {
                     }
                     case 'done': {
                         _flushThink(); _flushText(); _flushGroup(); _flushSub();
-                        const _elapsedMs = Date.now() - _replyStartMs;
+                        const _elapsedMs = _replyStartMs ? Date.now() - _replyStartMs : null;
                         if (_uiLiveText) _uiLiveText.response_time_ms = _elapsedMs;
                         if (chat) saveChats();
                         if (isActive()) {
                             if (actBar)       { actBar.seal(); actBar = null; }
                             if (assistantDiv) { sealAssistant(assistantDiv, segmentText); assistantDiv = null; }
                             if (turnDiv) {
-                                const _bar = createMsgBar(assistantText, () => window._regenLast && window._regenLast(), _elapsedMs);
+                                // Strip regen btn from any previous last turn
+                                const _prevBars = chatEl.querySelectorAll('.msg-bar-regen');
+                                _prevBars.forEach(b => b.remove());
+
+                                const _capturedText = assistantText;
+                                const _capturedMsg  = userMsg;
+                                const _regenFn = async () => {
+                                    if (sendingChats.has(sendingChatId)) return;
+                                    const _chat = chats.find(c => c.id === sendingChatId);
+                                    if (!_chat) return;
+                                    // Pop last assistant + user uiEvents
+                                    while (_chat.uiEvents && _chat.uiEvents.length) {
+                                        const last = _chat.uiEvents[_chat.uiEvents.length - 1];
+                                        _chat.uiEvents.pop();
+                                        if (last.type === 'user') break;
+                                    }
+                                    // Pop last assistant + user from history
+                                    while (_chat.history && _chat.history.length) {
+                                        const last = _chat.history[_chat.history.length - 1];
+                                        _chat.history.pop();
+                                        if (last.role === 'user') break;
+                                    }
+                                    saveChats();
+                                    // Remove last turn from DOM
+                                    const _lastTurn = chatEl.querySelector('.msg.assistant:last-of-type');
+                                    if (_lastTurn) _lastTurn.remove();
+                                    const _lastUser = chatEl.querySelector('.msg.user:last-of-type');
+                                    if (_lastUser) _lastUser.remove();
+                                    // Re-send
+                                    input.value = _capturedMsg;
+                                    send();
+                                };
+
+                                const _bar = createMsgBar(_capturedText, _regenFn, _elapsedMs);
+                                _bar.querySelector('.msg-bar-regen-placeholder')?.replaceWith(
+                                    (() => { const b = _bar.querySelector('button:nth-child(2)'); if (b) b.classList.add('msg-bar-regen'); return b; })() || document.createDocumentFragment()
+                                );
+                                // Mark the regen button so we can find+remove it later
+                                const _regenBtnEl = _bar.querySelectorAll('.msg-bar-btn')[1];
+                                if (_regenBtnEl) _regenBtnEl.classList.add('msg-bar-regen');
                                 turnDiv.appendChild(_bar);
                                 sealTurn(turnDiv); turnDiv = null;
                             }
