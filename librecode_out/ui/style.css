@@ -523,9 +523,9 @@ body { display: flex; }
 }
 
 .msg.assistant {
-    padding: 6px 0 20px;
+    padding: 6px 0 8px;
     border-bottom: 1px solid rgba(30,30,30,.8);
-    margin-bottom: 4px; font-size: 15.5px;
+    margin-bottom: 2px; font-size: 15.5px;
 }
 .msg.assistant.streaming { border-bottom-color: transparent; }
 
@@ -1634,7 +1634,7 @@ body { display: flex; }
     display: flex;
     align-items: center;
     gap: 2px;
-    margin-top: 6px;
+    margin-top: 3px;
     opacity: 0.35;
     transition: opacity .15s ease;
 }
@@ -1665,7 +1665,7 @@ body { display: flex; }
 }
 .msg-bar-time {
     font-size: 11px;
-    color: var(--text-dim);
+    color: var(--text-muted);
     margin-left: 2px;
     letter-spacing: .01em;
     user-select: none;
