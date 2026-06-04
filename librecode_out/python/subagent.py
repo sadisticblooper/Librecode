@@ -147,7 +147,7 @@ def run_subagent(
                 "content":      result,
             })
 
-    return "(subagent hit round limit without producing a final answer)"
+    return "Error: subagent hit the round limit without a final answer. Task may be too large or agent is stuck in a loop."
 
 
 def run_subagent_streaming(
@@ -277,4 +277,4 @@ def run_subagent_streaming(
                 "content":      result,
             })
 
-    return "(subagent hit round limit without producing a final answer)"
+    return "Error: subagent hit the round limit without a final answer. Task may be too large or agent is stuck in a loop."

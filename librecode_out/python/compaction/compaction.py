@@ -28,8 +28,8 @@ import requests
 # ── tunables ──────────────────────────────────────────────────────────────────
 PRUNE_MINIMUM           = 20_000   # min tokens freed before pruning activates
 PRUNE_PROTECT           = 40_000   # tokens of tool output never pruned
-TOOL_OUTPUT_MAX_CHARS   = 2_000    # max chars of any tool output in compact req
-TAIL_TURNS              = 2        # recent turns kept verbatim
+TOOL_OUTPUT_MAX_CHARS   = 20_000   # max chars of any tool output in compact req
+TAIL_TURNS              = 5        # recent turns kept verbatim
 MIN_PRESERVE_TOKENS     = 2_000
 MAX_PRESERVE_TOKENS     = 8_000
 COMPACTION_BUFFER       = 20_000   # reserved for model output
@@ -69,10 +69,9 @@ def estimate_messages_tokens(messages: list) -> int:
 def usable_tokens(context_limit: int, max_output_tokens: int) -> int:
     """
     How many input tokens are actually usable before we must compact.
-    We reserve space for the model's output + compaction buffer.
+    We reserve space for the model's output + a safety buffer.
     """
-    reserved = min(COMPACTION_BUFFER, max_output_tokens)
-    return max(0, context_limit - max_output_tokens - reserved)
+    return max(0, context_limit - max_output_tokens - COMPACTION_BUFFER)
 
 def is_overflow(
     total_tokens: int,
@@ -299,8 +298,14 @@ def compact_messages(
     # Step 3 – generate summary for the head
     summary = generate_summary(api_url, model, head, previous_summary, extra_headers)
     if not summary:
-        # Summary failed – fall back to just the tail to avoid hard crash
-        return tail if tail else pruned, previous_summary, False
+        # Summary failed — keep the full pruned history so nothing is silently lost.
+        # Inject a visible warning so the model knows context may be near the limit.
+        error_marker = {
+            "role": "user",
+            "content": "[Warning: context compaction failed. Conversation history is intact but approaching the context limit.]",
+            "_compaction": True,
+        }
+        return [error_marker] + pruned, previous_summary, False
 
     # Step 4 – build compacted history:
     #   [compaction marker message] + tail

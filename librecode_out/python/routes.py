@@ -65,12 +65,10 @@ def history_to_api_messages(history: list, model_id: str = "") -> list:
             out.append({"role": "user", "content": turn.get("content", "")})
         elif role == "assistant":
             tcs = turn.get("tool_calls")
-            text = turn.get("content") or None
-            msg = {"role": "assistant", "content": text if not tcs else text}
+            text = turn.get("content") or ""
+            msg = {"role": "assistant", "content": text}
             if tcs:
                 msg["tool_calls"] = tcs
-                if not text:
-                    msg["content"] = None
             # DeepSeek V4 (and any future model with NEEDS_REASONING_PASSBACK)
             # requires reasoning_content to be echoed back in every assistant turn
             if _passback:
@@ -466,8 +464,10 @@ def _register(app) -> None:
         if not (last and last.get("role") == "user" and last.get("content") == user_msg):
             history.append({"id": _next_id(chat_id, "u"), "role": "user", "content": user_msg})
 
-        dirs          = state.working_dirs if state.working_dirs else ([state.working_dir] if state.working_dir else [])
-        agent_profile = agents_mod.AGENT_PROFILES.get(agent_name) or (list(agents_mod.AGENT_PROFILES.values())[0] if agents_mod.AGENT_PROFILES else {})
+        dirs = state.working_dirs if state.working_dirs else ([state.working_dir] if state.working_dir else [])
+        if agent_name not in agents_mod.AGENT_PROFILES:
+            agent_name = next(iter(agents_mod.AGENT_PROFILES), "build")
+        agent_profile = agents_mod.AGENT_PROFILES.get(agent_name, {})
         agent_suffix  = agent_profile.get("system_suffix", "")
         active_tools  = get_tools_for_agent(agent_name)
 
@@ -619,7 +619,7 @@ def _register(app) -> None:
                 tc_list = []
                 for idx in sorted(tool_calls_acc.keys()):
                     tc    = tool_calls_acc[idx]
-                    tc_id = tc["id"] or _next_id(chat_id, "tc")
+                    tc_id = tc["id"] or _next_id(chat_id, f"tc{idx}")
                     tc_list.append({
                         "id":   tc_id,
                         "type": "function",
@@ -636,7 +636,7 @@ def _register(app) -> None:
                 }
                 new_rich_turns.append(rich_asst)
 
-                flat_asst = {"role": "assistant", "content": round_content or None, "tool_calls": tc_list}
+                flat_asst = {"role": "assistant", "content": round_content or "", "tool_calls": tc_list}
                 if needs_reasoning_passback(model):
                     flat_asst["reasoning_content"] = round_reasoning or ""
                 messages.append(flat_asst)

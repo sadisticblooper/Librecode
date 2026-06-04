@@ -66,8 +66,9 @@ def get_prompts_dir() -> str:
     local_prompts = os.path.join(get_librecode_dir(), "prompts")
     try:
         _copy_missing_prompts(_BUNDLED_PROMPTS, local_prompts)
-    except Exception:
-        pass
+    except Exception as e:
+        import sys
+        print(f"[librecode] WARNING: could not copy bundled prompts to {local_prompts}: {e}", file=sys.stderr)
     if (
         os.path.isfile(os.path.join(local_prompts, "system.md"))
         or os.path.isfile(os.path.join(local_prompts, "agents", "index.json"))
