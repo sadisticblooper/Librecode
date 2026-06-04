@@ -39,6 +39,7 @@ import {
     addUserMsgStatic, addUserMsg, addAssistantMsgStatic,
     createTurnWrapper, sealTurn,
     createAssistantShell, sealAssistant,
+    createMsgBar,
     createActivityBar, addActivityBarStatic,
     addThinkingStatic, addToolGroupStatic, addSubagentStatic,
     showStatusBanner, highlightCodeBlocks,
@@ -477,7 +478,7 @@ function renderHistory() {
                 pendingSteps.push({ name: 'spawn_agent', args: { agent_id: ev.agentId, task: ev.task || '', context: ev.context || '' }, result: ev.result ?? null });
             } else if (ev.type === 'assistant') {
                 flushActivity();
-                addAssistantMsgStatic(ev.content, ev.reasoning || null);
+                addAssistantMsgStatic(ev.content, ev.reasoning || null, ev.response_time_ms);
             } else if (ev.type === 'error') {
                 flushActivity();
                 const errDiv = document.createElement('div');
@@ -963,6 +964,7 @@ async function send() {
         setCurrentReader(reader);
         const decoder = new TextDecoder();
         let buf = '';
+        const _replyStartMs = Date.now();
 
         while (true) {
             const { done, value } = await reader.read();
@@ -1107,11 +1109,17 @@ async function send() {
                     }
                     case 'done': {
                         _flushThink(); _flushText(); _flushGroup(); _flushSub();
+                        const _elapsedMs = Date.now() - _replyStartMs;
+                        if (_uiLiveText) _uiLiveText.response_time_ms = _elapsedMs;
                         if (chat) saveChats();
                         if (isActive()) {
                             if (actBar)       { actBar.seal(); actBar = null; }
                             if (assistantDiv) { sealAssistant(assistantDiv, segmentText); assistantDiv = null; }
-                            if (turnDiv)      { sealTurn(turnDiv); turnDiv = null; }
+                            if (turnDiv) {
+                                const _bar = createMsgBar(assistantText, () => window._regenLast && window._regenLast(), _elapsedMs);
+                                turnDiv.appendChild(_bar);
+                                sealTurn(turnDiv); turnDiv = null;
+                            }
                         }
                         break;
                     }

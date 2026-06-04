@@ -1628,3 +1628,45 @@ body { display: flex; }
 :root[data-theme="clay"] #chat { background: #d2c4bc; }
 :root[data-theme="clay"] .user-inner { background: #c4b4aa; border-color: #ac9e94; }
 :root[data-theme="clay"] #input { background: none; }
+
+/* ── Message action bar ──────────────────────────────────────────────── */
+.msg-bar {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    margin-top: 6px;
+    opacity: 0;
+    transition: opacity .15s ease;
+}
+.msg.assistant:hover .msg-bar,
+.msg.assistant:focus-within .msg-bar {
+    opacity: 1;
+}
+.msg-bar-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 6px;
+    border: none;
+    background: transparent;
+    color: var(--text-dim);
+    cursor: pointer;
+    transition: background .12s, color .12s;
+    flex-shrink: 0;
+}
+.msg-bar-btn:hover {
+    background: var(--surface2);
+    color: var(--text);
+}
+.msg-bar-btn-done {
+    color: var(--green, #20a060) !important;
+}
+.msg-bar-time {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-left: 4px;
+    letter-spacing: .01em;
+    user-select: none;
+}

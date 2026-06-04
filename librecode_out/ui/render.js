@@ -339,7 +339,7 @@ export function addUserMsg(content) {
     forceScrollBottom();
 }
 
-export function addAssistantMsgStatic(content, reasoning) {
+export function addAssistantMsgStatic(content, reasoning, responseMs) {
     const div    = document.createElement('div');
     div.className = 'msg assistant';
     if (reasoning) {
@@ -371,6 +371,8 @@ export function addAssistantMsgStatic(content, reasoning) {
         contentDiv.innerHTML = parseMarkdown(content);
         div.appendChild(contentDiv);
     }
+    const _replayBar = createMsgBar(content || '', null, responseMs);
+    div.appendChild(_replayBar);
     chatEl.appendChild(div);
     highlightCodeBlocks(div);
 }
@@ -1102,4 +1104,68 @@ export function showStatusBanner(text, kind = 'info') {
     chatEl.appendChild(el);
     scrollBottom();
     setTimeout(() => el.remove(), 4000);
+}
+
+// ── Message action bar ─────────────────────────────────────────────────
+//  content      – plain text to copy
+//  onRegen      – callback for regenerate button
+//  responseMs   – elapsed ms (optional, shown as "Xs" or "Xms")
+
+export function createMsgBar(content, onRegen, responseMs) {
+    const bar = document.createElement('div');
+    bar.className = 'msg-bar';
+
+    function _fmtTime(ms) {
+        if (ms == null) return null;
+        return ms >= 1000 ? (ms / 1000).toFixed(1).replace(/\.0$/, '') + 's' : ms + 'ms';
+    }
+
+    const copyBtn = document.createElement('button');
+    copyBtn.className = 'msg-bar-btn';
+    copyBtn.title = 'Copy';
+    copyBtn.innerHTML =
+        '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">' +
+        '<rect x="9" y="9" width="13" height="13" rx="2"/>' +
+        '<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>' +
+        '</svg>';
+    copyBtn.addEventListener('click', () => {
+        navigator.clipboard.writeText(content || '').then(() => {
+            copyBtn.classList.add('msg-bar-btn-done');
+            copyBtn.innerHTML =
+                '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">' +
+                '<polyline points="20 6 9 17 4 12"/>' +
+                '</svg>';
+            setTimeout(() => {
+                copyBtn.classList.remove('msg-bar-btn-done');
+                copyBtn.innerHTML =
+                    '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">' +
+                    '<rect x="9" y="9" width="13" height="13" rx="2"/>' +
+                    '<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>' +
+                    '</svg>';
+            }, 1800);
+        });
+    });
+
+    const regenBtn = document.createElement('button');
+    regenBtn.className = 'msg-bar-btn';
+    regenBtn.title = 'Regenerate';
+    regenBtn.innerHTML =
+        '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">' +
+        '<polyline points="1 4 1 10 7 10"/>' +
+        '<path d="M3.51 15a9 9 0 1 0 .49-4.58"/>' +
+        '</svg>';
+    if (onRegen) regenBtn.addEventListener('click', onRegen);
+
+    bar.appendChild(copyBtn);
+    bar.appendChild(regenBtn);
+
+    const t = _fmtTime(responseMs);
+    if (t) {
+        const timeEl = document.createElement('span');
+        timeEl.className = 'msg-bar-time';
+        timeEl.textContent = t;
+        bar.appendChild(timeEl);
+    }
+
+    return bar;
 }
