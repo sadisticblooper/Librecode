@@ -531,9 +531,8 @@ def _register(app) -> None:
             messages       = [system_msg] + build_compacted_messages_for_api(compacted)
             new_rich_turns = []
 
-            # Count input tokens for this round (full context being sent)
             from python.compaction import estimate_messages_tokens as _est
-            token_counts["input"] += _est(messages)
+            _got_real_usage = False
 
             for _round in range(1000):
                 tool_calls_acc  = {}
@@ -585,6 +584,11 @@ def _register(app) -> None:
                         if event.get("arguments"):
                             tc["arguments"] += event["arguments"]
 
+                    elif evtype == "usage":
+                        token_counts["input"]  += event.get("input_tokens", 0)
+                        token_counts["output"] += event.get("output_tokens", 0)
+                        _got_real_usage = True
+
                     elif evtype == "done":
                         pass  # handled below
 
@@ -606,8 +610,9 @@ def _register(app) -> None:
                         "tool_calls":       [],
                     }
                     new_rich_turns.append(rich_asst)
-                    # Count output tokens and emit update
-                    token_counts["output"] += _est(full_content) + _est(full_reasoning)
+                    if not _got_real_usage:
+                        token_counts["input"]  += _est(messages)
+                        token_counts["output"] += _est(full_content) + _est(full_reasoning)
                     yield f"data: {json.dumps({'type': 'token_update', 'input': token_counts['input'], 'output': token_counts['output'], 'total': token_counts['input'] + token_counts['output']})}\n\n"
                     break
 
@@ -712,6 +717,10 @@ def _register(app) -> None:
                             yield f"data: {json.dumps({'type': 'subagent_done', 'key': tc_id, 'agent': args.get('agent_id','build'), 'result': result[:4000]})}\n\n"
                         yield f"data: {json.dumps({'type': 'tool_done', 'name': fn_name, 'tc_id': tc_id, 'result': result[:4000]})}\n\n"
                     elif evt.get("_evt"):
+                        if evt.get("subtype") == "usage":
+                            token_counts["input"]  += evt.get("input_tokens", 0)
+                            token_counts["output"] += evt.get("output_tokens", 0)
+                            _got_real_usage = True
                         yield f"data: {json.dumps({'type': 'subagent_stream', 'key': evt['key'], 'subtype': evt.get('subtype'), 'data': evt.get('data'), 'name': evt.get('name'), 'args': evt.get('args'), 'tc_id': evt.get('tc_id'), 'result': evt.get('result','')[:500] if evt.get('result') else None})}\n\n"
 
                 for tc in tc_list:

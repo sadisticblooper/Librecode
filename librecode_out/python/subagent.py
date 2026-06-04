@@ -208,6 +208,8 @@ def run_subagent_streaming(
                 _emit({"subtype": "text", "data": event["text"]})
             elif evtype == "thinking":
                 _emit({"subtype": "thinking", "data": event["text"]})
+            elif evtype == "usage":
+                _emit({"subtype": "usage", "input_tokens": event.get("input_tokens", 0), "output_tokens": event.get("output_tokens", 0)})
             elif evtype == "tool_delta":
                 idx = event.get("index", 0)
                 if idx not in tool_calls_acc:
