@@ -52,7 +52,7 @@ public class MainActivity extends Activity {
     private static final String FLASK_URL = "http://localhost:" + FLASK_PORT;
     private static final int MIN_LOADING_MS = 1000;
     private static final int POLL_INTERVAL_MS = 100;
-    private static final int POLL_TIMEOUT_MS = 15000;
+    private static final int POLL_TIMEOUT_MS = 60000;
     private static final int REQUEST_FOLDER_PICKER = 100;
     private static final int REQUEST_OVERLAY_PERMISSION = 101;
 
@@ -311,7 +311,12 @@ public class MainActivity extends Activity {
         super.onResume();
         if (returningFromSettings) {
             returningFromSettings = false;
-            mainHandler.postDelayed(() -> webView.loadUrl(FLASK_URL), 500);
+            // Only reload if Flask is already up — otherwise waitForFlaskThenLaunch will handle it
+            new Thread(() -> {
+                if (isPingReachable()) {
+                    mainHandler.postDelayed(() -> webView.loadUrl(FLASK_URL), 500);
+                }
+            }).start();
         }
     }
 
@@ -328,7 +333,7 @@ public class MainActivity extends Activity {
                         Toast.LENGTH_LONG).show());
             }
         });
-        t.setDaemon(true);
+        t.setDaemon(false);
         t.start();
     }
 

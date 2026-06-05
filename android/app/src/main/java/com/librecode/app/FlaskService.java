@@ -80,13 +80,13 @@ public class FlaskService extends Service {
         flaskThread.start();
 
         pollThread = new Thread(() -> {
-            for (int i = 0; i < 120; i++) {
+            for (int i = 0; i < 240; i++) {
                 try {
                     URL url = new URL("http://localhost:5000/ping");
                     HttpURLConnection conn = (HttpURLConnection) url.openConnection();
                     conn.setRequestMethod("GET");
-                    conn.setConnectTimeout(2000);
-                    conn.setReadTimeout(2000);
+                    conn.setConnectTimeout(1000);
+                    conn.setReadTimeout(1000);
                     BufferedReader reader = new BufferedReader(
                         new InputStreamReader(conn.getInputStream())
                     );
@@ -102,7 +102,7 @@ public class FlaskService extends Service {
                         return;
                     }
                 } catch (Exception e) {
-                    try { Thread.sleep(500); } catch (InterruptedException ignored) {}
+                    try { Thread.sleep(300); } catch (InterruptedException ignored) {}
                 }
             }
         });
