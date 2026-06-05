@@ -462,7 +462,13 @@ def _register(app) -> None:
 
         last = history[-1] if history else None
         if not (last and last.get("role") == "user" and last.get("content") == user_msg):
-            history.append({"id": _next_id(chat_id, "u"), "role": "user", "content": user_msg})
+            user_turn = {"id": _next_id(chat_id, "u"), "role": "user", "content": user_msg}
+            history.append(user_turn)
+            # Mirror into display history so history_update events always include user messages
+            disp = state.chat_display_histories.setdefault(chat_id, [])
+            disp_last = disp[-1] if disp else None
+            if not (disp_last and disp_last.get("role") == "user" and disp_last.get("content") == user_msg):
+                disp.append(user_turn)
 
         dirs = state.working_dirs if state.working_dirs else ([state.working_dir] if state.working_dir else [])
         if agent_name not in agents_mod.AGENT_PROFILES:
